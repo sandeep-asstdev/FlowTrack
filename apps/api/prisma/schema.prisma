@@ -1,0 +1,405 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  TEAM_LEAD
+  MEMBER
+  GUEST
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum EdgeKind {
+  sequence
+  dependency
+  related
+}
+
+enum ChatScope {
+  node
+  project
+}
+
+model Workspace {
+  id            String       @id @default(uuid())
+  name          String
+  slug          String       @unique
+  logoUrl       String?      @map("logo_url")
+  themeSettings Json?        @default("{}") @map("theme_settings")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  deletedAt     DateTime?    @map("deleted_at")
+
+  memberships   Membership[]
+  projects      Project[]
+  nodeTypes     NodeType[]
+  statusSets    StatusSet[]
+  templates     Template[]
+  nodes         Node[]
+  edges         Edge[]
+  remarks       Remark[]
+  chatThreads   ChatThread[]
+  documents     Document[]
+  auditLogs     AuditLog[]
+  rules         AutomationRule[]
+
+  @@map("workspaces")
+}
+
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  phone        String?      @unique
+  passwordHash String?      @map("password_hash")
+  fullName     String       @map("full_name")
+  avatarUrl    String?      @map("avatar_url")
+  locale       String       @default("en")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  deletedAt    DateTime?    @map("deleted_at")
+
+  memberships  Membership[]
+  ownedNodes   Node[]       @relation("NodeOwner")
+  remarks      Remark[]     @relation("RemarkAuthor")
+  messages     ChatMessage[]
+  reads        ChatRead[]
+  documents    Document[]   @relation("DocumentUploader")
+  auditLogs    AuditLog[]   @relation("AuditActor")
+
+  @@map("users")
+}
+
+model Membership {
+  id                 String    @id @default(uuid())
+  workspaceId        String    @map("workspace_id")
+  userId             String    @map("user_id")
+  role               Role      @default(MEMBER)
+  projectPermissions Json?     @default("{}") @map("project_permissions")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("memberships")
+}
+
+model Project {
+  id          String       @id @default(uuid())
+  workspaceId String       @map("workspace_id")
+  name        String
+  description String?
+  templateId  String?      @map("template_id")
+  status      String       @default("ACTIVE")
+  settings    Json?        @default("{}")
+  startDate   DateTime?    @map("start_date")
+  targetDate  DateTime?    @map("target_date")
+  version     Int          @default(1)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  deletedAt   DateTime?    @map("deleted_at")
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nodes       Node[]
+  edges       Edge[]
+  chatThreads ChatThread[]
+  auditLogs   AuditLog[]
+
+  @@index([workspaceId])
+  @@map("projects")
+}
+
+model NodeType {
+  id                 String            @id @default(uuid())
+  workspaceId        String            @map("workspace_id")
+  key                String
+  name               String
+  icon               String            @default("Box")
+  colour             String            @default("#3b82f6")
+  defaultStatusSetId String?           @map("default_status_set_id")
+  isGroup            Boolean           @default(false) @map("is_group")
+  isSystem           Boolean           @default(false) @map("is_system")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fields             FieldDefinition[]
+  nodes              Node[]
+  statusSet          StatusSet?        @relation(fields: [defaultStatusSetId], references: [id])
+
+  @@unique([workspaceId, key])
+  @@map("node_types")
+}
+
+model FieldDefinition {
+  id           String    @id @default(uuid())
+  nodeTypeId   String    @map("node_type_id")
+  fieldKey     String    @map("field_key")
+  label        String
+  type         String    // text, longtext, number, currency, date, select, multiselect, checkbox, user, file, link
+  required     Boolean   @default(false)
+  options      Json?     @default("{}")
+  displayOrder Int       @default(0) @map("display_order")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  nodeType     NodeType  @relation(fields: [nodeTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([nodeTypeId, fieldKey])
+  @@map("field_definitions")
+}
+
+model StatusSet {
+  id          String      @id @default(uuid())
+  workspaceId String      @map("workspace_id")
+  name        String
+  isDefault   Boolean     @default(false) @map("is_default")
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  statuses    Status[]
+  nodeTypes   NodeType[]
+
+  @@map("status_sets")
+}
+
+model Status {
+  id           String    @id @default(uuid())
+  statusSetId  String    @map("status_set_id")
+  key          String
+  labelI18n    Json      @default("{}") @map("label_i18n")
+  colour       String    @default("#94a3b8")
+  icon         String    @default("Circle")
+  category     String    @default("active") // not_started | active | blocked | done | cancelled
+  displayOrder Int       @default(0) @map("display_order")
+
+  statusSet    StatusSet @relation(fields: [statusSetId], references: [id], onDelete: Cascade)
+  nodes        Node[]
+
+  @@unique([statusSetId, key])
+  @@map("statuses")
+}
+
+model Node {
+  id           String       @id @default(uuid())
+  workspaceId  String       @map("workspace_id")
+  projectId    String       @map("project_id")
+  parentNodeId String?      @map("parent_node_id")
+  nodeTypeId   String       @map("node_type_id")
+  statusId     String?      @map("status_id")
+  ownerId      String?      @map("owner_id")
+  title        String
+  description  String?
+  positionX    Float        @default(0) @map("position_x")
+  positionY    Float        @default(0) @map("position_y")
+  width        Float        @default(280)
+  height       Float        @default(160)
+  priority     Priority     @default(MEDIUM)
+  weight       Float        @default(1.0)
+  startDate    DateTime?    @map("start_date")
+  dueDate      DateTime?    @map("due_date")
+  progressPct  Float        @default(0) @map("progress_pct")
+  customData   Json?        @default("{}") @map("custom_data")
+  collapsed    Boolean      @default(false)
+  version      Int          @default(1)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  deletedAt    DateTime?    @map("deleted_at")
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentNode   Node?        @relation("NodeNesting", fields: [parentNodeId], references: [id], onDelete: Cascade)
+  children     Node[]       @relation("NodeNesting")
+  nodeType     NodeType     @relation(fields: [nodeTypeId], references: [id])
+  status       Status?      @relation(fields: [statusId], references: [id])
+  owner        User?        @relation("NodeOwner", fields: [ownerId], references: [id])
+
+  sourceEdges  Edge[]       @relation("SourceEdges")
+  targetEdges  Edge[]       @relation("TargetEdges")
+  remarks      Remark[]
+  documents    Document[]
+  chatThreads  ChatThread[]
+
+  @@index([projectId, parentNodeId])
+  @@index([ownerId, statusId, dueDate])
+  @@map("nodes")
+}
+
+model Edge {
+  id           String    @id @default(uuid())
+  workspaceId  String    @map("workspace_id")
+  projectId    String    @map("project_id")
+  sourceNodeId String    @map("source_node_id")
+  targetNodeId String    @map("target_node_id")
+  kind         EdgeKind  @default(sequence)
+  label        String?
+  metadata     Json?     @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceNode   Node      @relation("SourceEdges", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode   Node      @relation("TargetEdges", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, sourceNodeId, targetNodeId])
+  @@map("edges")
+}
+
+model Remark {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  nodeId      String    @map("node_id")
+  authorId    String    @map("author_id")
+  body        String?
+  voiceUrl    String?   @map("voice_url")
+  photoUrl    String?   @map("photo_url")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  node        Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  author      User      @relation("RemarkAuthor", fields: [authorId], references: [id])
+
+  @@index([nodeId, createdAt])
+  @@map("remarks")
+}
+
+model ChatThread {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  projectId   String        @map("project_id")
+  scope       ChatScope     @default(node)
+  nodeId      String?       @map("node_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  node        Node?         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  messages    ChatMessage[]
+
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id                 String       @id @default(uuid())
+  threadId           String       @map("thread_id")
+  authorId           String       @map("author_id")
+  body               String
+  attachments        Json?        @default("[]")
+  mentions           Json?        @default("[]")
+  replyToMessageId   String?      @map("reply_to_message_id")
+  editedAt           DateTime?    @map("edited_at")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  deletedAt          DateTime?    @map("deleted_at")
+
+  thread             ChatThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author             User         @relation(fields: [authorId], references: [id])
+  replyTo            ChatMessage? @relation("Replies", fields: [replyToMessageId], references: [id])
+  replies            ChatMessage[]@relation("Replies")
+  reads              ChatRead[]
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatRead {
+  id                String      @id @default(uuid())
+  threadId          String      @map("thread_id")
+  userId            String      @map("user_id")
+  lastReadMessageId String      @map("last_read_message_id")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message           ChatMessage @relation(fields: [lastReadMessageId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@map("chat_reads")
+}
+
+model Document {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  nodeId      String    @map("node_id")
+  uploadedBy  String    @map("uploaded_by")
+  name        String
+  mimeType    String    @map("mime_type")
+  fileSize    BigInt    @map("file_size")
+  storageKey  String    @map("storage_key")
+  version     Int       @default(1)
+  scanStatus  String    @default("CLEAN") @map("scan_status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  node        Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  uploader    User      @relation("DocumentUploader", fields: [uploadedBy], references: [id])
+
+  @@index([nodeId])
+  @@map("documents")
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  projectId   String?   @map("project_id")
+  entityName  String    @map("entity_name")
+  entityId    String    @map("entity_id")
+  actorId     String    @map("actor_id")
+  action      String    // CREATE | UPDATE | DELETE | STATUS_CHANGE
+  oldValues   Json?     @map("old_values")
+  newValues   Json?     @map("new_values")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor       User      @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([workspaceId, entityName, entityId])
+  @@index([projectId, createdAt])
+  @@map("audit_log")
+}
+
+model Template {
+  id          String    @id @default(uuid())
+  workspaceId String?   @map("workspace_id")
+  name        String
+  category    String    @default("General")
+  description String?
+  graphJson   Json      @map("graph_json")
+  isPublic    Boolean   @default(false) @map("is_public")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("templates")
+}
+
+model AutomationRule {
+  id            String    @id @default(uuid())
+  workspaceId   String    @map("workspace_id")
+  projectId     String?   @map("project_id")
+  trigger       String    // status_changed, due_soon, overdue, node_created
+  conditions    Json?     @default("{}")
+  action        String    // notify, change_status, call_webhook
+  actionPayload Json?     @default("{}") @map("action_payload")
+  enabled       Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("automation_rules")
+}

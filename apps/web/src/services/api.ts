@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3001/api/v1';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api/v1';
 
 export class ApiClient {
   private static token: string | null = localStorage.getItem('flowtrack_token');

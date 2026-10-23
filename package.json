@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "npm run dev:web",
-    "dev:api": "pnpm --filter @flowtrack/api start:dev",
+    "dev:all": "pnpm --parallel --filter @flowtrack/api --filter @flowtrack/web dev",
+    "dev:api": "pnpm --filter @flowtrack/api dev",
     "dev:web": "pnpm --filter @flowtrack/web dev",
     "build:shared": "pnpm --filter @flowtrack/shared build",
     "build": "pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api build && pnpm --filter @flowtrack/web build",

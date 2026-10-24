@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
+import { DynamicCustomFieldsForm } from '../custom-fields/DynamicCustomFieldsForm';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
 import {
   X,
@@ -90,6 +91,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [ownerId, setOwnerId] = useState('');
+  const [reviewerId, setReviewerId] = useState('');
   const [workspaceMembers, setWorkspaceMembers] = useState<any[]>([]);
   const [customData, setCustomData] = useState<Record<string, any>>({});
 
@@ -107,6 +109,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   // Documents state
   const [documents, setDocuments] = useState<any[]>([]);
+  const [docCategory, setDocCategory] = useState<'evidence' | 'deliverable' | 'specification' | 'contract' | 'general'>('evidence');
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<any | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -186,6 +189,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       setStartDate(toDateTimeLocal(data.startDate));
       setDueDate(toDateTimeLocal(data.dueDate));
       setOwnerId(data.ownerId || '');
+      setReviewerId(data.reviewerId || '');
       setCustomData(data.customData || {});
       setDocuments(data.documents || []);
     } catch (e) {
@@ -291,8 +295,14 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   const countdown = calculateTimeCountdown(node.dueDate, node.status?.category);
 
-  const handleSaveDetails = async () => {
+  const handleSaveDetails = async (explicitDueDate?: string, explicitCustom?: Record<string, any>) => {
+    if (!node) return;
     try {
+      const activeDue = explicitDueDate !== undefined ? explicitDueDate : dueDate;
+      const parsedStart = startDate && !isNaN(new Date(startDate).getTime()) ? new Date(startDate).toISOString() : null;
+      const parsedDue = activeDue && !isNaN(new Date(activeDue).getTime()) ? new Date(activeDue).toISOString() : null;
+      const activeCustom = explicitCustom !== undefined ? explicitCustom : customData;
+
       await ApiClient.updateNode(node.id, {
         title,
         description,
@@ -300,10 +310,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         statusId: statusId || undefined,
         priority: priority as any,
         weight: Number(weight),
-        startDate: startDate ? new Date(startDate).toISOString() : null,
-        dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+        startDate: parsedStart,
+        dueDate: parsedDue,
         ownerId: ownerId || null,
-        customData,
+        reviewerId: reviewerId || null,
+        customData: activeCustom,
         version: node.version,
       });
       onNodeUpdated();
@@ -457,32 +468,23 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   const handleManagerApprove = async () => {
-    if (!isManager) return;
     try {
       setApproving(true);
+      await ApiClient.approveTask(node.id, {
+        decision: 'approved',
+        feedback: approvalNote || 'Plan & Deliverables verified and approved by Reviewer.',
+      });
+
       const doneStatus = node.nodeType?.statusSet?.statuses?.find(
         (s: any) => s.category === 'done' || s.key === 'done'
       );
-
-      const reviewData = {
-        status: 'APPROVED',
-        reaction: 'thumbs_up',
-        note: approvalNote || 'Plan & Deliverables verified and approved by Manager.',
-        reviewer: user?.fullName || 'Manager',
-        reviewedAt: new Date().toISOString(),
-      };
-
-      await ApiClient.updateNode(node.id, {
-        statusId: doneStatus ? doneStatus.id : undefined,
-        progressPct: 100,
-        isManagerApproval: true,
-        approvalNote: approvalNote || 'Plan & Deliverables verified and approved by Manager.',
-        customData: {
-          ...customData,
-          managerReview: reviewData,
-        },
-        version: node.version,
-      });
+      if (doneStatus && node.statusId !== doneStatus.id) {
+        await ApiClient.updateNode(node.id, {
+          statusId: doneStatus.id,
+          progressPct: 100,
+          version: node.version + 1,
+        }).catch(() => null);
+      }
 
       onNodeUpdated();
       await loadNode(node.id);
@@ -495,35 +497,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   const handleManagerRework = async () => {
-    if (!isManager) return;
     try {
       setApproving(true);
-      const waitingStatus =
-        node.nodeType?.statusSet?.statuses?.find(
-          (s: any) => s.category === 'blocked' || s.key === 'waiting'
-        ) || node.nodeType?.statusSet?.statuses?.find((s: any) => s.key === 'waiting');
-
-      const reviewData = {
-        status: 'REWORK_REQUESTED',
-        reaction: 'thumbs_down',
-        note: approvalNote || 'Manager review requested rework on deliverables.',
-        reviewer: user?.fullName || 'Manager',
-        reviewedAt: new Date().toISOString(),
-      };
-
-      await ApiClient.updateNode(node.id, {
-        statusId: waitingStatus ? waitingStatus.id : undefined,
-        customData: {
-          ...customData,
-          managerReview: reviewData,
-        },
-        version: node.version,
-      });
-
-      await ApiClient.addRemark(node.id, {
-        body: `👎 Manager Review: Rework Requested by ${user?.fullName || 'Manager'}.\nFeedback: ${
-          approvalNote || 'Deliverables require adjustments.'
-        }`,
+      await ApiClient.approveTask(node.id, {
+        decision: 'rejected',
+        feedback: approvalNote || 'Review requested rework on deliverables.',
       });
 
       onNodeUpdated();
@@ -661,16 +639,40 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           name: file.name,
           mimeType: file.type || 'application/octet-stream',
           fileSize: file.size,
+          category: docCategory,
           storageKey: dataUrl,
         });
         await loadNode(node.id);
         onNodeUpdated();
       };
       reader.readAsDataURL(file);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to upload document', err);
+      alert(err.message || 'Failed to upload document');
     } finally {
       setUploadingDoc(false);
+    }
+  };
+
+  const handleVerifyEvidence = async (docId: string, decision: 'APPROVED' | 'REJECTED') => {
+    const feedback = prompt(
+      decision === 'APPROVED'
+        ? 'Enter verification approval note (optional):'
+        : 'Enter required rework feedback for this evidence deliverable:'
+    );
+    if (decision === 'REJECTED' && !feedback) {
+      alert('Rework feedback is required when requesting changes.');
+      return;
+    }
+    try {
+      await ApiClient.verifyEvidence(docId, {
+        decision,
+        feedback: feedback || 'Evidence inspected and verified by reviewer.',
+      });
+      await loadNode(node.id);
+      onNodeUpdated();
+    } catch (err: any) {
+      alert(err.message || 'Failed to verify evidence');
     }
   };
 
@@ -1188,6 +1190,39 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     })}
                   </select>
 
+                  {/* Designated Reviewer / Approver Selection */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Designated Reviewer / Approver</span>
+                    </label>
+                    <select
+                      value={reviewerId}
+                      onChange={async (e) => {
+                        const newRevId = e.target.value;
+                        setReviewerId(newRevId);
+                        await ApiClient.updateNode(node.id, {
+                          reviewerId: newRevId || null,
+                          version: node.version,
+                        });
+                        onNodeUpdated();
+                        await loadNode(node.id);
+                      }}
+                      className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="">-- No specific reviewer (Any Manager can sign off) --</option>
+                      {workspaceMembers.map((m: any) => {
+                        const u = m.user || {};
+                        const uid = u.id || m.userId;
+                        return (
+                          <option key={m.id || uid} value={uid}>
+                            {u.fullName || u.email || 'Team Member'} ({m.role || 'MEMBER'})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
                   {/* Presence Status Toggle (Live vs Offline) */}
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
@@ -1299,13 +1334,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     value={dueDate}
                     onChange={(e) => {
                       const newVal = e.target.value;
-                      if (node.dueDate && newVal !== dueDate) {
-                        setPendingDueDate(newVal);
-                        setIsDeadlineModalOpen(true);
-                      } else {
-                        setDueDate(newVal);
-                        handleSaveDetails();
-                      }
+                      setDueDate(newVal);
+                      handleSaveDetails(newVal);
+                    }}
+                    onBlur={(e) => {
+                      handleSaveDetails(e.target.value);
                     }}
                     className={`w-full p-2 text-xs rounded-xl border ${
                       countdown.isOverdue
@@ -1384,31 +1417,28 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             </div>
 
             {/* Dynamic Custom Fields Schema */}
-            {node.nodeType?.fields?.length > 0 && (
+            {((node.applicableFields && node.applicableFields.length > 0) || (node.nodeType?.fields && node.nodeType.fields.length > 0)) && (
               <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Custom Properties ({node.nodeType.name})
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Custom Properties & Industry Metadata ({node.nodeType?.name || 'Task'})</span>
                 </span>
-                {node.nodeType.fields.map((field: any) => (
-                  <div key={field.id}>
-                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                      {field.label} {field.required && <span className="text-rose-500">*</span>}
-                    </label>
-                    <input
-                      type={field.type === 'number' || field.type === 'currency' ? 'number' : 'text'}
-                      value={customData[field.fieldKey] || ''}
-                      onChange={(e) =>
-                        setCustomData((prev) => ({
-                          ...prev,
-                          [field.fieldKey]: e.target.value,
-                        }))
-                      }
-                      onBlur={handleSaveDetails}
-                      placeholder={`Enter ${field.label}...`}
-                      className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                ))}
+                <DynamicCustomFieldsForm
+                  fields={node.applicableFields || node.nodeType?.fields || []}
+                  values={customData}
+                  onChange={(newCustom) => {
+                    setCustomData(newCustom);
+                    handleSaveDetails(undefined, newCustom);
+                  }}
+                  currentUserRole={currentRole}
+                  isReadOnly={isConfidentialHidden}
+                  members={workspaceMembers.map((m: any) => ({
+                    id: m.userId || m.user?.id || m.id,
+                    name: m.user?.fullName || m.user?.email || 'Member',
+                    email: m.user?.email,
+                    role: m.role,
+                  }))}
+                />
               </div>
             )}
 
@@ -1670,9 +1700,38 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           </div>
         )}
 
-        {/* TAB 3: DOCUMENTS (Drag-Drop, S3/MinIO, Inline Preview) */}
+        {/* TAB 3: DOCUMENTS (Deliverables, Evidence, Versioning, Verification) */}
         {activeTab === 'docs' && (
           <div className="space-y-4">
+            {/* Category Selector Pills */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                Upload Document Category:
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[
+                  { id: 'evidence', label: 'Deliverable Evidence', icon: '📑', color: 'border-indigo-300 dark:border-indigo-800' },
+                  { id: 'specification', label: 'Technical Spec', icon: '📋', color: 'border-purple-300 dark:border-purple-800' },
+                  { id: 'contract', label: 'Contract / Legal', icon: '📄', color: 'border-amber-300 dark:border-amber-800' },
+                  { id: 'general', label: 'General File', icon: '📎', color: 'border-slate-300 dark:border-slate-700' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setDocCategory(cat.id as any)}
+                    className={`p-2 rounded-xl text-left border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                      docCategory === cat.id
+                        ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-300 shadow-xs'
+                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{cat.icon}</span>
+                    <span className="truncate">{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Drag & Drop Upload Zone */}
             <div
               onDragOver={(e) => e.preventDefault()}
@@ -1686,10 +1745,10 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             >
               <UploadCloud className="w-8 h-8 text-blue-500 mx-auto mb-2" />
               <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                {uploadingDoc ? 'Uploading document...' : 'Click or drag files here to upload'}
+                {uploadingDoc ? 'Uploading document...' : `Upload ${docCategory.toUpperCase()} document`}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                Supports PDF, DWG, DOCX, PNG, JPG (Versioned in S3/MinIO)
+                Drop files or click to browse (Max 25MB • Automated Versioning &amp; Evidence Audit)
               </p>
               <input
                 type="file"
@@ -1705,23 +1764,25 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             {/* Documents List */}
             <div className="space-y-2">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Attached Files ({documents.length})
+                Attached Files &amp; Evidence Deliverables ({documents.length})
               </span>
 
               {documents.length === 0 ? (
                 <div className="text-center py-6 text-slate-400 text-xs">
-                  No documents attached yet. Drop a blueprint, contract, or survey above!
+                  No documents attached yet. Drop blueprint, report evidence, or specification above!
                 </div>
               ) : (
                 documents.map((doc: any) => {
                   const isDocLocked =
                     (customData?.lockedDocIds || []).includes(doc.id) || isNodeLocked;
                   const isRestrictedForMember = isDocLocked && !permissions.canViewConfidential;
+                  const isEvidence = doc.category === 'evidence' || doc.category === 'deliverable';
+                  const verification = doc.metadata?.evidenceVerification;
 
                   return (
                     <div
                       key={doc.id}
-                      className={`p-3.5 rounded-xl border flex items-center justify-between transition-colors ${
+                      className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
                         isDocLocked
                           ? 'border-amber-300 dark:border-amber-800/80 bg-amber-50/20 dark:bg-amber-950/20'
                           : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 hover:border-blue-300'
@@ -1729,36 +1790,85 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
                             isDocLocked
                               ? 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400'
+                              : isEvidence
+                              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
                               : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
                           }`}
                         >
-                          {isDocLocked ? <Lock className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                          {isDocLocked ? <Lock className="w-4 h-4" /> : isEvidence ? <FileCheck className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
                         </div>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
                               {doc.name}
                             </span>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                              v{doc.version}
+                            </span>
+                            {isEvidence && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                                Deliverable Evidence
+                              </span>
+                            )}
                             {isDocLocked && (
-                              <span className="text-[9px] font-extrabold px-1.5 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 rounded border border-amber-300 dark:border-amber-800">
+                              <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 rounded border border-amber-300 dark:border-amber-800">
                                 Confidential
                               </span>
                             )}
                           </div>
                           <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span className="font-bold text-blue-500">v{doc.version}</span>
-                            <span>•</span>
                             <span>{Math.round(Number(doc.fileSize) / 1024) || 120} KB</span>
                             <span>•</span>
-                            <span>{doc.uploader?.fullName || 'Manager'}</span>
+                            <span>Uploaded by {doc.uploader?.fullName || 'Collaborator'}</span>
                           </div>
+
+                          {/* Evidence Verification Details */}
+                          {verification && (
+                            <div className="mt-1 text-[11px]">
+                              {verification.status === 'APPROVED' ? (
+                                <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Verified deliverable {verification.feedback ? `("${verification.feedback}")` : ''}</span>
+                                </span>
+                              ) : (
+                                <span className="font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                  <AlertTriangle className="w-3.5 h-3.5" />
+                                  <span>Rework requested: &quot;{verification.feedback}&quot;</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0 justify-end">
+                        {/* Evidence verification review actions for designated reviewer or manager */}
+                        {isEvidence && (isManager || node.reviewerId === user?.id) && (
+                          <div className="flex items-center gap-1 mr-1">
+                            <button
+                              type="button"
+                              onClick={() => handleVerifyEvidence(doc.id, 'APPROVED')}
+                              className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 shadow-xs transition-colors"
+                              title="Verify & Approve this evidence deliverable"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Verify</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleVerifyEvidence(doc.id, 'REJECTED')}
+                              className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1 shadow-xs transition-colors"
+                              title="Request rework on this evidence deliverable"
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>Rework</span>
+                            </button>
+                          </div>
+                        )}
+
                         {isRestrictedForMember ? (
                           <span
                             className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1"
@@ -1769,7 +1879,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                           </span>
                         ) : (
                           <>
-                            {/* Toggle Confidential Lock Button (Manager / Super Admin) */}
+                            {/* Toggle Confidential Lock Button */}
                             {permissions.canToggleLock && (
                               <button
                                 type="button"
@@ -1794,9 +1904,9 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                               <Eye className="w-4 h-4" />
                             </button>
 
-                            {/* Download button */}
+                            {/* Secure Download button */}
                             <a
-                              href={doc.storageKey?.startsWith('data:') ? doc.storageKey : '#'}
+                              href={doc.storageKey?.startsWith('data:') ? doc.storageKey : ApiClient.getDocumentDownloadUrl(node.id, doc.id)}
                               download={doc.name}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
                               title="Download Document"

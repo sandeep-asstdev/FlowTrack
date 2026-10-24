@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ApiClient } from '../../services/api';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
+import { DynamicCustomFieldsForm } from '../custom-fields/DynamicCustomFieldsForm';
 import {
   X,
   Clock,
@@ -62,9 +63,15 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [ownerId, setOwnerId] = useState('');
+  const [reviewerId, setReviewerId] = useState('');
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [likes, setLikes] = useState<{ count: number; users: string[] }>({ count: 0, users: [] });
+
+  // Blocker reporting
+  const [isReportingBlocker, setIsReportingBlocker] = useState(false);
+  const [blockerReason, setBlockerReason] = useState('');
+  const [submittingBlocker, setSubmittingBlocker] = useState(false);
 
   // Workspace team members
   const [members, setMembers] = useState<any[]>([]);
@@ -121,6 +128,7 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
       setStartDate(formatToLocalInput(data.startDate));
       setDueDate(formatToLocalInput(data.dueDate));
       setOwnerId(data.ownerId || '');
+      setReviewerId(data.reviewerId || '');
       setCustomData(data.customData || {});
       setCollaboratorIds(data.customData?.collaboratorIds || []);
       setLikes(data.customData?.likes || { count: 0, users: [] });
@@ -174,9 +182,13 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
   const countdown = calculateTimeCountdown(node.dueDate, node.status?.category);
 
   // Save changes handler
-  const handleSaveFields = async (customPatch: Record<string, any> = {}) => {
+  const handleSaveFields = async (customPatch: Record<string, any> = {}, explicitDueDate?: string) => {
     try {
       setSaving(true);
+      const activeDue = explicitDueDate !== undefined ? explicitDueDate : dueDate;
+      const parsedStart = startDate && !isNaN(new Date(startDate).getTime()) ? new Date(startDate).toISOString() : null;
+      const parsedDue = activeDue && !isNaN(new Date(activeDue).getTime()) ? new Date(activeDue).toISOString() : null;
+
       const payload = {
         title,
         description,
@@ -184,9 +196,10 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
         priority: priority as any,
         weight: Number(weight),
         progressPct: Number(progressPct),
-        startDate: startDate ? new Date(startDate).toISOString() : null,
-        dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+        startDate: parsedStart,
+        dueDate: parsedDue,
         ownerId: ownerId || null,
+        reviewerId: reviewerId || null,
         customData: {
           ...customData,
           collaboratorIds,
@@ -206,15 +219,26 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
     }
   };
 
-  // Due Date change interceptor (requires justification reason if changing an existing date)
-  const handleDueDateChange = (newVal: string) => {
-    if (node.dueDate && newVal !== dueDate) {
-      setPendingDueDate(newVal);
-      setIsDeadlineModalOpen(true);
-    } else {
-      setDueDate(newVal);
-      handleSaveFields({ pendingDueDate: newVal });
+  const handleReportBlocker = async () => {
+    if (!blockerReason.trim()) return;
+    try {
+      setSubmittingBlocker(true);
+      await ApiClient.reportBlocker(node.id, { reason: blockerReason.trim() });
+      setBlockerReason('');
+      setIsReportingBlocker(false);
+      onNodeUpdated();
+      await loadNode(node.id);
+    } catch (e) {
+      console.error('Failed to report blocker', e);
+    } finally {
+      setSubmittingBlocker(false);
     }
+  };
+
+  // Due Date change handler
+  const handleDueDateChange = (newVal: string) => {
+    setDueDate(newVal);
+    handleSaveFields({}, newVal);
   };
 
   const handleConfirmDeadlineExtension = async (
@@ -360,37 +384,25 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
     }
   };
 
-  // Manager Approval Handler (Turns task Green, sets status Done)
+  // Manager & Reviewer Approval Handler
   const handleManagerApprove = async () => {
-    if (!isManager) return;
     try {
       setApproving(true);
-      // Find the 'done' status id from nodeType's statusSet if available
+      await ApiClient.approveTask(node.id, {
+        decision: 'approved',
+        feedback: approvalNote || 'Plan & Deliverables verified and approved by Reviewer.',
+      });
+
       const doneStatus = node.nodeType?.statusSet?.statuses?.find(
         (s: any) => s.category === 'done' || s.key === 'done'
       );
-
-      const reviewData = {
-        status: 'APPROVED',
-        reaction: 'thumbs_up',
-        note: approvalNote || 'Plan & Deliverables verified and approved by Manager.',
-        reviewer: user?.fullName || 'Manager',
-        reviewedAt: new Date().toISOString(),
-      };
-
-      await ApiClient.updateNode(node.id, {
-        statusId: doneStatus ? doneStatus.id : undefined,
-        progressPct: 100,
-        isManagerApproval: true,
-        approvalNote: approvalNote || 'Plan & Deliverables verified and approved by Manager.',
-        customData: {
-          ...customData,
-          collaboratorIds,
-          likes,
-          managerReview: reviewData,
-        },
-        version: node.version,
-      });
+      if (doneStatus && node.statusId !== doneStatus.id) {
+        await ApiClient.updateNode(node.id, {
+          statusId: doneStatus.id,
+          progressPct: 100,
+          version: node.version + 1,
+        }).catch(() => null);
+      }
 
       onNodeUpdated();
       await loadNode(node.id);
@@ -402,39 +414,13 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
     }
   };
 
-  // Manager Rework Handler (Turns task Amber/Red, sets status Waiting/Blocked)
+  // Manager & Reviewer Rework Handler
   const handleManagerRework = async () => {
-    if (!isManager) return;
     try {
       setApproving(true);
-      const waitingStatus =
-        node.nodeType?.statusSet?.statuses?.find(
-          (s: any) => s.category === 'blocked' || s.key === 'waiting'
-        ) || node.nodeType?.statusSet?.statuses?.find((s: any) => s.key === 'waiting');
-
-      const reviewData = {
-        status: 'REWORK_REQUESTED',
-        reaction: 'thumbs_down',
-        note: approvalNote || 'Manager review requested rework on deliverables.',
-        reviewer: user?.fullName || 'Manager',
-        reviewedAt: new Date().toISOString(),
-      };
-
-      await ApiClient.updateNode(node.id, {
-        statusId: waitingStatus ? waitingStatus.id : undefined,
-        customData: {
-          ...customData,
-          collaboratorIds,
-          likes,
-          managerReview: reviewData,
-        },
-        version: node.version,
-      });
-
-      await ApiClient.addRemark(node.id, {
-        body: `👎 Manager Review: Rework Requested by ${user?.fullName || 'Manager'}.\nFeedback: ${
-          approvalNote || 'Deliverables require adjustments.'
-        }`,
+      await ApiClient.approveTask(node.id, {
+        decision: 'rejected',
+        feedback: approvalNote || 'Review requested rework on deliverables.',
       });
 
       onNodeUpdated();
@@ -769,33 +755,30 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
 
 
                 {/* Dynamic Custom Fields from Schema */}
-                {node.nodeType?.fields?.length > 0 && (
+                {((node.applicableFields && node.applicableFields.length > 0) || (node.nodeType?.fields && node.nodeType.fields.length > 0)) && (
                   <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                      Custom Properties ({node.nodeType.name})
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      {node.nodeType.fields.map((f: any) => (
-                        <div key={f.id}>
-                          <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                            {f.label} {f.required && <span className="text-rose-500">*</span>}
-                          </label>
-                          <input
-                            type={f.type === 'number' || f.type === 'currency' ? 'number' : 'text'}
-                            value={customData[f.fieldKey] || ''}
-                            onChange={(e) =>
-                              setCustomData((prev) => ({
-                                ...prev,
-                                [f.fieldKey]: e.target.value,
-                              }))
-                            }
-                            onBlur={() => handleSaveFields()}
-                            placeholder={`Enter ${f.label}...`}
-                            className="w-full p-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                          />
-                        </div>
-                      ))}
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Custom Properties & Industry Fields ({node.nodeType?.name || 'Task'})</span>
+                      </h4>
                     </div>
+                    <DynamicCustomFieldsForm
+                      fields={node.applicableFields || node.nodeType?.fields || []}
+                      values={customData}
+                      onChange={(newCustom) => {
+                        setCustomData(newCustom);
+                        handleSaveFields(newCustom);
+                      }}
+                      currentUserRole={currentRole}
+                      isReadOnly={isConfidentialHidden}
+                      members={members.map((m: any) => ({
+                        id: m.userId || m.user?.id || m.id,
+                        name: m.user?.fullName || m.user?.email || 'Member',
+                        email: m.user?.email,
+                        role: m.role,
+                      }))}
+                    />
                   </div>
                 )}
               </div>
@@ -839,6 +822,7 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
                       type="datetime-local"
                       value={dueDate}
                       onChange={(e) => handleDueDateChange(e.target.value)}
+                      onBlur={(e) => handleDueDateChange(e.target.value)}
                       className={`w-full p-2 text-xs rounded-xl border ${
                         countdown.isOverdue
                           ? 'border-rose-400 ring-2 ring-rose-500/20'
@@ -898,8 +882,140 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Workflow Gates & Readiness Card */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                      Workflow Completion Gates & Readiness
+                    </span>
+                  </div>
+                  <span
+                    className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase ${
+                      node.derivedWorkflow?.canMarkDone
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                    }`}
+                  >
+                    {node.derivedWorkflow?.canMarkDone ? '✓ Ready for Completion' : '⚠️ Blockers Active'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1 text-xs">
+                  {/* Gate 1: Prerequisite Dependencies */}
+                  <div className={`p-2.5 rounded-xl border flex items-start gap-2 ${
+                    node.blockingPrerequisites && node.blockingPrerequisites.length > 0
+                      ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 text-rose-800 dark:text-rose-300'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    {node.blockingPrerequisites && node.blockingPrerequisites.length > 0 ? (
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="font-bold">Prerequisites</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {node.blockingPrerequisites && node.blockingPrerequisites.length > 0
+                          ? `Blocked by: ${node.blockingPrerequisites.map((p: any) => p.title).join(', ')}`
+                          : 'All incoming dependencies satisfied'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gate 2: Child Tasks Rollup */}
+                  <div className={`p-2.5 rounded-xl border flex items-start gap-2 ${
+                    (node.children || []).filter((c: any) => c.status?.category !== 'done' && c.status?.category !== 'cancelled').length > 0
+                      ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 text-amber-800 dark:text-amber-300'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    {(node.children || []).filter((c: any) => c.status?.category !== 'done' && c.status?.category !== 'cancelled').length > 0 ? (
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="font-bold">Child Tasks</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {(node.children || []).length === 0
+                          ? 'No child subtasks'
+                          : (node.children || []).filter((c: any) => c.status?.category !== 'done' && c.status?.category !== 'cancelled').length > 0
+                          ? `${(node.children || []).filter((c: any) => c.status?.category !== 'done' && c.status?.category !== 'cancelled').length} child task(s) still open`
+                          : 'All child subtasks complete'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gate 3: Approval Sign-Off Gate */}
+                  <div className={`p-2.5 rounded-xl border flex items-start gap-2 ${
+                    node.approvalStatus === 'approved'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 text-emerald-800 dark:text-emerald-300'
+                      : node.approvalStatus === 'pending' || node.isMilestone
+                      ? 'bg-purple-50 dark:bg-purple-950/30 border-purple-200 text-purple-800 dark:text-purple-300'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-purple-600" />
+                    <div>
+                      <div className="font-bold">Reviewer Gate</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {node.approvalStatus === 'approved'
+                          ? 'Reviewer verified and approved'
+                          : node.approvalStatus === 'rejected'
+                          ? 'Rework requested by reviewer'
+                          : node.approvalStatus === 'pending'
+                          ? `Pending review by ${node.reviewer?.fullName || 'Reviewer'}`
+                          : 'Sign-off not required'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gate 4: Blocker Reporter Action */}
+                  <div className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-between">
+                    <div>
+                      <div className="font-bold">Blocker Reporting</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {node.status?.category === 'blocked' ? 'Task currently marked as Blocked' : 'Report an active impediment or site delay'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsReportingBlocker(!isReportingBlocker)}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                    >
+                      {isReportingBlocker ? 'Cancel' : 'Report Blocker'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Active Blocker Form */}
+                {isReportingBlocker && (
+                  <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/60 dark:bg-rose-950/30 space-y-2 mt-2">
+                    <label className="text-xs font-bold text-rose-800 dark:text-rose-200 block">
+                      Describe Impediment / Reason Task Is Blocked:
+                    </label>
+                    <input
+                      type="text"
+                      value={blockerReason}
+                      onChange={(e) => setBlockerReason(e.target.value)}
+                      placeholder="e.g. Waiting on government building permit approval or equipment arrival..."
+                      className="w-full p-2 text-xs rounded-lg border border-rose-300 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      disabled={!blockerReason.trim() || submittingBlocker}
+                      onClick={handleReportBlocker}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer"
+                    >
+                      {submittingBlocker ? 'Submitting...' : 'Submit Blocker Report'}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
+
 
           {/* TAB 2: MANAGER APPROVAL & REVIEW WORKFLOW (EXCLUSIVE TO MANAGERS) */}
           {activeTab === 'approval' && (
@@ -973,131 +1089,172 @@ export const NodeViewDetailsModal: React.FC<NodeViewDetailsModalProps> = ({
                   );
                 })()}
 
-                {/* 2. Manager vs Non-Manager Workflow */}
-                {!isManager ? (
-                  <div className="p-4 rounded-xl border bg-slate-50 dark:bg-slate-900 text-left space-y-2.5">
-                    <div className="flex items-center gap-2 font-bold text-xs text-slate-700 dark:text-slate-300">
-                      <ShieldCheck className="w-4 h-4 text-blue-500" />
-                      <span>Manager Review Decision (Read-Only)</span>
-                    </div>
-                    {node.customData?.managerReview ? (
-                      <div
-                        className={`p-3.5 rounded-xl border space-y-1.5 ${
-                          node.customData.managerReview.reaction === 'thumbs_up'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
-                            : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
-                        }`}
-                      >
-                        <div className="font-bold text-xs flex items-center gap-2">
-                          {node.customData.managerReview.reaction === 'thumbs_up' ? (
-                            <>
-                              <ThumbsUp className="w-4 h-4 text-emerald-600 fill-emerald-600" />
-                              <span>Approved by Manager: {node.customData.managerReview.reviewer}</span>
-                            </>
-                          ) : (
-                            <>
-                              <ThumbsDown className="w-4 h-4 text-rose-600 fill-rose-600" />
-                              <span>Rework Requested by Manager: {node.customData.managerReview.reviewer}</span>
-                            </>
-                          )}
+                {/* 2. Reviewer Designation & Responsibility */}
+                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-left space-y-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-purple-600" />
+                      <span>Designated Reviewer / Approver</span>
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200">
+                      Rule 6 Gate
+                    </span>
+                  </div>
+                  <select
+                    value={reviewerId}
+                    onChange={(e) => {
+                      setReviewerId(e.target.value);
+                      handleSaveFields({ reviewerId: e.target.value || null });
+                    }}
+                    className="w-full p-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="">No specific reviewer (Any Manager/Admin can approve)</option>
+                    {members.map((m: any) => (
+                      <option key={m.user?.id} value={m.user?.id}>
+                        {m.user?.fullName} ({m.user?.email}) - {m.role}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Reviewer vs Read-Only Workflow */}
+                {(() => {
+                  const isAssignedReviewer = reviewerId ? reviewerId === user?.id : false;
+                  const canReview = isManager || isAssignedReviewer;
+
+                  if (!canReview) {
+                    return (
+                      <div className="p-4 rounded-xl border bg-slate-50 dark:bg-slate-900 text-left space-y-2.5">
+                        <div className="flex items-center gap-2 font-bold text-xs text-slate-700 dark:text-slate-300">
+                          <ShieldCheck className="w-4 h-4 text-blue-500" />
+                          <span>Review Decision (Read-Only)</span>
                         </div>
-                        {node.customData.managerReview.note && (
-                          <p className="text-xs italic bg-white/60 dark:bg-slate-800/60 p-2 rounded-lg">
-                            "{node.customData.managerReview.note}"
+                        {node.approvalStatus && node.approvalStatus !== 'not_required' ? (
+                          <div
+                            className={`p-3.5 rounded-xl border space-y-1.5 ${
+                              node.approvalStatus === 'approved'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
+                            }`}
+                          >
+                            <div className="font-bold text-xs flex items-center gap-2">
+                              {node.approvalStatus === 'approved' ? (
+                                <>
+                                  <ThumbsUp className="w-4 h-4 text-emerald-600 fill-emerald-600" />
+                                  <span>Approved: {node.reviewer?.fullName || 'Reviewer'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ThumbsDown className="w-4 h-4 text-rose-600 fill-rose-600" />
+                                  <span>Rework Requested: {node.reviewer?.fullName || 'Reviewer'}</span>
+                                </>
+                              )}
+                            </div>
+                            {node.approvalFeedback && (
+                              <p className="text-xs italic bg-white/60 dark:bg-slate-800/60 p-2 rounded-lg">
+                                "{node.approvalFeedback}"
+                              </p>
+                            )}
+                            {node.approvedAt && (
+                              <div className="text-[10px] text-slate-400">
+                                Timestamp: {new Date(node.approvedAt).toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                            ⏳ Pending review by {node.reviewer?.fullName || 'the designated reviewer or project manager'}.
                           </p>
                         )}
-                        <div className="text-[10px] text-slate-400">
-                          Timestamp: {new Date(node.customData.managerReview.reviewedAt).toLocaleString()}
-                        </div>
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-400 p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-                        ⏳ Pending Manager Review. Only workspace managers (e.g. Suresh Sharma) have permission to approve or request rework.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  /* Manager Review Controls (Exclusive to Manager) */
-                  <div className="text-left space-y-3.5 pt-2">
-                    {node.customData?.managerReview && (
-                      <div
-                        className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
-                          node.customData.managerReview.reaction === 'thumbs_up'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
-                            : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 font-bold">
-                          {node.customData.managerReview.reaction === 'thumbs_up' ? (
-                            <>
-                              <ThumbsUp className="w-4 h-4 text-emerald-600" />
-                              <span>Current Status: Approved by {node.customData.managerReview.reviewer}</span>
-                            </>
-                          ) : (
-                            <>
-                              <ThumbsDown className="w-4 h-4 text-rose-600" />
-                              <span>Current Status: Rework Requested by {node.customData.managerReview.reviewer}</span>
-                            </>
+                    );
+                  }
+
+                  return (
+                    <div className="text-left space-y-3.5 pt-2">
+                      {node.approvalStatus && node.approvalStatus !== 'not_required' && (
+                        <div
+                          className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                            node.approvalStatus === 'approved'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
+                              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 font-bold">
+                            {node.approvalStatus === 'approved' ? (
+                              <>
+                                <ThumbsUp className="w-4 h-4 text-emerald-600" />
+                                <span>Current Status: Approved</span>
+                              </>
+                            ) : (
+                              <>
+                                <ThumbsDown className="w-4 h-4 text-rose-600" />
+                                <span>Current Status: Rework Requested</span>
+                              </>
+                            )}
+                          </div>
+                          {node.approvedAt && (
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(node.approvedAt).toLocaleDateString()}
+                            </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-slate-400">
-                          {new Date(node.customData.managerReview.reviewedAt).toLocaleDateString()}
-                        </span>
+                      )}
+
+                      <div>
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
+                          Reviewer Assessment & Feedback Notes
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={approvalNote}
+                          onChange={(e) => setApprovalNote(e.target.value)}
+                          placeholder="e.g. Inspected deliverables, verified specs compliance, site photos confirmed..."
+                          className="w-full p-3 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
                       </div>
-                    )}
 
-                    <div>
-                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                        Manager Review Assessment & Feedback Notes
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={approvalNote}
-                        onChange={(e) => setApprovalNote(e.target.value)}
-                        placeholder="e.g. Inspected deliverables, verified specs compliance, site photos confirmed..."
-                        className="w-full p-3 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
+                      {/* Dual Action Buttons: Thumbs Up (Approve) & Thumbs Down (Rework) */}
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <button
+                          type="button"
+                          disabled={approving || (!ownerId && !node.ownerId)}
+                          onClick={handleManagerApprove}
+                          className="py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                          title="Approve task sign-off gate"
+                        >
+                          <ThumbsUp className="w-4 h-4" />
+                          <span>{approving ? 'Processing...' : '👍 Sign Off (Approve)'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={approving || (!ownerId && !node.ownerId)}
+                          onClick={handleManagerRework}
+                          className="py-3 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                          title="Request rework on task deliverables"
+                        >
+                          <ThumbsDown className="w-4 h-4" />
+                          <span>{approving ? 'Processing...' : '👎 Request Rework'}</span>
+                        </button>
+                      </div>
+
+                      {/* Manager Kudos Like Button */}
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                        <span className="text-xs text-slate-500">Manager Reaction / Kudos:</span>
+                        <button
+                          type="button"
+                          onClick={handleToggleLike}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5 text-blue-600 fill-blue-600" />
+                          <span>Give Kudos ({likes.count || 0})</span>
+                        </button>
+                      </div>
                     </div>
+                  );
+                })()}
 
-                    {/* Dual Action Buttons: Thumbs Up (Approve) & Thumbs Down (Rework) */}
-                    <div className="grid grid-cols-2 gap-3 pt-1">
-                      <button
-                        type="button"
-                        disabled={approving || (!ownerId && !node.ownerId)}
-                        onClick={handleManagerApprove}
-                        className="py-3 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                        title="Approve node and turn Bright Green"
-                      >
-                        <ThumbsUp className="w-4 h-4" />
-                        <span>{approving ? 'Processing...' : '👍 Thumbs Up (Approve & Green)'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={approving || (!ownerId && !node.ownerId)}
-                        onClick={handleManagerRework}
-                        className="py-3 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                        title="Request rework and turn Amber/Red"
-                      >
-                        <ThumbsDown className="w-4 h-4" />
-                        <span>{approving ? 'Processing...' : '👎 Thumbs Down (Rework)'}</span>
-                      </button>
-                    </div>
-
-                    {/* Manager Kudos Like Button */}
-                    <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                      <span className="text-xs text-slate-500">Manager Reaction / Kudos:</span>
-                      <button
-                        type="button"
-                        onClick={handleToggleLike}
-                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        <ThumbsUp className="w-3.5 h-3.5 text-blue-600 fill-blue-600" />
-                        <span>Give Kudos ({likes.count || 0})</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 {/* Deadline Extension Request Section */}
                 {customData?.deadlineExtension && (

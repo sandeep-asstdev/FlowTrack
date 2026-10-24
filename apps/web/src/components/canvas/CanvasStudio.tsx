@@ -21,8 +21,12 @@ import { NodeDetailDrawer } from './NodeDetailDrawer';
 import { NodeViewDetailsModal } from './NodeViewDetailsModal';
 import { ProjectReportModal } from './ProjectReportModal';
 import { ProjectTeamModal } from './ProjectTeamModal';
+import { ProjectActivityModal } from './ProjectActivityModal';
+import { FieldConfigurationModal } from '../custom-fields/FieldConfigurationModal';
 import { ApiClient } from '../../services/api';
+import { socketService } from '../../services/socket';
 import { getLayoutedElements } from '../../utils/layout';
+import { validateDependencyEdge } from '@flowtrack/shared';
 import {
   ArrowLeft,
   Plus,
@@ -48,6 +52,11 @@ import {
   ShieldCheck,
   Lock,
   FolderKanban,
+  Flag,
+  AlertCircle,
+  RefreshCw,
+  AlertTriangle,
+  History,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
@@ -73,6 +82,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [savedStatus, setSavedStatus] = useState<'saved' | 'saving'>('saved');
   const [nodeTypesList, setNodeTypesList] = useState<any[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked' | 'done'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'stage' | 'task' | 'milestone' | 'approval'>('all');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+  const [layoutDirection, setLayoutDirection] = useState<'LR' | 'TB'>('LR');
+
+  // Safe Delete Confirmation Modal State
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    nodeId: string;
+    title: string;
+    childCount: number;
+    edgeCount: number;
+  } | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -96,6 +121,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   // Project Report & Team Modals
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [isFieldConfigModalOpen, setIsFieldConfigModalOpen] = useState(false);
+  const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
 
   // Quick-Add Popup Menu State (n8n signature UX)
   const [quickAddMenu, setQuickAddMenu] = useState<{
@@ -136,7 +163,28 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const nodeTypes = useMemo(() => ({ flowNode: FlowTrackNode }), []);
   const edgeTypes = useMemo(() => ({ customEdge: FlowTrackEdge }), []);
 
-  // Node deletion handler
+  // Safe node deletion confirmation handler
+  const promptDeleteConfirmation = useCallback(
+    (nodeId: string) => {
+      if (!permissions.canEditProject) {
+        showToast('You do not have permission to delete tasks');
+        return;
+      }
+      const target = nodesRef.current.find((n) => n.id === nodeId);
+      if (!target) return;
+      const childCount = (target.data as any)?.childCount || 0;
+      const edgeCount = edges.filter((e) => e.source === nodeId || e.target === nodeId).length;
+      setDeleteConfirmation({
+        nodeId,
+        title: (target.data as any)?.title || 'Task',
+        childCount,
+        edgeCount,
+      });
+    },
+    [permissions.canEditProject, edges]
+  );
+
+  // Node deletion execution handler
   const handleDeleteNode = useCallback(
     async (nodeId: string) => {
       try {
@@ -380,6 +428,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const loadGraph = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const parentId = currentParent.id;
       const [fetchedNodes, fetchedEdges, types] = await Promise.all([
         ApiClient.getNodes(project.id, parentId),
@@ -389,119 +438,297 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
       setNodeTypesList(types);
 
+      // Pre-calculate incoming blocking dependencies for each node
+      const blockedNodeMap = new Map<string, number>();
+      const nodeStatusMap = new Map<string, string>();
+      for (const n of fetchedNodes) {
+        nodeStatusMap.set(n.id, n.status?.category || 'active');
+      }
+      for (const e of fetchedEdges) {
+        if (e.kind === 'dependency') {
+          const sourceStatus = nodeStatusMap.get(e.sourceNodeId);
+          if (sourceStatus !== 'done') {
+            blockedNodeMap.set(e.targetNodeId, (blockedNodeMap.get(e.targetNodeId) || 0) + 1);
+          }
+        }
+      }
+
       // Convert backend nodes to React Flow nodes with callbacks
-      const rfNodes: Node[] = fetchedNodes.map((n: any) => ({
-        id: n.id,
-        type: 'flowNode',
-        position: { x: n.positionX, y: n.positionY },
-        data: {
-          title: n.title,
-          description: n.description,
-          statusName: n.status?.labelI18n?.en || 'In Progress',
-          statusCategory: n.status?.category || 'active',
-          statusColour: n.status?.colour || '#3b82f6',
-          progressPct: n.progressPct,
-          priority: n.priority,
-          isGroup: n.nodeType?.isGroup || false,
-          childCount: n._count?.children || 0,
-          docCount: n._count?.documents || 0,
-          msgCount: n._count?.remarks || 0,
-          dueDate: n.dueDate,
-          owner: n.owner,
-          ownerName: n.owner?.fullName || n.owner?.email || n.customData?.assigneeName,
-          ownerAvatar: n.owner?.avatarUrl || n.customData?.assigneeAvatar,
-          isLive: n.customData?.isLive !== undefined ? n.customData.isLive : (n.owner?.fullName ? true : false),
-          lastRemark: n.remarks?.[0]?.body,
-          likes: n.customData?.likes || { count: 0, users: [] },
-          collaborators: n.customData?.collaboratorIds || [],
-          parentTitle: n.parentNode?.title,
-          isChild: !!n.parentNodeId,
-          customData: n.customData || {},
-          onDrillDown: (groupNode: { id: string; title: string }) => {
-            setBreadcrumbTrail((prev) => [...prev, { id: groupNode.id, title: groupNode.title }]);
+      const rfNodes: Node[] = fetchedNodes.map((n: any) => {
+        const isGroup = Boolean(n.nodeType?.isGroup);
+        const isMilestone = Boolean(n.isMilestone || n.nodeType?.key === 'milestone');
+        const isApprovalGate = Boolean(n.nodeType?.key === 'approval' || n.approvalStatus || n.customData?.approverId);
+        const nodeTypeKey = n.nodeType?.key || (isMilestone ? 'milestone' : isApprovalGate ? 'approval' : isGroup ? 'stage' : 'task');
+
+        return {
+          id: n.id,
+          type: 'flowNode',
+          position: { x: n.positionX, y: n.positionY },
+          data: {
+            title: n.title,
+            description: n.description,
+            statusName: n.status?.labelI18n?.en || 'In Progress',
+            statusCategory: n.status?.category || 'active',
+            statusColour: n.status?.colour || '#3b82f6',
+            progressPct: n.progressPct,
+            priority: n.priority,
+            nodeTypeKey,
+            isGroup,
+            isMilestone,
+            isApprovalGate,
+            approvalStatus: n.approvalStatus || n.customData?.approvalStatus || 'not_required',
+            allocatedHours: n.allocatedHours,
+            actualHours: n.actualHours,
+            waitingCount: blockedNodeMap.get(n.id) || 0,
+            isBlocked: Boolean(n.isBlocked || (blockedNodeMap.get(n.id) || 0) > 0 || n.status?.category === 'blocked'),
+            blockingTaskNames: n.blockingTaskNames || [],
+            childCount: n._count?.children || 0,
+            docCount: n._count?.documents || 0,
+            msgCount: n._count?.remarks || 0,
+            dueDate: n.dueDate,
+            owner: n.owner,
+            reviewer: n.reviewer,
+            reviewerId: n.reviewerId,
+            ownerName: n.owner?.fullName || n.owner?.email || n.customData?.assigneeName,
+            ownerAvatar: n.owner?.avatarUrl || n.customData?.assigneeAvatar,
+            isLive: n.customData?.isLive !== undefined ? n.customData.isLive : (n.owner?.fullName ? true : false),
+            lastRemark: n.remarks?.[0]?.body,
+            likes: n.customData?.likes || { count: 0, users: [] },
+            collaborators: n.customData?.collaboratorIds || [],
+            parentTitle: n.parentNode?.title,
+            isChild: !!n.parentNodeId,
+            customData: n.customData || {},
+            terminology: project.settings?.terminology,
+            currency: project.settings?.currency || 'USD',
+            canEdit: permissions.canEditProject,
+            onDrillDown: (groupNode: { id: string; title: string }) => {
+              setBreadcrumbTrail((prev) => [...prev, { id: groupNode.id, title: groupNode.title }]);
+            },
+            onSelectNode: (nodeId: string) => {
+              const target = nodesRef.current.find((nd) => nd.id === nodeId);
+              const isTargetLocked = Boolean((target?.data as any)?.customData?.isLocked);
+              if (isTargetLocked && !permissions.canViewConfidential) {
+                const lockedBy = (target?.data as any)?.customData?.lockedBy || 'Manager';
+                showToast(`🔒 Task is confidential and locked by ${lockedBy}. Access restricted.`);
+                return;
+              }
+              setSelectedNodeId(nodeId);
+            },
+            onViewDetails: (nodeId: string) => {
+              const target = nodesRef.current.find((nd) => nd.id === nodeId);
+              const isTargetLocked = Boolean((target?.data as any)?.customData?.isLocked);
+              if (isTargetLocked && !permissions.canViewConfidential) {
+                const lockedBy = (target?.data as any)?.customData?.lockedBy || 'Manager';
+                showToast(`🔒 Task is confidential and locked by ${lockedBy}. Access restricted.`);
+                return;
+              }
+              setViewDetailsNodeId(nodeId);
+            },
+            onAssignNode: (nodeId: string) => {
+              setSelectedNodeId(nodeId);
+            },
+            onExtendDeadline: (nodeId: string) => {
+              setViewDetailsNodeId(nodeId);
+            },
+            onDelete: (nodeId: string) => {
+              promptDeleteConfirmation(nodeId);
+            },
+            onDuplicate: (nodeId: string) => {
+              handleDuplicateNode(nodeId);
+            },
+            onAddNext: (nodeId: string) => {
+              handleAddNext(nodeId);
+            },
+            onAddChild: (nodeId: string) => {
+              handleAddChildNode(nodeId);
+            },
+            onLike: (nodeId: string) => {
+              handleToggleLike(nodeId);
+            },
+            onToggleLock: (nodeId: string, locked: boolean) => {
+              handleToggleNodeLock(nodeId, locked);
+            },
           },
-          onSelectNode: (nodeId: string) => {
-            const target = nodesRef.current.find((nd) => nd.id === nodeId);
-            const isTargetLocked = Boolean((target?.data as any)?.customData?.isLocked);
-            if (isTargetLocked && !permissions.canViewConfidential) {
-              const lockedBy = (target?.data as any)?.customData?.lockedBy || 'Manager';
-              showToast(`🔒 Task is confidential and locked by ${lockedBy}. Access restricted.`);
-              return;
-            }
-            setSelectedNodeId(nodeId);
-          },
-          onViewDetails: (nodeId: string) => {
-            const target = nodesRef.current.find((nd) => nd.id === nodeId);
-            const isTargetLocked = Boolean((target?.data as any)?.customData?.isLocked);
-            if (isTargetLocked && !permissions.canViewConfidential) {
-              const lockedBy = (target?.data as any)?.customData?.lockedBy || 'Manager';
-              showToast(`🔒 Task is confidential and locked by ${lockedBy}. Access restricted.`);
-              return;
-            }
-            setViewDetailsNodeId(nodeId);
-          },
-          onAssignNode: (nodeId: string) => {
-            setSelectedNodeId(nodeId);
-          },
-          onExtendDeadline: (nodeId: string) => {
-            setViewDetailsNodeId(nodeId);
-          },
-          onDelete: (nodeId: string) => {
-            handleDeleteNode(nodeId);
-          },
-          onDuplicate: (nodeId: string) => {
-            handleDuplicateNode(nodeId);
-          },
-          onAddNext: (nodeId: string) => {
-            handleAddNext(nodeId);
-          },
-          onAddChild: (nodeId: string) => {
-            handleAddChildNode(nodeId);
-          },
-          onLike: (nodeId: string) => {
-            handleToggleLike(nodeId);
-          },
-          onToggleLock: (nodeId: string, locked: boolean) => {
-            handleToggleNodeLock(nodeId, locked);
-          },
-        },
-      }));
+        };
+      });
 
       // Filter edges that connect nodes within this active canvas level
       const currentLevelNodeIds = new Set(rfNodes.map((n) => n.id));
       const rfEdges: Edge[] = fetchedEdges
         .filter((e: any) => currentLevelNodeIds.has(e.sourceNodeId) && currentLevelNodeIds.has(e.targetNodeId))
-        .map((e: any) => ({
-          id: e.id,
-          source: e.sourceNodeId,
-          target: e.targetNodeId,
-          sourceHandle: (e.metadata as any)?.sourceHandle || undefined,
-          targetHandle: (e.metadata as any)?.targetHandle || undefined,
-          type: 'customEdge',
-          animated: true,
-          data: {
-            onDelete: (edgeId: string) => handleDeleteEdge(edgeId),
-            onInsert: (edgeId: string) => handleInsertNodeBetween(edgeId),
-          },
-        }));
+        .map((e: any) => {
+          const kind = e.kind || 'sequence';
+          return {
+            id: e.id,
+            source: e.sourceNodeId,
+            target: e.targetNodeId,
+            sourceHandle: (e.metadata as any)?.sourceHandle || undefined,
+            targetHandle: (e.metadata as any)?.targetHandle || undefined,
+            type: 'customEdge',
+            animated: kind !== 'related',
+            data: {
+              kind,
+              label: e.label || (kind === 'dependency' ? 'Blocking' : undefined),
+              canEdit: permissions.canEditProject,
+              onDelete: (edgeId: string) => handleDeleteEdge(edgeId),
+              onInsert: (edgeId: string) => handleInsertNodeBetween(edgeId),
+            },
+          };
+        });
 
       setNodes(rfNodes);
       setEdges(rfEdges);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load canvas data:', e);
+      setLoadError(e.message || 'Failed to load canvas data');
     } finally {
       setLoading(false);
     }
-  }, [project.id, currentParent.id, setNodes, setEdges, handleDeleteNode, handleDeleteEdge, handleDuplicateNode, handleAddNext]);
+  }, [
+    project.id,
+    project.settings,
+    currentParent.id,
+    permissions.canEditProject,
+    permissions.canViewConfidential,
+    setNodes,
+    setEdges,
+    promptDeleteConfirmation,
+    handleDeleteEdge,
+    handleDuplicateNode,
+    handleAddNext,
+    handleAddChildNode,
+    handleToggleLike,
+    handleToggleNodeLock,
+  ]);
 
   useEffect(() => {
     loadGraph();
   }, [project.id, currentParent.id]);
 
-  // Connect any node to any other node!
+  // Real-time collaborative canvas updates via Socket.io
+  useEffect(() => {
+    if (!project?.id) return;
+
+    socketService.connect();
+    socketService.joinProject(project.id);
+
+    const unsubUpdated = socketService.on('node:updated', (updatedNode: any) => {
+      setNodes((currentNodes) =>
+        currentNodes.map((n) => {
+          if (n.id === updatedNode.id) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                ...updatedNode,
+                statusCategory: updatedNode.status?.category || (n.data as any).statusCategory,
+                statusLabel: updatedNode.status?.labelI18n?.en || updatedNode.status?.name || (n.data as any).statusLabel,
+                progressPct: updatedNode.progressPct !== undefined ? updatedNode.progressPct : (n.data as any).progressPct,
+                ownerName: updatedNode.owner?.fullName || (n.data as any).ownerName,
+                version: updatedNode.version || (n.data as any).version,
+              },
+            };
+          }
+          return n;
+        })
+      );
+    });
+
+    const unsubPositions = socketService.on('nodes:positions_updated', (positions: { id: string; positionX: number; positionY: number }[]) => {
+      setNodes((currentNodes) =>
+        currentNodes.map((n) => {
+          const match = positions.find((p) => p.id === n.id);
+          if (match) {
+            return {
+              ...n,
+              position: { x: match.positionX, y: match.positionY },
+            };
+          }
+          return n;
+        })
+      );
+    });
+
+    const unsubCreated = socketService.on('node:created', () => {
+      loadGraph();
+    });
+
+    const unsubDeleted = socketService.on('node:deleted', ({ id }: { id: string }) => {
+      setNodes((current) => current.filter((n) => n.id !== id));
+      setEdges((current) => current.filter((e) => e.source !== id && e.target !== id));
+    });
+
+    return () => {
+      unsubUpdated();
+      unsubPositions();
+      unsubCreated();
+      unsubDeleted();
+      socketService.leaveProject(project.id);
+    };
+  }, [project?.id, loadGraph]);
+
+  // Validates connections in real-time, preventing self-loops, duplicate edges, and circular cycles
+  const isValidConnection = useCallback(
+    (connection: Connection) => {
+      if (!permissions.canEditProject) return false;
+      if (!connection.source || !connection.target) return false;
+      if (connection.source === connection.target) return false;
+
+      // Duplicate edge check
+      const duplicate = edges.some(
+        (e) => e.source === connection.source && e.target === connection.target
+      );
+      if (duplicate) return false;
+
+      // Cycle prevention check via @flowtrack/shared domain logic
+      const currentEdges = edges.map((e) => ({
+        sourceNodeId: e.source,
+        targetNodeId: e.target,
+        kind: (e.data as any)?.kind || 'sequence',
+      }));
+
+      const check = validateDependencyEdge(currentEdges, {
+        sourceNodeId: connection.source,
+        targetNodeId: connection.target,
+        kind: 'sequence',
+      });
+
+      return check.isValid;
+    },
+    [edges, permissions.canEditProject]
+  );
+
+  // Connect any node to any other node with cycle validation
   const onConnect = useCallback(
     async (params: Connection) => {
+      if (!permissions.canEditProject) {
+        showToast('You do not have permission to modify workflow connections');
+        return;
+      }
       if (!params.source || !params.target) return;
+      if (params.source === params.target) {
+        showToast('Cannot connect a task to itself');
+        return;
+      }
+
+      // Check for cycles before making API call
+      const currentEdges = edges.map((e) => ({
+        sourceNodeId: e.source,
+        targetNodeId: e.target,
+        kind: (e.data as any)?.kind || 'sequence',
+      }));
+
+      const check = validateDependencyEdge(currentEdges, {
+        sourceNodeId: params.source,
+        targetNodeId: params.target,
+        kind: 'sequence',
+      });
+
+      if (!check.isValid) {
+        showToast(check.error || 'Cannot connect: circular dependency cycle detected');
+        return;
+      }
+
       try {
         setSavedStatus('saving');
         const newEdge = await ApiClient.createEdge({
@@ -517,6 +744,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           type: 'customEdge',
           animated: true,
           data: {
+            kind: newEdge.kind || 'sequence',
+            canEdit: permissions.canEditProject,
             onDelete: (edgeId: string) => handleDeleteEdge(edgeId),
             onInsert: (edgeId: string) => handleInsertNodeBetween(edgeId),
           },
@@ -524,13 +753,87 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
         setEdges((eds) => addEdge(edgeObj, eds));
         setSavedStatus('saved');
-        showToast('Nodes connected');
-      } catch (err) {
+        showToast('Steps connected');
+      } catch (err: any) {
         console.error('Failed to create edge:', err);
+        showToast(err.message || 'Failed to connect steps');
+        setSavedStatus('saved');
       }
     },
-    [project.id, setEdges, handleDeleteEdge]
+    [project.id, permissions.canEditProject, edges, setEdges, handleDeleteEdge]
   );
+
+  // Persist node position on drag stop
+  const onNodeDragStop = useCallback(
+    async (_event: React.MouseEvent, node: Node) => {
+      if (!permissions.canEditProject) return;
+      try {
+        setSavedStatus('saving');
+        await ApiClient.updateNode(node.id, {
+          positionX: Math.round(node.position.x),
+          positionY: Math.round(node.position.y),
+          version: 1,
+        });
+        setSavedStatus('saved');
+      } catch (err) {
+        console.error('Failed to persist node position on drag stop:', err);
+        setSavedStatus('saved');
+      }
+    },
+    [permissions.canEditProject]
+  );
+
+  // Search and Filter logic with visual dimming
+  const displayedNodes = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const hasFilter =
+      q !== '' ||
+      statusFilter !== 'all' ||
+      typeFilter !== 'all' ||
+      priorityFilter !== 'all';
+
+    if (!hasFilter) return nodes;
+
+    return nodes.map((node) => {
+      const data = node.data as any;
+      let matches = true;
+
+      if (q) {
+        const titleMatch = (data.title || '').toLowerCase().includes(q);
+        const descMatch = (data.description || '').toLowerCase().includes(q);
+        const ownerMatch = (data.ownerName || '').toLowerCase().includes(q);
+        matches = matches && (titleMatch || descMatch || ownerMatch);
+      }
+
+      if (statusFilter !== 'all') {
+        matches = matches && data.statusCategory === statusFilter;
+      }
+
+      if (typeFilter !== 'all') {
+        if (typeFilter === 'stage') matches = matches && Boolean(data.isGroup);
+        else if (typeFilter === 'milestone') matches = matches && Boolean(data.isMilestone);
+        else if (typeFilter === 'approval') matches = matches && Boolean(data.isApprovalGate);
+        else if (typeFilter === 'task') {
+          matches = matches && !data.isGroup && !data.isMilestone && !data.isApprovalGate;
+        }
+      }
+
+      if (priorityFilter !== 'all') {
+        matches = matches && data.priority === priorityFilter;
+      }
+
+      return {
+        ...node,
+        style: {
+          ...node.style,
+          opacity: matches ? 1 : 0.22,
+          filter: matches ? 'none' : 'grayscale(80%)',
+          pointerEvents: matches ? 'all' : 'none',
+          transition: 'opacity 0.2s ease, filter 0.2s ease',
+        },
+      };
+    });
+  }, [nodes, searchQuery, statusFilter, typeFilter, priorityFilter]);
 
   // Insert a node between two connected nodes (n8n signature feature)
   const handleInsertNodeBetween = async (edgeId: string) => {
@@ -581,7 +884,20 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     positionOverride?: { x: number; y: number },
     sourceNodeToConnect?: string | null
   ) => {
-    const typeObj = nodeTypesList.find((t) => t.key === typeKey) || nodeTypesList[0];
+    if (!permissions.canEditProject) {
+      showToast('You do not have permission to add workflow items');
+      return;
+    }
+
+    const isStage = typeKey === 'stage';
+    const isMilestone = typeKey === 'milestone';
+    const isApproval = typeKey === 'approval';
+
+    const typeObj =
+      nodeTypesList.find((t) => t.key === typeKey) ||
+      nodeTypesList.find((t) => (isStage ? t.isGroup : !t.isGroup)) ||
+      nodeTypesList[0];
+
     if (!typeObj) return;
 
     try {
@@ -589,15 +905,24 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       const posX = positionOverride?.x ?? (100 + nodes.length * 280);
       const posY = positionOverride?.y ?? (200 + (nodes.length % 4) * 60);
 
+      const titlePrefix = isMilestone
+        ? 'Project Milestone Sign-Off'
+        : isApproval
+        ? 'Approval Gate Review'
+        : isStage
+        ? 'Stage Phase Group'
+        : `New ${typeObj.name || 'Task'} Item`;
+
       const created = await ApiClient.createNode({
         projectId: project.id,
         parentNodeId: currentParent.id,
         nodeTypeId: typeObj.id,
-        title: `New ${typeObj.name} Item`,
+        title: titlePrefix,
         description: currentParent.id ? `Child item of ${currentParent.title}` : 'Configure details in side panel',
         positionX: posX,
         positionY: posY,
         progressPct: 0,
+        isMilestone: isMilestone ? true : false,
       });
 
       // If source node was provided (dragged from handle onto empty space), auto-connect!
@@ -606,28 +931,74 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           projectId: project.id,
           sourceNodeId: sourceNodeToConnect,
           targetNodeId: created.id,
-          kind: 'sequence',
+          kind: isMilestone || isApproval ? 'dependency' : 'sequence',
         });
       }
 
       await loadGraph();
       setSavedStatus('saved');
       setQuickAddMenu(null);
-      showToast('Task added');
-    } catch (err) {
+      showToast(isMilestone ? 'Milestone added' : isApproval ? 'Approval Gate added' : 'Task added');
+    } catch (err: any) {
       console.error('Failed to add node:', err);
+      showToast(err.message || 'Failed to add node');
+      setSavedStatus('saved');
     }
   };
 
-  // Keyboard shortcut deletion (n8n / Automa style)
+  // Safe Keyboard shortcut deletion with confirmation check
   const onNodesDelete = useCallback(
     async (deletedNodes: Node[]) => {
-      for (const n of deletedNodes) {
-        await handleDeleteNode(n.id);
+      if (deletedNodes.length === 1) {
+        promptDeleteConfirmation(deletedNodes[0].id);
+      } else {
+        for (const n of deletedNodes) {
+          await handleDeleteNode(n.id);
+        }
       }
     },
-    [handleDeleteNode]
+    [promptDeleteConfirmation, handleDeleteNode]
   );
+
+  // Global Keyboard Shortcuts (Ctrl+F search, Delete safe delete, Esc dismiss, Ctrl+D duplicate)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
+        return;
+      }
+
+      // Ctrl+F / Cmd+F: Focus canvas search input
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        const searchInput = document.getElementById('canvas-search-input');
+        if (searchInput) searchInput.focus();
+      }
+
+      // Escape: Dismiss active menus and selection
+      if (e.key === 'Escape') {
+        setQuickAddMenu(null);
+        setNodeContextMenu(null);
+        setDeleteConfirmation(null);
+        setSelectedNodeId(null);
+      }
+
+      // Ctrl+D: Duplicate active selected task
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && selectedNodeId) {
+        e.preventDefault();
+        handleDuplicateNode(selectedNodeId);
+      }
+
+      // Delete / Backspace: Safe confirmation prompt
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId) {
+        e.preventDefault();
+        promptDeleteConfirmation(selectedNodeId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodeId, handleDuplicateNode, promptDeleteConfirmation]);
 
   const onEdgesDelete = useCallback(
     async (deletedEdges: Edge[]) => {
@@ -810,6 +1181,26 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               <BarChart3 className="w-3.5 h-3.5 text-indigo-500" />
               Report
             </button>
+            {['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(currentRole) && (
+              <button
+                id="canvas-custom-fields-btn"
+                onClick={() => setIsFieldConfigModalOpen(true)}
+                className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
+                title="Configure Custom Fields & Dynamic Form Schemas"
+              >
+                <Sliders className="w-3.5 h-3.5 text-emerald-500" />
+                Fields
+              </button>
+            )}
+            <button
+              id="canvas-activity-history-btn"
+              onClick={() => setIsActivityModalOpen(true)}
+              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
+              title="Project Activity Stream & Audit Trail"
+            >
+              <History className="w-3.5 h-3.5 text-purple-500" />
+              Activity
+            </button>
           </div>
 
           {/* Tidy Up Auto Layout Buttons (Super Admin Exclusive Layout Editor) */}
@@ -859,8 +1250,197 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         </div>
       </div>
 
+      {/* Search & Filter Toolbar */}
+      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 z-10 text-xs">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+          {/* Search Box */}
+          <div className="relative flex-1 min-w-[180px] max-w-sm">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              id="canvas-search-input"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter tasks, owners, keywords (Ctrl+F)..."
+              className="w-full pl-8 pr-7 py-1 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                title="Clear search"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-medium">
+            {(['all', 'active', 'blocked', 'done'] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                className={`px-2 py-0.5 rounded-md capitalize transition-all ${
+                  statusFilter === st
+                    ? 'bg-white dark:bg-slate-700 font-bold text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {st === 'all' ? 'All Status' : st}
+              </button>
+            ))}
+          </div>
+
+          {/* Type Filter */}
+          <select
+            value={typeFilter}
+            onChange={(e: any) => setTypeFilter(e.target.value)}
+            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+          >
+            <option value="all">All Types</option>
+            <option value="task">Tasks</option>
+            <option value="stage">Stage Groups</option>
+            <option value="milestone">Milestones</option>
+            <option value="approval">Approval Gates</option>
+          </select>
+
+          {/* Priority Filter */}
+          <select
+            value={priorityFilter}
+            onChange={(e: any) => setPriorityFilter(e.target.value)}
+            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+          >
+            <option value="all">All Priorities</option>
+            <option value="URGENT">Urgent</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+
+          {/* Reset Filters */}
+          {(searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || priorityFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('all');
+                setTypeFilter('all');
+                setPriorityFilter('all');
+              }}
+              className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline px-1"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        {/* View helpers & Fit */}
+        <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+          <span className="hidden lg:inline text-slate-400">
+            {nodes.length > 0 && `${displayedNodes.filter((n) => n.style?.opacity !== 0.22).length} of ${nodes.length} visible`}
+          </span>
+          <button
+            onClick={() => reactFlowInstance.fitView({ padding: 0.2, duration: 400 })}
+            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-white dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-semibold border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition-all"
+            title="Fit canvas to view"
+          >
+            <Sparkles className="w-3 h-3 text-blue-500" />
+            <span>Fit View</span>
+          </button>
+        </div>
+      </div>
+
       {/* Main Canvas Area */}
       <div className="flex-1 w-full h-full relative">
+        {/* Load Error State */}
+        {loadError && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-rose-50 dark:bg-rose-950/90 border border-rose-300 dark:border-rose-800 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-lg max-w-md">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            <div className="text-xs text-rose-800 dark:text-rose-200 font-medium">
+              <span>{loadError}</span>
+            </div>
+            <button
+              onClick={loadGraph}
+              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 shadow-xs"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Empty Canvas Welcome Overlay */}
+        {!loading && !loadError && nodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 px-4">
+            <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl max-w-md text-center pointer-events-auto space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-400 mx-auto shadow-inner">
+                <FolderKanban className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Workflow Canvas is Empty
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Start designing your universal project workflow. Add stage phases, tasks, milestones, or approval gates to begin organizing.
+                </p>
+              </div>
+
+              {permissions.canEditProject ? (
+                <div className="grid grid-cols-2 gap-2 pt-1 text-left">
+                  <button
+                    onClick={() => handleAddNode('stage')}
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:border-blue-300 transition-all group"
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-blue-600">
+                      <Layers className="w-4 h-4 text-purple-500" />
+                      + Stage Group
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">High-level project phases</p>
+                  </button>
+
+                  <button
+                    onClick={() => handleAddNode('task')}
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:border-blue-300 transition-all group"
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-blue-600">
+                      <Plus className="w-4 h-4 text-blue-500" />
+                      + Task Step
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Actionable work package</p>
+                  </button>
+
+                  <button
+                    onClick={() => handleAddNode('milestone')}
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-300 transition-all group"
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-amber-600">
+                      <Flag className="w-4 h-4 text-amber-500" />
+                      + Milestone
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Key completion target</p>
+                  </button>
+
+                  <button
+                    onClick={() => handleAddNode('approval')}
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 transition-all group"
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-emerald-600">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                      + Approval Gate
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Formal sign-off step</p>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-xs text-slate-500 flex items-center justify-center gap-2">
+                  <Lock className="w-4 h-4 text-slate-400" />
+                  <span>View-only mode. Contact project manager to edit.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="w-full h-full flex items-center justify-center text-slate-400">
             <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-3"></div>
@@ -868,13 +1448,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           </div>
         ) : (
           <ReactFlow
-            nodes={nodes}
+            nodes={displayedNodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesStateChange}
             onConnect={onConnect}
             onConnectStart={onConnectStart}
             onConnectEnd={onConnectEnd}
+            isValidConnection={isValidConnection}
+            onNodeDragStop={onNodeDragStop}
+            nodesDraggable={permissions.canEditProject}
+            nodesConnectable={permissions.canEditProject}
+            elementsSelectable={true}
             onDoubleClick={onPaneDoubleClick}
             onNodeContextMenu={onNodeContextMenu}
             onPaneClick={() => {
@@ -984,16 +1569,12 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
               <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1" />
 
-              {/* Red Delete option */}
+              {/* Red Delete option with safe confirmation */}
               <button
                 onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete task "${(nodeContextMenu.node.data as any)?.title || 'Task'}"? This cannot be undone.`
-                    )
-                  ) {
-                    handleDeleteNode(nodeContextMenu.node.id);
-                  }
+                  const nodeId = nodeContextMenu.node.id;
+                  setNodeContextMenu(null);
+                  promptDeleteConfirmation(nodeId);
                 }}
                 className="w-full text-left px-2.5 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 flex items-center justify-between font-bold"
               >
@@ -1047,6 +1628,17 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               >
                 <Layers className="w-4 h-4 text-purple-500" />
                 Stage / Group
+              </button>
+
+              <button
+                onClick={() => {
+                  const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
+                  handleAddNode('milestone', pos, quickAddMenu.sourceNodeId);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-600 flex items-center gap-2"
+              >
+                <Flag className="w-4 h-4 text-amber-500" />
+                Milestone Target
               </button>
 
               <button
@@ -1237,6 +1829,70 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         </div>
       )}
 
+      {/* Safe Node Deletion Confirmation Modal */}
+      {deleteConfirmation && (
+        <div
+          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setDeleteConfirmation(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1 min-w-0 flex-1">
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  Confirm Task Deletion
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Are you sure you want to delete <span className="font-bold text-slate-800 dark:text-slate-200">"{deleteConfirmation.title}"</span>?
+                </p>
+              </div>
+            </div>
+
+            {deleteConfirmation.childCount > 0 && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                <span className="font-bold block">⚠️ Nested Items Alert</span>
+                <p className="text-[11px] leading-relaxed">
+                  This stage contains <strong>{deleteConfirmation.childCount} nested subtask(s)</strong> that will be permanently removed with this operation.
+                </p>
+              </div>
+            )}
+
+            {deleteConfirmation.edgeCount > 0 && (
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                ℹ️ <strong>{deleteConfirmation.edgeCount} connection(s)</strong> attached to this task will also be severed.
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmation(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = deleteConfirmation.nodeId;
+                  setDeleteConfirmation(null);
+                  await handleDeleteNode(id);
+                }}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Permanently</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Slide-over Right Side Panel for Remarks, Comments, Details & Child Items */}
       <NodeDetailDrawer
         nodeId={selectedNodeId}
@@ -1274,6 +1930,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         isOpen={isTeamModalOpen}
         onClose={() => setIsTeamModalOpen(false)}
         workspaceId={project.workspaceId}
+        projectName={project.name}
+      />
+
+      {/* Field Configuration & Dynamic Form Schema Builder Modal */}
+      <FieldConfigurationModal
+        isOpen={isFieldConfigModalOpen}
+        onClose={() => setIsFieldConfigModalOpen(false)}
+        onFieldsChanged={loadGraph}
+        userRole={currentRole}
+      />
+
+      {/* Project Activity Stream & Audit Trail Modal */}
+      <ProjectActivityModal
+        isOpen={isActivityModalOpen}
+        onClose={() => setIsActivityModalOpen(false)}
+        projectId={project.id}
         projectName={project.name}
       />
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import {
@@ -16,12 +16,15 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { getRolePermissions, UserRole } from '../../utils/permissions';
+import { NotificationDrawer } from '../notifications/NotificationDrawer';
+import { ApiClient } from '../../services/api';
+import { socketService } from '../../services/socket';
 
 interface NavbarProps {
   onOpenAuth: () => void;
   onOpenCreateWorkspace: () => void;
-  currentView: 'dashboard' | 'canvas';
-  onViewChange: (view: 'dashboard' | 'canvas') => void;
+  currentView: 'dashboard' | 'canvas' | 'reports';
+  onViewChange: (view: 'dashboard' | 'canvas' | 'reports') => void;
   projectName?: string;
 }
 
@@ -38,6 +41,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (user) {
+      ApiClient.getNotifications({ read: false, limit: 1 })
+        .then((res) => {
+          if (res && res.unreadCount !== undefined) {
+            setUnreadCount(res.unreadCount);
+          }
+        })
+        .catch(() => null);
+
+      const unsub = socketService.on('notification:received', () => {
+        setUnreadCount((c) => c + 1);
+      });
+
+      return () => {
+        unsub();
+      };
+    }
+  }, [user]);
 
   const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
   const currentRole = getActiveRole();
@@ -127,13 +152,42 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         )}
 
-        {/* Project Breadcrumb in Canvas view */}
-        {currentView === 'canvas' && projectName && (
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
-            <span>/</span>
-            <span className="font-semibold text-slate-900 dark:text-white px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md">
-              {projectName}
-            </span>
+        {/* View Switcher: Projects / Reports */}
+        {user && (
+          <div className="hidden lg:flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs font-bold">
+            <button
+              onClick={() => onViewChange('dashboard')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                currentView === 'dashboard'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Projects
+            </button>
+            <button
+              id="nav-reports-btn"
+              onClick={() => onViewChange('reports')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                currentView === 'reports'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Intelligence & Reports
+            </button>
+            {projectName && (
+              <button
+                onClick={() => onViewChange('canvas')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  currentView === 'canvas'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Canvas: {projectName}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -281,10 +335,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        {/* Notifications Icon */}
-        <button className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 relative">
+        {/* Notifications Icon with Live Unread Badge */}
+        <button
+          onClick={() => setShowNotifications(true)}
+          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 relative transition-colors"
+          title="Open Notifications"
+        >
           <Bell className="w-4 h-4" />
-          <span className="w-2 h-2 rounded-full bg-blue-500 absolute top-1.5 right-1.5 ring-2 ring-white dark:ring-slate-900"></span>
+          {unreadCount > 0 && (
+            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-blue-600 text-white text-[10px] font-extrabold flex items-center justify-center absolute -top-1 -right-1 ring-2 ring-white dark:ring-slate-900 shadow-sm animate-pulse">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
         </button>
 
         {/* Auth User Profile or Login Button */}
@@ -317,6 +379,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
       </div>
+
+      <NotificationDrawer
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+      />
     </header>
   );
 };

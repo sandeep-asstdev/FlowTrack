@@ -41,7 +41,8 @@ export class ProjectsController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.projectsService.createProject(wsId, dto);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.createProject(wsId, dto, actorId);
   }
 
   @Get(':id')
@@ -62,7 +63,8 @@ export class ProjectsController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.projectsService.updateProject(id, wsId, dto);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.updateProject(id, wsId, dto, actorId);
   }
 
   @Delete(':id')
@@ -74,4 +76,29 @@ export class ProjectsController {
     const wsId = this.getWorkspaceId(req, headerWsId);
     return this.projectsService.deleteProject(id, wsId);
   }
+
+  @Post(':id/clone')
+  clone(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.cloneProject(id, wsId, actorId, dto);
+  }
+
+  @Post(':id/save-as-template')
+  saveAsTemplate(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.saveAsTemplate(id, wsId, actorId, dto);
+  }
 }
+

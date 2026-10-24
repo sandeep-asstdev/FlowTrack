@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateProjectDto, UpdateProjectDto } from '@flowtrack/shared';
+import { CreateProjectDto, UpdateProjectDto, validateCustomData } from '@flowtrack/shared';
 
 @Injectable()
 export class ProjectsService {
@@ -78,10 +78,38 @@ export class ProjectsService {
       throw new NotFoundException('Project not found');
     }
 
-    return project;
+    const customFields = await this.prisma.fieldDefinition.findMany({
+      where: {
+        workspaceId,
+        targetType: 'project',
+        isActive: true,
+      },
+      orderBy: [{ groupName: 'asc' }, { displayOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return {
+      ...project,
+      customFields,
+    };
   }
 
-  async createProject(workspaceId: string, dto: CreateProjectDto) {
+  async createProject(workspaceId: string, dto: CreateProjectDto, actorId?: string) {
+    let customData = dto.customData || {};
+    const projectFields = await this.prisma.fieldDefinition.findMany({
+      where: { workspaceId, targetType: 'project', isActive: true },
+    });
+
+    if (projectFields.length > 0 && dto.customData) {
+      const valResult = validateCustomData(projectFields as any, dto.customData);
+      if (!valResult.isValid) {
+        throw new BadRequestException({
+          message: 'Project custom field validation failed',
+          errors: valResult.errors,
+        });
+      }
+      customData = valResult.sanitized;
+    }
+
     return this.prisma.project.create({
       data: {
         workspaceId,
@@ -90,17 +118,47 @@ export class ProjectsService {
         templateId: dto.templateId,
         startDate: dto.startDate ? new Date(dto.startDate) : null,
         targetDate: dto.targetDate ? new Date(dto.targetDate) : null,
-        settings: dto.settings || {},
+        settings: (dto.settings || {}) as any,
+        customData: customData as any,
       },
     });
   }
 
-  async updateProject(projectId: string, workspaceId: string, dto: UpdateProjectDto) {
+  async updateProject(projectId: string, workspaceId: string, dto: UpdateProjectDto, actorId?: string) {
     const existing = await this.getProject(projectId, workspaceId);
 
     // Optimistic locking check if version was sent
     if (dto.version !== undefined && existing.version !== dto.version) {
       throw new ConflictException('Project was modified by another user. Please refresh and retry.');
+    }
+
+    let sanitizedCustomData: any = undefined;
+    if (dto.customData !== undefined) {
+      let userRole: string | undefined = undefined;
+      if (actorId) {
+        const membership = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: actorId } },
+        });
+        userRole = membership?.role;
+      }
+
+      const projectFields = await this.prisma.fieldDefinition.findMany({
+        where: { workspaceId, targetType: 'project', isActive: true },
+      });
+
+      const merged = { ...((existing.customData as any) || {}), ...dto.customData };
+      const valResult = validateCustomData(projectFields as any, merged, {
+        userRole,
+        existingData: (existing.customData as any) || {},
+      });
+
+      if (!valResult.isValid) {
+        throw new BadRequestException({
+          message: 'Project custom field validation failed',
+          errors: valResult.errors,
+        });
+      }
+      sanitizedCustomData = valResult.sanitized;
     }
 
     return this.prisma.project.update({
@@ -110,7 +168,8 @@ export class ProjectsService {
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.startDate !== undefined && { startDate: dto.startDate ? new Date(dto.startDate) : null }),
         ...(dto.targetDate !== undefined && { targetDate: dto.targetDate ? new Date(dto.targetDate) : null }),
-        ...(dto.settings && { settings: dto.settings }),
+        ...(dto.settings && { settings: dto.settings as any }),
+        ...(sanitizedCustomData !== undefined && { customData: sanitizedCustomData }),
         version: { increment: 1 },
       },
     });
@@ -123,4 +182,266 @@ export class ProjectsService {
       data: { deletedAt: new Date() },
     });
   }
+
+  async cloneProject(
+    sourceProjectId: string,
+    workspaceId: string,
+    actorId?: string,
+    dto?: { name?: string; description?: string; startDate?: string; targetDate?: string; resetProgress?: boolean }
+  ) {
+    const sourceProject = await this.prisma.project.findFirst({
+      where: {
+        id: sourceProjectId,
+        workspaceId,
+        deletedAt: null,
+      },
+      include: {
+        nodes: {
+          where: { deletedAt: null },
+        },
+        edges: {
+          where: { deletedAt: null },
+        },
+      },
+    });
+
+    if (!sourceProject) {
+      throw new NotFoundException(`Project with ID "${sourceProjectId}" was not found in this workspace`);
+    }
+
+    const resetProgress = dto?.resetProgress !== false;
+    const clonedName = dto?.name?.trim() || `${sourceProject.name} (Copy)`;
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Create project clone
+      const newProject = await tx.project.create({
+        data: {
+          workspaceId,
+          name: clonedName,
+          description: dto?.description !== undefined ? dto.description : sourceProject.description,
+          templateId: sourceProject.templateId,
+          startDate: dto?.startDate ? new Date(dto.startDate) : (sourceProject.startDate || new Date()),
+          targetDate: dto?.targetDate ? new Date(dto.targetDate) : sourceProject.targetDate,
+          settings: (sourceProject.settings || {}) as any,
+        },
+      });
+
+      // 2. Clone Nodes preserving hierarchy (2 passes: parents first, then children)
+      const oldToNewNodeId = new Map<string, string>();
+      const rootNodes = sourceProject.nodes.filter((n) => !n.parentNodeId);
+      const childNodes = sourceProject.nodes.filter((n) => !!n.parentNodeId);
+
+      for (const node of rootNodes) {
+        const created = await tx.node.create({
+          data: {
+            workspaceId,
+            projectId: newProject.id,
+            nodeTypeId: node.nodeTypeId,
+            title: node.title,
+            description: node.description,
+            positionX: node.positionX,
+            positionY: node.positionY,
+            priority: node.priority,
+            weight: node.weight,
+            progressPct: resetProgress ? 0 : node.progressPct,
+            estimatedCost: node.estimatedCost,
+            actualCost: resetProgress ? 0 : node.actualCost,
+            allocatedHours: node.allocatedHours,
+            actualHours: resetProgress ? 0 : node.actualHours,
+            isMilestone: node.isMilestone,
+            customData: (node.customData || {}) as any,
+            statusId: resetProgress ? null : node.statusId,
+          },
+        });
+        oldToNewNodeId.set(node.id, created.id);
+      }
+
+      for (const node of childNodes) {
+        const remappedParentId = node.parentNodeId ? oldToNewNodeId.get(node.parentNodeId) : null;
+        const created = await tx.node.create({
+          data: {
+            workspaceId,
+            projectId: newProject.id,
+            parentNodeId: remappedParentId || null,
+            nodeTypeId: node.nodeTypeId,
+            title: node.title,
+            description: node.description,
+            positionX: node.positionX,
+            positionY: node.positionY,
+            priority: node.priority,
+            weight: node.weight,
+            progressPct: resetProgress ? 0 : node.progressPct,
+            estimatedCost: node.estimatedCost,
+            actualCost: resetProgress ? 0 : node.actualCost,
+            allocatedHours: node.allocatedHours,
+            actualHours: resetProgress ? 0 : node.actualHours,
+            isMilestone: node.isMilestone,
+            customData: (node.customData || {}) as any,
+            statusId: resetProgress ? null : node.statusId,
+          },
+        });
+        oldToNewNodeId.set(node.id, created.id);
+      }
+
+      // 3. Clone Edges
+      let clonedEdgesCount = 0;
+      for (const edge of sourceProject.edges) {
+        const newSourceId = oldToNewNodeId.get(edge.sourceNodeId);
+        const newTargetId = oldToNewNodeId.get(edge.targetNodeId);
+
+        if (newSourceId && newTargetId) {
+          await tx.edge.create({
+            data: {
+              workspaceId,
+              projectId: newProject.id,
+              sourceNodeId: newSourceId,
+              targetNodeId: newTargetId,
+              kind: edge.kind,
+              label: edge.label,
+              metadata: (edge.metadata || {}) as any,
+            },
+          });
+          clonedEdgesCount++;
+        }
+      }
+
+      // 4. Audit Log
+      if (actorId) {
+        await tx.auditLog.create({
+          data: {
+            workspaceId,
+            projectId: newProject.id,
+            entityName: 'Project',
+            entityId: newProject.id,
+            actorId,
+            action: 'CLONE',
+            newValues: {
+              sourceProjectId,
+              sourceProjectName: sourceProject.name,
+              name: newProject.name,
+              clonedNodesCount: oldToNewNodeId.size,
+              clonedEdgesCount,
+            },
+          },
+        });
+      }
+
+      return {
+        project: newProject,
+        nodesCount: oldToNewNodeId.size,
+        edgesCount: clonedEdgesCount,
+      };
+    });
+  }
+
+  async saveAsTemplate(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    dto?: { name?: string; description?: string; category?: string; industry?: string; methodology?: string; icon?: string; tags?: string[]; isPublic?: boolean }
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId, deletedAt: null },
+      include: {
+        nodes: {
+          where: { deletedAt: null, parentNodeId: null },
+          include: {
+            children: { where: { deletedAt: null } },
+            nodeType: true,
+          },
+          orderBy: { positionX: 'asc' },
+        },
+        edges: { where: { deletedAt: null } },
+      },
+    });
+
+    if (!project) {
+      throw new NotFoundException(`Project with ID "${projectId}" was not found in this workspace`);
+    }
+
+    const templateNodes: any[] = [];
+    const nodeIdToIndex = new Map<string, number>();
+
+    project.nodes.forEach((node, idx) => {
+      nodeIdToIndex.set(node.id, idx);
+      const subtasks = (node.children || []).map((sub) => ({
+        title: sub.title,
+        description: sub.description || undefined,
+        nodeTypeKey: 'task',
+        priority: sub.priority,
+        weight: sub.weight,
+        progressPct: 0,
+      }));
+
+      templateNodes.push({
+        key: `node_${idx + 1}`,
+        title: node.title,
+        description: node.description || undefined,
+        nodeTypeKey: node.nodeType?.key || 'task',
+        positionX: node.positionX,
+        positionY: node.positionY,
+        priority: node.priority,
+        weight: node.weight,
+        progressPct: 0,
+        subtasks,
+      });
+    });
+
+    const templateEdges: any[] = [];
+    for (const edge of project.edges) {
+      const srcIdx = nodeIdToIndex.get(edge.sourceNodeId);
+      const tgtIdx = nodeIdToIndex.get(edge.targetNodeId);
+      if (srcIdx !== undefined && tgtIdx !== undefined) {
+        templateEdges.push({
+          sourceIndex: srcIdx,
+          targetIndex: tgtIdx,
+          kind: edge.kind,
+          label: edge.label || undefined,
+        });
+      }
+    }
+
+    const templateName = dto?.name || `${project.name} Blueprint`;
+    const settings = (project.settings || {}) as any;
+
+    const template = await this.prisma.template.create({
+      data: {
+        workspaceId,
+        name: templateName,
+        category: dto?.category || 'Custom Projects',
+        industry: dto?.industry || settings.industry || 'general',
+        methodology: dto?.methodology || settings.methodology || 'stage_gate',
+        icon: dto?.icon || 'Layers',
+        tags: dto?.tags || ['cloned', 'custom'],
+        description: dto?.description || project.description || `Reusable blueprint saved from ${project.name}`,
+        defaultSettings: settings,
+        graphJson: {
+          nodes: templateNodes,
+          edges: templateEdges,
+        },
+        isPublic: dto?.isPublic ?? false,
+      },
+    });
+
+    if (actorId) {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId,
+          projectId: project.id,
+          entityName: 'Template',
+          entityId: template.id,
+          actorId,
+          action: 'CREATE',
+          newValues: {
+            sourceProjectId: project.id,
+            templateId: template.id,
+            templateName: template.name,
+          },
+        },
+      });
+    }
+
+    return template;
+  }
 }
+

@@ -13,7 +13,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { NodesService } from './nodes.service';
-import { CreateNodeDto, UpdateNodeDto, BatchUpdateNodePositionsDto } from '@flowtrack/shared';
+import {
+  CreateNodeDto,
+  UpdateNodeDto,
+  BatchUpdateNodePositionsDto,
+  ApproveTaskDto,
+  ReportBlockerDto,
+  RequestDeadlineExtensionDto,
+} from '@flowtrack/shared';
 import { AuthGuard } from '@nestjs/passport';
 
 @UseGuards(AuthGuard('jwt'))
@@ -24,12 +31,19 @@ export class NodesController {
   @Get()
   list(
     @Query('projectId') projectId: string,
-    @Query('parentNodeId') parentNodeId?: string
+    @Query('parentNodeId') parentNodeId?: string,
+    @Query('search') search?: string,
+    @Query('customFieldKey') customFieldKey?: string,
+    @Query('customFieldValue') customFieldValue?: string
   ) {
     if (!projectId) {
       throw new BadRequestException('projectId query parameter is required');
     }
-    return this.nodesService.listProjectNodes(projectId, parentNodeId);
+    return this.nodesService.listProjectNodes(projectId, parentNodeId, {
+      search,
+      customFieldKey,
+      customFieldValue,
+    });
   }
 
   @Get(':id')
@@ -57,6 +71,33 @@ export class NodesController {
     return this.nodesService.updateNode(id, dto, req.user?.id);
   }
 
+  @Post(':id/approve')
+  approve(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ApproveTaskDto
+  ) {
+    return this.nodesService.approveTask(id, req.user.id, dto);
+  }
+
+  @Post(':id/blocker')
+  reportBlocker(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ReportBlockerDto
+  ) {
+    return this.nodesService.reportBlocker(id, req.user.id, dto);
+  }
+
+  @Post(':id/deadline-extension')
+  requestDeadlineExtension(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: RequestDeadlineExtensionDto
+  ) {
+    return this.nodesService.requestDeadlineExtension(id, req.user.id, dto);
+  }
+
   @Post(':id/remarks')
   addRemark(
     @Req() req: any,
@@ -64,30 +105,6 @@ export class NodesController {
     @Body() body: { body: string; voiceUrl?: string; photoUrl?: string }
   ) {
     return this.nodesService.addRemark(id, req.user.id, body.body, body.voiceUrl, body.photoUrl);
-  }
-
-  @Get(':id/documents')
-  getDocuments(@Param('id') id: string) {
-    return this.nodesService.getNodeDocuments(id);
-  }
-
-  @Post(':id/documents')
-  addDocument(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() body: { name: string; mimeType: string; fileSize: number; storageKey?: string }
-  ) {
-    return this.nodesService.addDocument(id, req.user.id, body);
-  }
-
-  @Delete('documents/:docId')
-  deleteDocument(@Param('docId') docId: string) {
-    return this.nodesService.deleteDocument(docId);
-  }
-
-  @Get(':id/history')
-  getHistory(@Param('id') id: string) {
-    return this.nodesService.getNodeHistory(id);
   }
 
   @Delete(':id')

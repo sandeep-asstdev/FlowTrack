@@ -36,3 +36,5 @@ export const EDGE_KINDS = {
   DEPENDENCY: 'dependency',
   RELATED: 'related',
 } as const;
+
+export * from './industry.js';

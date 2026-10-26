@@ -43,7 +43,7 @@ describe('Universal Task Management & Workflow Rules (Chunk 4)', () => {
       ];
 
       const invalidConstructionData = { concreteStrengthPsi: 4000 };
-      const constrRes = validateCustomData(constructionFields, invalidConstructionData);
+      const constrRes = validateCustomData(constructionFields as any, invalidConstructionData);
       expect(constrRes.isValid).toBe(false);
       expect(constrRes.errors.permitNumber).toContain('is required');
 
@@ -53,7 +53,7 @@ describe('Universal Task Management & Workflow Rules (Chunk 4)', () => {
       ];
 
       const validSchoolData = { accreditationBoard: 'State Education Dept' };
-      const schoolRes = validateCustomData(schoolFields, validSchoolData);
+      const schoolRes = validateCustomData(schoolFields as any, validSchoolData);
       expect(schoolRes.isValid).toBe(true);
     });
 

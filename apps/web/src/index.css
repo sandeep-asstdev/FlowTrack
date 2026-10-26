@@ -21,7 +21,36 @@
 
   --node-min-width: 260px;
   --node-radius: 12px;
-  --touch-target: 48px;
+  --touch-target: 44px;
+
+  /* Mobile Safe Area Insets (iOS notch, dynamic island, Android navigation bars) */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* Mobile Safe Area Inset Utility Classes */
+.pt-safe {
+  padding-top: var(--safe-area-top);
+}
+.pb-safe {
+  padding-bottom: var(--safe-area-bottom);
+}
+.pl-safe {
+  padding-left: var(--safe-area-left);
+}
+.pr-safe {
+  padding-right: var(--safe-area-right);
+}
+
+/* Minimum Accessible Touch Target for Mobile */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 [data-theme='dark'] {
@@ -32,11 +61,23 @@
   --color-text-muted: #94a3b8;
 }
 
+html {
+  width: 100%;
+  min-width: 320px;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   background-color: var(--color-bg-canvas);
   color: var(--color-text-main);
+  width: 100%;
+  min-width: 320px;
   overflow-x: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Custom Scrollbars */
@@ -55,20 +96,44 @@ body {
   background: #94a3b8;
 }
 
-/* React Flow styling overrides */
+/* React Flow styling overrides (n8n signature UX) */
 .react-flow__attribution {
   display: none !important;
 }
 
 .react-flow__handle {
-  width: 12px !important;
-  height: 12px !important;
-  background: #3b82f6 !important;
-  border: 2px solid #ffffff !important;
-  border-radius: 9999px !important;
-  transition: transform 0.15s ease;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
-.react-flow__handle:hover {
-  transform: scale(1.4);
+.react-flow__handle.react-flow__handle-connecting {
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.4);
+}
+
+.react-flow__handle.react-flow__handle-valid {
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.5) !important;
+  background-color: #10b981 !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #2563eb !important;
+  stroke-width: 4px !important;
+}
+
+.react-flow__connection-path {
+  stroke: #3b82f6;
+  stroke-width: 3px;
+  stroke-dasharray: 6 4;
+  animation: connectionLineDash 0.8s linear infinite;
+}
+
+@keyframes connectionLineDash {
+  from {
+    stroke-dashoffset: 20;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }

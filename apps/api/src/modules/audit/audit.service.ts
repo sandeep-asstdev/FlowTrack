@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const SENSITIVE_KEYS = new Set([
@@ -106,6 +106,55 @@ export class AuditService {
     const offset = options?.offset || 0;
 
     const where: any = { projectId };
+    if (options?.action) {
+      where.action = options.action;
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        include: {
+          actor: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      limit,
+      offset,
+    };
+  }
+
+  /**
+   * Retrieves audit logs for an entire workspace with optional entityName, action, and pagination filters.
+   */
+  async getWorkspaceHistory(
+    workspaceId: string,
+    actorId?: string,
+    options?: { limit?: number; offset?: number; entityName?: string; action?: string }
+  ) {
+    if (actorId) {
+      const membership = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: actorId } },
+      });
+      if (!membership || (membership.role !== 'ADMIN' && membership.role !== 'MANAGER')) {
+        throw new ForbiddenException('Forbidden: Only Admins and Managers can inspect workspace audit logs.');
+      }
+    }
+
+    const limit = Math.min(options?.limit || 50, 100);
+    const offset = options?.offset || 0;
+
+    const where: any = { workspaceId };
+    if (options?.entityName) {
+      where.entityName = options.entityName;
+    }
     if (options?.action) {
       where.action = options.action;
     }

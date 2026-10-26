@@ -162,36 +162,47 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         isConfidentialHidden ? 'cursor-not-allowed opacity-95' : 'cursor-pointer'
       } ${borderColourClass}`}
     >
-      {/* 4-Direction Connection Handles */}
+      {/* n8n-Style Workflow Connection Handles */}
+      {/* Left Input Handle (Prerequisite/Target) */}
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-3.5 !h-3.5 !bg-blue-600 !border-2 !border-white dark:!border-slate-900 hover:!scale-125 transition-transform"
+        className="!w-4 !h-4 !-left-2 !bg-white dark:!bg-slate-800 !border-2 !border-blue-500 dark:!border-blue-400 hover:!scale-130 active:!scale-130 hover:!bg-blue-500 hover:!border-white transition-all shadow-md cursor-crosshair z-20 group/handle after:content-[''] after:absolute after:-inset-3 after:rounded-full after:z-30"
+        title="Input: Prerequisite step"
       />
+
+      {/* Right Output Handle (Next Step/Source) */}
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-3.5 !h-3.5 !bg-blue-600 !border-2 !border-white dark:!border-slate-900 hover:!scale-125 transition-transform"
+        className="!w-4 !h-4 !-right-2 !bg-blue-600 hover:!bg-blue-500 active:!scale-130 !border-2 !border-white dark:!border-slate-900 hover:!scale-130 transition-all shadow-md shadow-blue-500/30 cursor-crosshair z-20 group/handle after:content-[''] after:absolute after:-inset-3 after:rounded-full after:z-30"
+        title="Output: Drag to connect next step"
       />
+
+      {/* Top Handle (Parent / Hierarchical Input) */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white dark:!border-slate-900 opacity-60 hover:opacity-100 hover:!scale-125 transition-transform"
+        className="!w-3 !h-3 !-top-1.5 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 hover:!scale-125 active:!scale-125 transition-all cursor-crosshair z-10 after:content-[''] after:absolute after:-inset-2.5 after:rounded-full after:z-30"
+        title="Top: Parent step input"
       />
+
+      {/* Bottom Handle (Child / Subtask Output) */}
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white dark:!border-slate-900 opacity-60 hover:opacity-100 hover:!scale-125 transition-transform"
+        className="!w-3 !h-3 !-bottom-1.5 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 hover:!scale-125 active:!scale-125 transition-all cursor-crosshair z-10 after:content-[''] after:absolute after:-inset-2.5 after:rounded-full after:z-30"
+        title="Bottom: Subtask output"
       />
 
       {/* Floating Action Bar on hover/selection (Authorized users only) */}
       {(selected || isHovered) && !isConfidentialHidden && (
         <div
-          className="absolute -top-11 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl rounded-xl px-2 py-1 flex items-center gap-1 z-30 animate-in fade-in zoom-in-95 duration-150"
+          className="absolute -top-12 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl rounded-xl px-1.5 py-1 flex items-center gap-1 z-30 animate-in fade-in zoom-in-95 duration-150 touch-manipulation max-w-[95vw]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Quick Remarks Drawer */}
@@ -307,8 +318,8 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
           <span className="flex items-center gap-1.5 min-w-0">
             <span className="text-xs">🚫</span>
             <span className="truncate">
-              {data.blockingTaskNames && data.blockingTaskNames.length > 0
-                ? `Blocked by: ${data.blockingTaskNames[0]}`
+              {Array.isArray((data as any)?.blockingTaskNames) && (data as any).blockingTaskNames.length > 0
+                ? `Blocked by: ${(data as any).blockingTaskNames[0]}`
                 : 'Blocked by Prerequisite'}
             </span>
           </span>
@@ -596,7 +607,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
               if (onViewDetails) onViewDetails(id);
               else if (onSelectNode) onSelectNode(id);
             }}
-            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer p-1.5 -mr-1.5 min-h-[36px] flex items-center"
           >
             Details &rarr;
           </button>

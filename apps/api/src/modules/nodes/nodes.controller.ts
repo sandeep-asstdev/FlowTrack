@@ -30,20 +30,48 @@ export class NodesController {
 
   @Get()
   list(
+    @Req() req: any,
     @Query('projectId') projectId: string,
     @Query('parentNodeId') parentNodeId?: string,
     @Query('search') search?: string,
     @Query('customFieldKey') customFieldKey?: string,
-    @Query('customFieldValue') customFieldValue?: string
+    @Query('customFieldValue') customFieldValue?: string,
+    @Query('ownerId') ownerId?: string,
+    @Query('assignedById') assignedById?: string,
+    @Query('assignedToMe') assignedToMe?: string,
+    @Query('assignedByMe') assignedByMe?: string,
+    @Query('teamId') teamId?: string,
+    @Query('statusId') statusId?: string,
+    @Query('approvalStatus') approvalStatus?: string,
+    @Query('dueBefore') dueBefore?: string,
+    @Query('dueAfter') dueAfter?: string,
   ) {
     if (!projectId) {
       throw new BadRequestException('projectId query parameter is required');
     }
+    const effectiveOwnerId = assignedToMe === 'true' ? req.user?.id : ownerId;
+    const effectiveAssignedById = assignedByMe === 'true' ? req.user?.id : assignedById;
     return this.nodesService.listProjectNodes(projectId, parentNodeId, {
       search,
       customFieldKey,
       customFieldValue,
+      ownerId: effectiveOwnerId,
+      assignedById: effectiveAssignedById,
+      teamId,
+      statusId,
+      approvalStatus,
+      dueBefore,
+      dueAfter,
     });
+  }
+
+  @Get('review-queue')
+  getReviewQueue(
+    @Req() req: any,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.nodesService.getReviewQueue(req.user.id, workspaceId, projectId);
   }
 
   @Get(':id')
@@ -58,7 +86,7 @@ export class NodesController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = headerWsId || req.user.activeWorkspaceId;
-    return this.nodesService.createNode(wsId, dto);
+    return this.nodesService.createNode(wsId, dto, req.user?.id);
   }
 
   @Patch('batch-positions')
@@ -78,6 +106,20 @@ export class NodesController {
     @Body() dto: ApproveTaskDto
   ) {
     return this.nodesService.approveTask(id, req.user.id, dto);
+  }
+
+  @Post(':id/submit')
+  submit(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { notes?: string }
+  ) {
+    return this.nodesService.submitTask(id, req.user.id, body?.notes);
+  }
+
+  @Get(':id/approvals')
+  getApprovals(@Param('id') id: string) {
+    return this.nodesService.getTaskApprovals(id);
   }
 
   @Post(':id/blocker')

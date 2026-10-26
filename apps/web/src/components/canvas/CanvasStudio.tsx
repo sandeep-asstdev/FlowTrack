@@ -13,6 +13,9 @@ import {
   BackgroundVariant,
   useReactFlow,
   ReactFlowProvider,
+  MarkerType,
+  ConnectionLineType,
+  ConnectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { FlowTrackNode } from './FlowTrackNode';
@@ -27,6 +30,12 @@ import { ApiClient } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { getLayoutedElements } from '../../utils/layout';
 import { validateDependencyEdge } from '@flowtrack/shared';
+import {
+  getSmartViewportPosition,
+  getNonOverlappingPosition,
+  isNodeInViewport,
+} from '../../utils/positioning';
+import { parseValidViewport } from '../../utils/router';
 import {
   ArrowLeft,
   Plus,
@@ -57,6 +66,7 @@ import {
   RefreshCw,
   AlertTriangle,
   History,
+  Loader2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
@@ -72,6 +82,30 @@ interface BreadcrumbItem {
   title: string;
 }
 
+export function getLogicalState(data: {
+  statusCategory?: string;
+  approvalStatus?: string;
+  isBlocked?: boolean;
+  progressPct?: number;
+}): 'Open' | 'In Progress' | 'Pending Approval' | 'Changes Requested' | 'Approved/Done' | 'Blocked' {
+  if (data.isBlocked || data.statusCategory === 'blocked') {
+    return 'Blocked';
+  }
+  if (data.approvalStatus === 'pending') {
+    return 'Pending Approval';
+  }
+  if (data.approvalStatus === 'rejected') {
+    return 'Changes Requested';
+  }
+  if (data.statusCategory === 'done' || data.approvalStatus === 'approved') {
+    return 'Approved/Done';
+  }
+  if (data.statusCategory === 'todo' || (data.progressPct ?? 0) === 0) {
+    return 'Open';
+  }
+  return 'In Progress';
+}
+
 function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const { t } = useTranslation();
   const reactFlowInstance = useReactFlow();
@@ -79,17 +113,56 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesStateChange] = useEdgesState<Edge>([]);
   const [loading, setLoading] = useState(true);
-  const [savedStatus, setSavedStatus] = useState<'saved' | 'saving'>('saved');
+  const [savedStatus, setSavedStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [nodeTypesList, setNodeTypesList] = useState<any[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Search & Filter State
+  // Viewport persistence: read from localStorage cache or backend project settings
+  const savedViewport = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem(`flowtrack_viewport_${project?.id}`);
+      if (cached) {
+        const validated = parseValidViewport(JSON.parse(cached));
+        if (validated) return validated;
+      }
+    } catch (e) {}
+
+    const fromSettings = (project?.settings as any)?.viewport;
+    return parseValidViewport(fromSettings);
+  }, [project?.id, project?.settings]);
+
+  const initialViewportRestoredRef = useRef(false);
+  const viewportDebounceTimerRef = useRef<any>(null);
+  const pendingPositionUpdatesRef = useRef<Map<string, { x: number; y: number; seq: number }>>(new Map());
+  const positionSaveTimerRef = useRef<any>(null);
+  const positionSequenceRef = useRef<number>(0);
+
+  // Search & Filter State (Chunk 6)
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked' | 'done'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'stage' | 'task' | 'milestone' | 'approval'>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'>('all');
+  const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'assigned_to_me' | 'assigned_by_me' | 'unassigned'>('all');
+  const [logicalStatusFilter, setLogicalStatusFilter] = useState<'all' | 'Open' | 'In Progress' | 'Pending Approval' | 'Changes Requested' | 'Approved/Done' | 'Blocked'>('all');
+  const [dueDateFilter, setDueDateFilter] = useState<'all' | 'overdue' | 'due_today' | 'due_this_week'>('all');
+  const [teamFilter, setTeamFilter] = useState<string>('all');
+  const [teamsList, setTeamsList] = useState<any[]>([]);
   const [layoutDirection, setLayoutDirection] = useState<'LR' | 'TB'>('LR');
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (assignmentFilter !== 'all') count++;
+    if (logicalStatusFilter !== 'all') count++;
+    if (dueDateFilter !== 'all') count++;
+    if (teamFilter !== 'all') count++;
+    if (typeFilter !== 'all') count++;
+    if (priorityFilter !== 'all') count++;
+    return count;
+  }, [assignmentFilter, logicalStatusFilter, dueDateFilter, teamFilter, typeFilter, priorityFilter]);
 
   // Safe Delete Confirmation Modal State
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -213,14 +286,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         const typeObj =
           nodeTypesListRef.current.find((t) => t.isGroup === (node.data as any)?.isGroup) ||
           nodeTypesListRef.current[0];
+
+        // Clean non-overlapping position offset
+        const targetPos = getNonOverlappingPosition(
+          { x: node.position.x + 40, y: node.position.y + 190 },
+          nodesRef.current,
+          'down'
+        );
+
         await ApiClient.createNode({
           projectId: project.id,
           parentNodeId: currentParent.id,
           nodeTypeId: typeObj.id,
           title: `${(node.data as any)?.title || 'Task'} (Copy)`,
           description: (node.data as any)?.description || '',
-          positionX: Math.round(node.position.x + 50),
-          positionY: Math.round(node.position.y + 50),
+          positionX: targetPos.x,
+          positionY: targetPos.y,
           progressPct: 0,
         });
         await loadGraph();
@@ -243,14 +324,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         setSavedStatus('saving');
         const typeObj =
           nodeTypesListRef.current.find((t) => t.key === 'task') || nodeTypesListRef.current[0];
+
+        // Place to the right without overlapping existing nodes
+        const targetPos = getNonOverlappingPosition(
+          { x: sourceNode.position.x + 350, y: sourceNode.position.y },
+          nodesRef.current,
+          'right'
+        );
+
         const newNode = await ApiClient.createNode({
           projectId: project.id,
           parentNodeId: currentParent.id,
           nodeTypeId: typeObj.id,
           title: 'New Next Task',
           description: 'Connected task step',
-          positionX: Math.round(sourceNode.position.x + 360),
-          positionY: Math.round(sourceNode.position.y),
+          positionX: targetPos.x,
+          positionY: targetPos.y,
           progressPct: 0,
         });
 
@@ -259,6 +348,10 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           sourceNodeId: sourceNode.id,
           targetNodeId: newNode.id,
           kind: 'sequence',
+          metadata: {
+            sourceHandle: 'right',
+            targetHandle: 'left',
+          },
         });
 
         await loadGraph();
@@ -284,14 +377,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
         setSavedStatus('saving');
         const parentTitle = (parentNode.data as any)?.title || 'Task';
+
+        // Place below parent with collision avoidance
+        const targetPos = getNonOverlappingPosition(
+          { x: parentNode.position.x, y: parentNode.position.y + 230 },
+          nodesRef.current,
+          'down'
+        );
+
         const newNode = await ApiClient.createNode({
           projectId: project.id,
           parentNodeId: parentNode.id,
           nodeTypeId: typeObj.id,
           title: `Child: ${parentTitle.slice(0, 16)}`,
           description: `Interconnected sub-task of ${parentTitle}`,
-          positionX: Math.round(parentNode.position.x),
-          positionY: Math.round(parentNode.position.y + 240),
+          positionX: targetPos.x,
+          positionY: targetPos.y,
           progressPct: 0,
         });
 
@@ -381,18 +482,21 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         nodeTypesListRef.current[0];
       if (!typeObj) return;
 
-      // Position in center of current mobile viewport
-      const { x, y, zoom } = reactFlowInstance.getViewport();
-      const centerX = Math.round(-x / zoom + window.innerWidth / (2 * zoom) - 140);
-      const centerY = Math.round(-y / zoom + window.innerHeight / (2 * zoom) - 80);
+      // Position in center of current mobile viewport with collision avoidance
+      const viewport = reactFlowInstance.getViewport();
+      const container = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
 
       await ApiClient.createNode({
         projectId: project.id,
         parentNodeId: currentParent.id,
         nodeTypeId: typeObj.id,
         title: mobileTitle.trim(),
-        positionX: centerX,
-        positionY: centerY,
+        positionX: smartPos.x,
+        positionY: smartPos.y,
         priority: mobilePriority as any,
         progressPct: 0,
       });
@@ -430,13 +534,15 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       setLoading(true);
       setLoadError(null);
       const parentId = currentParent.id;
-      const [fetchedNodes, fetchedEdges, types] = await Promise.all([
+      const [fetchedNodes, fetchedEdges, types, fetchedTeams] = await Promise.all([
         ApiClient.getNodes(project.id, parentId),
         ApiClient.getEdges(project.id),
         ApiClient.getNodeTypes(),
+        ApiClient.getTeams().catch(() => []),
       ]);
 
       setNodeTypesList(types);
+      setTeamsList(fetchedTeams || []);
 
       // Pre-calculate incoming blocking dependencies for each node
       const blockedNodeMap = new Map<string, number>();
@@ -487,8 +593,14 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             msgCount: n._count?.remarks || 0,
             dueDate: n.dueDate,
             owner: n.owner,
+            ownerId: n.ownerId,
+            assignedById: n.assignedById,
+            assignedBy: n.assignedBy,
+            assignedAt: n.assignedAt,
             reviewer: n.reviewer,
             reviewerId: n.reviewerId,
+            teamId: n.teamId,
+            team: n.team,
             ownerName: n.owner?.fullName || n.owner?.email || n.customData?.assigneeName,
             ownerAvatar: n.owner?.avatarUrl || n.customData?.assigneeAvatar,
             isLive: n.customData?.isLive !== undefined ? n.customData.isLive : (n.owner?.fullName ? true : false),
@@ -522,13 +634,13 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                 showToast(`🔒 Task is confidential and locked by ${lockedBy}. Access restricted.`);
                 return;
               }
-              setViewDetailsNodeId(nodeId);
+              setSelectedNodeId(nodeId);
             },
             onAssignNode: (nodeId: string) => {
               setSelectedNodeId(nodeId);
             },
             onExtendDeadline: (nodeId: string) => {
-              setViewDetailsNodeId(nodeId);
+              setSelectedNodeId(nodeId);
             },
             onDelete: (nodeId: string) => {
               promptDeleteConfirmation(nodeId);
@@ -558,6 +670,9 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         .filter((e: any) => currentLevelNodeIds.has(e.sourceNodeId) && currentLevelNodeIds.has(e.targetNodeId))
         .map((e: any) => {
           const kind = e.kind || 'sequence';
+          const isDependency = kind === 'dependency';
+          const isRelated = kind === 'related';
+          const strokeColor = isDependency ? '#f59e0b' : isRelated ? '#94a3b8' : '#3b82f6';
           return {
             id: e.id,
             source: e.sourceNodeId,
@@ -566,6 +681,12 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             targetHandle: (e.metadata as any)?.targetHandle || undefined,
             type: 'customEdge',
             animated: kind !== 'related',
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: strokeColor,
+              width: 16,
+              height: 16,
+            },
             data: {
               kind,
               label: e.label || (kind === 'dependency' ? 'Blocking' : undefined),
@@ -731,18 +852,35 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
       try {
         setSavedStatus('saving');
+        const sourceHandle = params.sourceHandle || 'right';
+        const targetHandle = params.targetHandle || 'left';
+
         const newEdge = await ApiClient.createEdge({
           projectId: project.id,
           sourceNodeId: params.source,
           targetNodeId: params.target,
           kind: 'sequence',
+          metadata: {
+            sourceHandle,
+            targetHandle,
+          },
         });
 
         const edgeObj: Edge = {
           ...params,
           id: newEdge.id,
+          source: params.source,
+          target: params.target,
+          sourceHandle,
+          targetHandle,
           type: 'customEdge',
           animated: true,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: '#3b82f6',
+            width: 16,
+            height: 16,
+          },
           data: {
             kind: newEdge.kind || 'sequence',
             canEdit: permissions.canEditProject,
@@ -757,40 +895,177 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       } catch (err: any) {
         console.error('Failed to create edge:', err);
         showToast(err.message || 'Failed to connect steps');
-        setSavedStatus('saved');
+        setSavedStatus('error');
       }
     },
     [project.id, permissions.canEditProject, edges, setEdges, handleDeleteEdge]
   );
 
-  // Persist node position on drag stop
-  const onNodeDragStop = useCallback(
-    async (_event: React.MouseEvent, node: Node) => {
-      if (!permissions.canEditProject) return;
-      try {
-        setSavedStatus('saving');
-        await ApiClient.updateNode(node.id, {
-          positionX: Math.round(node.position.x),
-          positionY: Math.round(node.position.y),
-          version: 1,
-        });
+  // Debounced, race-condition-safe position persistence
+  const flushPendingPositionUpdates = useCallback(async () => {
+    if (pendingPositionUpdatesRef.current.size === 0) {
+      setSavedStatus('saved');
+      return;
+    }
+
+    const entriesToSave = Array.from(pendingPositionUpdatesRef.current.entries());
+    pendingPositionUpdatesRef.current.clear();
+
+    try {
+      setSavedStatus('saving');
+      await Promise.all(
+        entriesToSave.map(async ([nodeId, { x, y }]) => {
+          // Omit hardcoded version so backend optimistic check succeeds cleanly
+          await ApiClient.updateNode(nodeId, {
+            positionX: x,
+            positionY: y,
+          });
+        })
+      );
+      if (pendingPositionUpdatesRef.current.size === 0) {
         setSavedStatus('saved');
-      } catch (err) {
-        console.error('Failed to persist node position on drag stop:', err);
-        setSavedStatus('saved');
+        setSaveErrorMessage(null);
       }
+    } catch (err: any) {
+      console.error('Failed to persist node position(s):', err);
+      // Re-queue failed positions so user can retry without losing their work
+      for (const [nodeId, data] of entriesToSave) {
+        if (!pendingPositionUpdatesRef.current.has(nodeId)) {
+          pendingPositionUpdatesRef.current.set(nodeId, data);
+        }
+      }
+      setSavedStatus('error');
+      setSaveErrorMessage(err.message || 'Failed to save node positions');
+      showToast('Position autosave failed. Click Retry in the header.');
+    }
+  }, []);
+
+  const retryPendingSaves = useCallback(async () => {
+    await flushPendingPositionUpdates();
+  }, [flushPendingPositionUpdates]);
+
+  // Persist node position on drag stop with debouncing and conflict safety
+  const onNodeDragStop = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (!permissions.canEditProject) return;
+
+      const seq = ++positionSequenceRef.current;
+      pendingPositionUpdatesRef.current.set(node.id, {
+        x: Math.round(node.position.x),
+        y: Math.round(node.position.y),
+        seq,
+      });
+
+      setSavedStatus('saving');
+      setSaveErrorMessage(null);
+
+      if (positionSaveTimerRef.current) {
+        clearTimeout(positionSaveTimerRef.current);
+      }
+
+      positionSaveTimerRef.current = setTimeout(async () => {
+        await flushPendingPositionUpdates();
+      }, 300);
     },
-    [permissions.canEditProject]
+    [permissions.canEditProject, flushPendingPositionUpdates]
   );
 
-  // Search and Filter logic with visual dimming
+  // Persist canvas viewport on pan / zoom stop
+  const onViewportMoveEnd = useCallback(
+    (_event: MouseEvent | TouchEvent | null, newViewport: { x: number; y: number; zoom: number }) => {
+      if (
+        !newViewport ||
+        !Number.isFinite(newViewport.x) ||
+        !Number.isFinite(newViewport.y) ||
+        !Number.isFinite(newViewport.zoom)
+      ) {
+        return;
+      }
+
+      // 1. Instant local persistence for page refresh restoration
+      try {
+        localStorage.setItem(`flowtrack_viewport_${project.id}`, JSON.stringify(newViewport));
+      } catch (e) {}
+
+      // 2. Debounced backend persistence to project settings (if authorized)
+      if (permissions.canEditProject) {
+        if (viewportDebounceTimerRef.current) {
+          clearTimeout(viewportDebounceTimerRef.current);
+        }
+        viewportDebounceTimerRef.current = setTimeout(async () => {
+          try {
+            await ApiClient.updateProject(project.id, {
+              settings: {
+                ...(project.settings || {}),
+                viewport: newViewport,
+              },
+            });
+          } catch (e) {
+            console.warn('Failed to persist canvas viewport to project settings:', e);
+          }
+        }, 1000);
+      }
+    },
+    [project.id, project.settings, permissions.canEditProject]
+  );
+
+  // Restore viewport once nodes are loaded
+  useEffect(() => {
+    if (!loading && savedViewport && !initialViewportRestoredRef.current && currentParent.id === null) {
+      initialViewportRestoredRef.current = true;
+      try {
+        reactFlowInstance.setViewport(savedViewport, { duration: 0 });
+      } catch (e) {}
+    }
+  }, [loading, savedViewport, currentParent.id, reactFlowInstance]);
+
+  // Unsaved changes guard: alert before leaving tab if pending edits exist
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingPositionUpdatesRef.current.size > 0 || savedStatus === 'saving') {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (positionSaveTimerRef.current) {
+        clearTimeout(positionSaveTimerRef.current);
+      }
+      if (viewportDebounceTimerRef.current) {
+        clearTimeout(viewportDebounceTimerRef.current);
+      }
+    };
+  }, [savedStatus]);
+
+  // Clean back navigation with pending edits flush
+  const handleBackToProjects = useCallback(async () => {
+    if (pendingPositionUpdatesRef.current.size > 0) {
+      await flushPendingPositionUpdates();
+    }
+    onBack();
+  }, [flushPendingPositionUpdates, onBack]);
+
+  // Search and Filter logic with visual dimming (Chunk 6)
   const displayedNodes = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const todayEnd = todayStart + 24 * 60 * 60 * 1000;
+    const weekEnd = todayStart + 7 * 24 * 60 * 60 * 1000;
+
     const hasFilter =
       q !== '' ||
       statusFilter !== 'all' ||
       typeFilter !== 'all' ||
-      priorityFilter !== 'all';
+      priorityFilter !== 'all' ||
+      assignmentFilter !== 'all' ||
+      logicalStatusFilter !== 'all' ||
+      dueDateFilter !== 'all' ||
+      teamFilter !== 'all';
 
     if (!hasFilter) return nodes;
 
@@ -822,6 +1097,42 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         matches = matches && data.priority === priorityFilter;
       }
 
+      // Assignment filters (Chunk 6)
+      if (assignmentFilter === 'assigned_to_me') {
+        matches = matches && (data.ownerId === user?.id || data.owner?.id === user?.id);
+      } else if (assignmentFilter === 'assigned_by_me') {
+        matches = matches && (data.assignedById === user?.id || data.assignedBy?.id === user?.id);
+      } else if (assignmentFilter === 'unassigned') {
+        matches = matches && !data.ownerId && !data.owner?.id;
+      }
+
+      // Logical status filter mapping (Chunk 6)
+      if (logicalStatusFilter !== 'all') {
+        const logicalState = getLogicalState(data);
+        matches = matches && logicalState === logicalStatusFilter;
+      }
+
+      // Team filter (Chunk 6)
+      if (teamFilter !== 'all') {
+        matches = matches && data.teamId === teamFilter;
+      }
+
+      // Due date filter (Chunk 6)
+      if (dueDateFilter !== 'all') {
+        if (!data.dueDate) {
+          matches = false;
+        } else {
+          const dueTime = new Date(data.dueDate).getTime();
+          if (dueDateFilter === 'overdue') {
+            matches = matches && dueTime < now.getTime() && data.statusCategory !== 'done';
+          } else if (dueDateFilter === 'due_today') {
+            matches = matches && dueTime >= todayStart && dueTime <= todayEnd;
+          } else if (dueDateFilter === 'due_this_week') {
+            matches = matches && dueTime >= todayStart && dueTime <= weekEnd;
+          }
+        }
+      }
+
       return {
         ...node,
         style: {
@@ -833,7 +1144,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         },
       };
     });
-  }, [nodes, searchQuery, statusFilter, typeFilter, priorityFilter]);
+  }, [
+    nodes,
+    searchQuery,
+    statusFilter,
+    typeFilter,
+    priorityFilter,
+    assignmentFilter,
+    logicalStatusFilter,
+    dueDateFilter,
+    teamFilter,
+    user?.id,
+  ]);
 
   // Insert a node between two connected nodes (n8n signature feature)
   const handleInsertNodeBetween = async (edgeId: string) => {
@@ -902,8 +1224,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
     try {
       setSavedStatus('saving');
-      const posX = positionOverride?.x ?? (100 + nodes.length * 280);
-      const posY = positionOverride?.y ?? (200 + (nodes.length % 4) * 60);
+      let posX: number;
+      let posY: number;
+
+      if (positionOverride) {
+        posX = Math.round(positionOverride.x);
+        posY = Math.round(positionOverride.y);
+      } else {
+        const viewport = reactFlowInstance.getViewport();
+        const container = {
+          width: window.innerWidth,
+          height: Math.max(400, window.innerHeight - 112),
+        };
+        const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
+        posX = smartPos.x;
+        posY = smartPos.y;
+      }
 
       const titlePrefix = isMilestone
         ? 'Project Milestone Sign-Off'
@@ -932,10 +1268,28 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           sourceNodeId: sourceNodeToConnect,
           targetNodeId: created.id,
           kind: isMilestone || isApproval ? 'dependency' : 'sequence',
+          metadata: {
+            sourceHandle: 'right',
+            targetHandle: 'left',
+          },
         });
       }
 
       await loadGraph();
+
+      // Ensure newly created node is framed in view if partially off-screen
+      const currentViewport = reactFlowInstance.getViewport();
+      const containerDims = {
+        width: window.innerWidth,
+        height: Math.max(400, window.innerHeight - 112),
+      };
+      if (!isNodeInViewport({ x: posX, y: posY }, currentViewport, containerDims)) {
+        reactFlowInstance.setCenter(posX + 144, posY + 90, {
+          duration: 350,
+          zoom: currentViewport.zoom,
+        });
+      }
+
       setSavedStatus('saved');
       setQuickAddMenu(null);
       showToast(isMilestone ? 'Milestone added' : isApproval ? 'Approval Gate added' : 'Task added');
@@ -1016,8 +1370,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
   const onConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent) => {
-      const targetIsPane = (event.target as Element)?.classList?.contains('react-flow__pane');
-      if (targetIsPane && connectingNodeId.current) {
+      // Check if dropped on empty canvas space (not directly on another node or handle)
+      const targetEl = event.target as Element | null;
+      const hitNodeOrHandle = targetEl?.closest('.react-flow__node, .react-flow__handle');
+
+      if (!hitNodeOrHandle && connectingNodeId.current) {
         const clientX = 'clientX' in event ? event.clientX : event.touches[0].clientX;
         const clientY = 'clientY' in event ? event.clientY : event.touches[0].clientY;
 
@@ -1092,13 +1449,13 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   };
 
   return (
-    <div className="h-[calc(100vh-64px)] flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
+    <div className="h-[calc(100dvh-64px)] flex flex-col bg-slate-50 dark:bg-slate-950 relative overflow-hidden">
       {/* Top Studio Action Bar */}
       <div className="h-12 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 flex items-center justify-between z-20">
         <div className="flex items-center gap-2 overflow-x-auto py-1">
           <button
             id="canvas-back-btn"
-            onClick={onBack}
+            onClick={handleBackToProjects}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 whitespace-nowrap"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1238,30 +1595,55 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             </div>
           )}
 
-          {/* Auto-save badge */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+          {/* Auto-save & persistence badge */}
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+              savedStatus === 'saving'
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900 text-amber-600 dark:text-amber-400'
+                : savedStatus === 'error'
+                ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400'
+            }`}
+          >
             {savedStatus === 'saving' ? (
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+            ) : savedStatus === 'error' ? (
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
             ) : (
-              <Check className="w-3.5 h-3.5" />
+              <Check className="w-3.5 h-3.5 text-emerald-500" />
             )}
-            {savedStatus === 'saving' ? 'Saving...' : 'Saved'}
+            <span>
+              {savedStatus === 'saving'
+                ? 'Saving...'
+                : savedStatus === 'error'
+                ? 'Save failed'
+                : 'Saved'}
+            </span>
+            {savedStatus === 'error' && (
+              <button
+                onClick={retryPendingSaves}
+                className="ml-1 px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900 text-rose-700 dark:text-rose-200 hover:bg-rose-200 text-[10px] font-bold uppercase tracking-wider"
+                title={saveErrorMessage || 'Click to retry saving'}
+              >
+                Retry
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {/* Search & Filter Toolbar */}
-      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 z-10 text-xs">
-        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+      <div className="border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 z-10 text-xs">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
           {/* Search Box */}
-          <div className="relative flex-1 min-w-[180px] max-w-sm">
+          <div className="relative flex-1 min-w-[150px] max-w-sm">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               id="canvas-search-input"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter tasks, owners, keywords (Ctrl+F)..."
+              placeholder="Filter tasks, owners, keywords..."
               className="w-full pl-8 pr-7 py-1 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             {searchQuery && (
@@ -1275,63 +1657,133 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             )}
           </div>
 
-          {/* Status Filter */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-medium">
-            {(['all', 'active', 'blocked', 'done'] as const).map((st) => (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`px-2 py-0.5 rounded-md capitalize transition-all ${
-                  statusFilter === st
-                    ? 'bg-white dark:bg-slate-700 font-bold text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {st === 'all' ? 'All Status' : st}
-              </button>
-            ))}
-          </div>
-
-          {/* Type Filter */}
-          <select
-            value={typeFilter}
-            onChange={(e: any) => setTypeFilter(e.target.value)}
-            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+          {/* Mobile Filter Toggle Button (< sm screens) */}
+          <button
+            id="canvas-mobile-filters-toggle-btn"
+            type="button"
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+            className={`sm:hidden px-2.5 py-1 min-h-[36px] rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-colors shrink-0 ${
+              activeFilterCount > 0
+                ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-400 text-blue-600 dark:text-blue-300 font-bold'
+                : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+            }`}
+            title="Toggle Filter Options"
           >
-            <option value="all">All Types</option>
-            <option value="task">Tasks</option>
-            <option value="stage">Stage Groups</option>
-            <option value="milestone">Milestones</option>
-            <option value="approval">Approval Gates</option>
-          </select>
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-extrabold flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
 
-          {/* Priority Filter */}
-          <select
-            value={priorityFilter}
-            onChange={(e: any) => setPriorityFilter(e.target.value)}
-            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
-          >
-            <option value="all">All Priorities</option>
-            <option value="URGENT">Urgent</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="LOW">Low</option>
-          </select>
-
-          {/* Reset Filters */}
-          {(searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || priorityFilter !== 'all') && (
-            <button
-              onClick={() => {
-                setSearchQuery('');
-                setStatusFilter('all');
-                setTypeFilter('all');
-                setPriorityFilter('all');
-              }}
-              className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline px-1"
+          {/* Dropdown Filters Container (Inline on >=sm, Collapsible Drawer on <sm) */}
+          <div className={`${showMobileFilters ? 'flex' : 'hidden'} sm:flex flex-wrap items-center gap-2 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-slate-800`}>
+            {/* Assignment Filter */}
+            <select
+              value={assignmentFilter}
+              onChange={(e: any) => setAssignmentFilter(e.target.value)}
+              className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              title="Filter by task assignment"
             >
-              Reset Filters
-            </button>
-          )}
+              <option value="all">All Assignments</option>
+              <option value="assigned_to_me">👤 Assigned to Me</option>
+              <option value="assigned_by_me">📋 Assigned by Me</option>
+              <option value="unassigned">⚪ Unassigned</option>
+            </select>
+
+            {/* Logical Workflow Status Filter */}
+            <select
+              value={logicalStatusFilter}
+              onChange={(e: any) => setLogicalStatusFilter(e.target.value)}
+              className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              title="Filter by logical workflow state"
+            >
+              <option value="all">All Workflow States</option>
+              <option value="Open">🔵 Open</option>
+              <option value="In Progress">🟡 In Progress</option>
+              <option value="Pending Approval">⏳ Pending Approval</option>
+              <option value="Changes Requested">⚠️ Changes Requested</option>
+              <option value="Approved/Done">✅ Approved / Done</option>
+              <option value="Blocked">🚫 Blocked</option>
+            </select>
+
+            {/* Due Date Filter */}
+            <select
+              value={dueDateFilter}
+              onChange={(e: any) => setDueDateFilter(e.target.value)}
+              className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+              title="Filter by deadline status"
+            >
+              <option value="all">All Due Dates</option>
+              <option value="overdue">🔴 Overdue</option>
+              <option value="due_today">🟠 Due Today</option>
+              <option value="due_this_week">📅 Due This Week</option>
+            </select>
+
+            {/* Team Scope Filter */}
+            {teamsList.length > 0 && (
+              <select
+                value={teamFilter}
+                onChange={(e: any) => setTeamFilter(e.target.value)}
+                className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+                title="Filter by assigned team"
+              >
+                <option value="all">All Teams</option>
+                {teamsList.map((tm: any) => (
+                  <option key={tm.id} value={tm.id}>
+                    👥 {tm.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {/* Type Filter */}
+            <select
+              value={typeFilter}
+              onChange={(e: any) => setTypeFilter(e.target.value)}
+              className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+            >
+              <option value="all">All Types</option>
+              <option value="task">Tasks</option>
+              <option value="stage">Stage Groups</option>
+              <option value="milestone">Milestones</option>
+              <option value="approval">Approval Gates</option>
+            </select>
+
+            {/* Priority Filter */}
+            <select
+              value={priorityFilter}
+              onChange={(e: any) => setPriorityFilter(e.target.value)}
+              className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+            >
+              <option value="all">All Priorities</option>
+              <option value="URGENT">Urgent</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+            </select>
+
+            {/* Reset Filters */}
+            {(searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || priorityFilter !== 'all' || assignmentFilter !== 'all' || logicalStatusFilter !== 'all' || dueDateFilter !== 'all' || teamFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setStatusFilter('all');
+                  setTypeFilter('all');
+                  setPriorityFilter('all');
+                  setAssignmentFilter('all');
+                  setLogicalStatusFilter('all');
+                  setDueDateFilter('all');
+                  setTeamFilter('all');
+                }}
+                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline px-1 py-1"
+              >
+                Reset Filters
+              </button>
+            )}
+          </div>
         </div>
 
         {/* View helpers & Fit */}
@@ -1448,18 +1900,29 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           </div>
         ) : (
           <ReactFlow
-            nodes={displayedNodes}
+            nodes={displayedNodes as any}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesStateChange}
             onConnect={onConnect}
             onConnectStart={onConnectStart}
             onConnectEnd={onConnectEnd}
-            isValidConnection={isValidConnection}
-            onNodeDragStop={onNodeDragStop}
+            isValidConnection={isValidConnection as any}
+            onNodeDragStop={onNodeDragStop as any}
             nodesDraggable={permissions.canEditProject}
             nodesConnectable={permissions.canEditProject}
             elementsSelectable={true}
+            edgesFocusable={true}
+            edgesReconnectable={true}
+            preventScrolling={true}
+            zoomOnPinch={true}
+            panOnDrag={true}
+            panOnScroll={false}
+            autoPanOnNodeDrag={true}
+            connectionMode={ConnectionMode.Loose}
+            connectionRadius={35}
+            connectionLineType={ConnectionLineType.Bezier}
+            connectionLineStyle={{ stroke: '#3b82f6', strokeWidth: 3 }}
             onDoubleClick={onPaneDoubleClick}
             onNodeContextMenu={onNodeContextMenu}
             onPaneClick={() => {
@@ -1471,8 +1934,9 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             deleteKeyCode={['Backspace', 'Delete']}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            fitView
-            defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
+            fitView={!savedViewport}
+            defaultViewport={savedViewport || { x: 0, y: 0, zoom: 0.85 }}
+            onMoveEnd={onViewportMoveEnd}
             minZoom={0.2}
             maxZoom={2}
           >
@@ -1498,8 +1962,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           <div
             style={{
               position: 'fixed',
-              top: Math.min(window.innerHeight - 250, nodeContextMenu.y),
-              left: Math.min(window.innerWidth - 220, nodeContextMenu.x),
+              top: Math.max(12, Math.min(window.innerHeight - 260, nodeContextMenu.y)),
+              left: Math.max(12, Math.min(window.innerWidth - 240, nodeContextMenu.x)),
             }}
             className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
             onClick={(e) => e.stopPropagation()}
@@ -1593,8 +2057,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           <div
             style={{
               position: 'fixed',
-              top: Math.min(window.innerHeight - 260, quickAddMenu.y),
-              left: Math.min(window.innerWidth - 240, quickAddMenu.x),
+              top: Math.max(12, Math.min(window.innerHeight - 280, quickAddMenu.y)),
+              left: Math.max(12, Math.min(window.innerWidth - 240, quickAddMenu.x)),
             }}
             className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100"
           >

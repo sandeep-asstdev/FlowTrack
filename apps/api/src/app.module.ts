@@ -15,6 +15,8 @@ import { BackgroundJobsModule } from './modules/background-jobs/background-jobs.
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { HealthModule } from './modules/health/health.module';
+import { TeamsModule } from './modules/teams/teams.module';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { ReportsModule } from './modules/reports/reports.module';
     AuthModule,
     WorkspacesModule,
     ProjectsModule,
+    TeamsModule,
     NodesModule,
     EdgesModule,
     NodeTypesModule,
@@ -34,6 +37,7 @@ import { ReportsModule } from './modules/reports/reports.module';
     NotificationsModule,
     DocumentsModule,
     ReportsModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

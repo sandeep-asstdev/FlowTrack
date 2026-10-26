@@ -153,13 +153,13 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/40 backdrop-blur-xs flex justify-end">
       <div
-        className="w-full max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-200"
+        className="w-full sm:max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full pt-safe pb-safe animate-in slide-in-from-right duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+        <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
               <Bell className="w-4 h-4" />
             </div>
             <div>
@@ -179,12 +179,13 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllAsRead}
-                className="p-1.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg font-semibold flex items-center gap-1 transition-colors"
+                className="p-2 sm:p-1.5 min-h-[44px] text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg font-semibold flex items-center gap-1 transition-colors"
                 title="Mark all as read"
+                aria-label="Mark all as read"
               >
                 <CheckCheck className="w-4 h-4" />
                 <span className="hidden sm:inline">Mark all read</span>
@@ -192,7 +193,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             )}
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+              aria-label="Close notifications"
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -200,12 +202,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex items-center gap-1.5 overflow-x-auto text-xs">
+        <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex items-center gap-1.5 overflow-x-auto text-xs touch-pan-x">
           <button
             onClick={() => { setFilterType('all'); setOnlyUnread(false); }}
-            className={`px-2.5 py-1 rounded-lg font-semibold transition-colors shrink-0 ${
+            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'all' && !onlyUnread
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
@@ -213,9 +215,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => setOnlyUnread(!onlyUnread)}
-            className={`px-2.5 py-1 rounded-lg font-semibold transition-colors shrink-0 ${
+            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               onlyUnread
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
@@ -223,9 +225,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => { setFilterType('ASSIGNMENT'); setOnlyUnread(false); }}
-            className={`px-2.5 py-1 rounded-lg font-semibold transition-colors shrink-0 ${
+            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'ASSIGNMENT'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
@@ -233,9 +235,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => { setFilterType('APPROVAL_REQUEST'); setOnlyUnread(false); }}
-            className={`px-2.5 py-1 rounded-lg font-semibold transition-colors shrink-0 ${
+            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'APPROVAL_REQUEST'
-                ? 'bg-purple-600 text-white'
+                ? 'bg-purple-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
@@ -243,9 +245,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => { setFilterType('BLOCKER'); setOnlyUnread(false); }}
-            className={`px-2.5 py-1 rounded-lg font-semibold transition-colors shrink-0 ${
+            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'BLOCKER'
-                ? 'bg-rose-600 text-white'
+                ? 'bg-rose-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
           >
@@ -321,10 +323,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                         {!notif.read && (
                           <button
                             onClick={(e) => handleMarkAsRead(notif.id, e)}
-                            className="p-1 hover:text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-950 rounded transition-colors"
+                            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center hover:text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-950 rounded-lg transition-colors"
                             title="Mark read"
+                            aria-label="Mark notification as read"
                           >
-                            <Check className="w-3.5 h-3.5" />
+                            <Check className="w-4 h-4" />
                           </button>
                         )}
                       </div>

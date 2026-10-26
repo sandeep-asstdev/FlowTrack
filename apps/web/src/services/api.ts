@@ -75,6 +75,20 @@ export class ApiClient {
     return this.request('/auth/register', { method: 'POST', body: JSON.stringify(body) });
   }
 
+  static loginWithGoogle(idTokenOrCredential: string) {
+    return this.request('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken: idTokenOrCredential }),
+    });
+  }
+
+  static linkGoogleAccount(idTokenOrCredential: string) {
+    return this.request('/auth/google/link', {
+      method: 'POST',
+      body: JSON.stringify({ idToken: idTokenOrCredential }),
+    });
+  }
+
   static requestOtp(phone: string) {
     return this.request('/auth/otp/request', { method: 'POST', body: JSON.stringify({ phone }) });
   }
@@ -104,6 +118,26 @@ export class ApiClient {
     return this.request(`/workspaces/${workspaceId}/members/invite`, {
       method: 'POST',
       body: JSON.stringify({ email, role }),
+    });
+  }
+
+  static updateMemberRole(workspaceId: string, userId: string, role: string) {
+    return this.request(`/workspaces/${workspaceId}/members/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  static updateMemberStatus(workspaceId: string, userId: string, isActive: boolean) {
+    return this.request(`/workspaces/${workspaceId}/members/${userId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    });
+  }
+
+  static removeWorkspaceMember(workspaceId: string, userId: string) {
+    return this.request(`/workspaces/${workspaceId}/members/${userId}`, {
+      method: 'DELETE',
     });
   }
 
@@ -142,6 +176,32 @@ export class ApiClient {
     });
   }
 
+  static getProjectMembers(projectId: string) {
+    return this.request(`/projects/${projectId}/members`);
+  }
+
+  static addProjectMember(projectId: string, body: { userId: string; role?: string }) {
+    return this.request(`/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  static removeProjectMember(projectId: string, userId: string) {
+    return this.request(`/projects/${projectId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Teams
+  static getTeams() {
+    return this.request('/teams');
+  }
+
+  static createTeam(body: { name: string; colour?: string; leadId?: string }) {
+    return this.request('/teams', { method: 'POST', body: JSON.stringify(body) });
+  }
+
   // Templates
   static getTemplates(params?: { industry?: string; category?: string }) {
     const query = new URLSearchParams();
@@ -175,13 +235,42 @@ export class ApiClient {
   }
 
   // Nodes & Edges
-  static getNodes(projectId: string, parentNodeId?: string | null) {
+  static getNodes(
+    projectId: string,
+    parentNodeId?: string | null,
+    filters?: {
+      search?: string;
+      customFieldKey?: string;
+      customFieldValue?: string;
+      ownerId?: string;
+      assignedById?: string;
+      assignedToMe?: boolean;
+      assignedByMe?: boolean;
+      teamId?: string;
+      statusId?: string;
+      approvalStatus?: string;
+      dueBefore?: string;
+      dueAfter?: string;
+    }
+  ) {
     const query = new URLSearchParams({ projectId });
     if (parentNodeId && parentNodeId !== 'root') {
       query.append('parentNodeId', parentNodeId);
     } else {
       query.append('parentNodeId', 'all');
     }
+    if (filters?.search) query.append('search', filters.search);
+    if (filters?.customFieldKey) query.append('customFieldKey', filters.customFieldKey);
+    if (filters?.customFieldValue) query.append('customFieldValue', filters.customFieldValue);
+    if (filters?.ownerId) query.append('ownerId', filters.ownerId);
+    if (filters?.assignedById) query.append('assignedById', filters.assignedById);
+    if (filters?.assignedToMe) query.append('assignedToMe', 'true');
+    if (filters?.assignedByMe) query.append('assignedByMe', 'true');
+    if (filters?.teamId) query.append('teamId', filters.teamId);
+    if (filters?.statusId) query.append('statusId', filters.statusId);
+    if (filters?.approvalStatus) query.append('approvalStatus', filters.approvalStatus);
+    if (filters?.dueBefore) query.append('dueBefore', filters.dueBefore);
+    if (filters?.dueAfter) query.append('dueAfter', filters.dueAfter);
     return this.request(`/nodes?${query.toString()}`);
   }
 
@@ -211,6 +300,22 @@ export class ApiClient {
 
   static approveTask(nodeId: string, body: { decision: 'approved' | 'rejected'; feedback?: string }) {
     return this.request(`/nodes/${nodeId}/approve`, { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  static submitTask(nodeId: string, body?: { notes?: string }) {
+    return this.request(`/nodes/${nodeId}/submit`, { method: 'POST', body: JSON.stringify(body || {}) });
+  }
+
+  static getTaskApprovals(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/approvals`);
+  }
+
+  static getReviewQueue(params?: { workspaceId?: string; projectId?: string }) {
+    const query = new URLSearchParams();
+    if (params?.workspaceId) query.append('workspaceId', params.workspaceId);
+    if (params?.projectId) query.append('projectId', params.projectId);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request(`/nodes/review-queue${qs}`);
   }
 
   static reportBlocker(nodeId: string, body: { reason: string; blockerStatusId?: string }) {
@@ -344,6 +449,27 @@ export class ApiClient {
   static getWorkspaceReport() {
     if (!this.activeWorkspaceId) throw new Error('No active workspace');
     return this.request(`/workspaces/${this.activeWorkspaceId}/reports/workspace`);
+  }
+
+  static getRoleDashboard(workspaceId?: string) {
+    const wsId = workspaceId || this.activeWorkspaceId;
+    if (!wsId) throw new Error('No active workspace');
+    return this.request(`/workspaces/${wsId}/reports/role-dashboard`);
+  }
+
+  static getWorkspaceAuditHistory(
+    workspaceId?: string,
+    options?: { limit?: number; offset?: number; entityName?: string; action?: string }
+  ) {
+    const wsId = workspaceId || this.activeWorkspaceId;
+    if (!wsId) throw new Error('No active workspace');
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    if (options?.entityName) params.append('entityName', options.entityName);
+    if (options?.action) params.append('action', options.action);
+    const q = params.toString();
+    return this.request(`/workspaces/${wsId}/history${q ? `?${q}` : ''}`);
   }
 
   static async downloadProjectReportCsv(projectId: string, type: 'tasks' | 'milestones' | 'financials' | 'workload' = 'tasks') {

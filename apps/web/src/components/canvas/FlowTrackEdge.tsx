@@ -17,6 +17,7 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
   targetPosition,
   style = {},
   markerEnd,
+  selected,
   data,
 }) => {
   const [edgePath, labelX, labelY] = getBezierPath({
@@ -41,11 +42,15 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
   const isDependency = kind === 'dependency';
   const isRelated = kind === 'related';
 
-  const strokeColor = isDependency
+  const defaultStroke = isDependency
     ? '#f59e0b'
     : isRelated
     ? '#94a3b8'
     : '#3b82f6';
+
+  const strokeColor = selected
+    ? '#2563eb'
+    : defaultStroke;
 
   const strokeDasharray = isDependency
     ? '6 4'
@@ -53,15 +58,41 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
     ? '3 3'
     : undefined;
 
+  const strokeWidth = selected
+    ? 4
+    : isDependency
+    ? 3
+    : 2.5;
+
   return (
     <>
+      {/* Invisible wider hit-area path for easy edge clicking & selection on touchscreens */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={32}
+        className="cursor-pointer react-flow__edge-interaction"
+      />
+      {/* Selection Glow Outline */}
+      {selected && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#93c5fd"
+          strokeWidth={8}
+          strokeOpacity={0.6}
+          className="pointer-events-none transition-all duration-150 animate-pulse"
+        />
+      )}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
           stroke: strokeColor,
-          strokeWidth: isDependency ? 3 : 2.5,
+          strokeWidth,
           strokeDasharray,
+          transition: 'stroke 0.15s ease, stroke-width 0.15s ease',
           ...style,
         }}
         markerEnd={markerEnd}
@@ -92,9 +123,13 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
             </span>
           )}
 
-          {/* Interactive controls (hidden if user is unauthorized/view-only) */}
+          {/* Interactive controls (visible on hover or when edge is selected) */}
           {canEdit && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div
+              className={`flex items-center gap-1.5 transition-opacity ${
+                selected ? 'opacity-100 scale-105' : 'opacity-0 group-hover:opacity-100'
+              }`}
+            >
               {/* Midpoint '+' insert button */}
               <button
                 type="button"
@@ -102,10 +137,10 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
                   e.stopPropagation();
                   if (onInsertNode) onInsertNode(id);
                 }}
-                className="w-5 h-5 rounded-full bg-white dark:bg-slate-800 border-2 border-blue-500 text-blue-600 dark:text-blue-400 hover:scale-125 hover:bg-blue-600 hover:text-white flex items-center justify-center shadow-md transition-all text-xs font-bold"
+                className="w-7 h-7 sm:w-5 sm:h-5 rounded-full bg-white dark:bg-slate-800 border-2 border-blue-500 text-blue-600 dark:text-blue-400 hover:scale-125 active:scale-125 hover:bg-blue-600 hover:text-white flex items-center justify-center shadow-md transition-all text-xs font-bold after:content-[''] after:absolute after:-inset-2 after:rounded-full relative"
                 title="Insert task between these steps"
               >
-                <Plus className="w-3 h-3" />
+                <Plus className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
               </button>
 
               {/* Quick edge delete button */}
@@ -115,10 +150,10 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
                   e.stopPropagation();
                   if (onEdgeDelete) onEdgeDelete(id);
                 }}
-                className="w-5 h-5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-500 hover:border-rose-400 flex items-center justify-center shadow-sm transition-all"
+                className="w-7 h-7 sm:w-5 sm:h-5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-500 hover:border-rose-400 flex items-center justify-center shadow-sm transition-all after:content-[''] after:absolute after:-inset-2 after:rounded-full relative"
                 title="Remove connection"
               >
-                <Trash2 className="w-2.5 h-2.5" />
+                <Trash2 className="w-3 h-3 sm:w-2.5 sm:h-2.5" />
               </button>
             </div>
           )}

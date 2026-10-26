@@ -7,18 +7,23 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
-import { RegisterDto, LoginDto, RequestOtpDto, VerifyOtpDto } from '@flowtrack/shared';
+import { RegisterDto, LoginDto, RequestOtpDto, VerifyOtpDto, GoogleAuthDto } from '@flowtrack/shared';
 import { Role } from '@prisma/client';
+import { GoogleAuthService } from './google-auth.service';
 
 @Injectable()
 export class AuthService {
   // Mock store for OTP in development
   private otpStore = new Map<string, string>();
+  private readonly googleAuthService: GoogleAuthService;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly jwtService: JwtService
-  ) {}
+    private readonly jwtService: JwtService,
+    googleAuthService?: GoogleAuthService
+  ) {
+    this.googleAuthService = googleAuthService || new GoogleAuthService();
+  }
 
   async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findFirst({
@@ -87,6 +92,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    if (user.deletedAt || !user.isActive) {
+      throw new UnauthorizedException('Account is deactivated. Please contact your platform administrator.');
+    }
+
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) {
       throw new UnauthorizedException('Invalid email or password');
@@ -103,6 +112,7 @@ export class AuthService {
         phone: user.phone,
         avatarUrl: user.avatarUrl,
         locale: user.locale,
+        isActive: user.isActive,
       },
       workspaces: user.memberships.map((m) => ({
         id: m.workspace.id,
@@ -141,6 +151,10 @@ export class AuthService {
         },
       },
     });
+
+    if (user && (user.deletedAt || !user.isActive)) {
+      throw new UnauthorizedException('Account is deactivated. Please contact your platform administrator.');
+    }
 
     if (!user) {
       // Create new user on the fly for phone OTP
@@ -198,6 +212,7 @@ export class AuthService {
         phone: user.phone,
         avatarUrl: user.avatarUrl,
         locale: user.locale,
+        isActive: user.isActive,
       },
       workspaces: user.memberships.map((m) => ({
         id: m.workspace.id,
@@ -222,8 +237,8 @@ export class AuthService {
       },
     });
 
-    if (!user) {
-      throw new UnauthorizedException('User not found');
+    if (!user || user.deletedAt || !user.isActive) {
+      throw new UnauthorizedException('User not found or deactivated');
     }
 
     return {
@@ -233,6 +248,7 @@ export class AuthService {
       phone: user.phone,
       avatarUrl: user.avatarUrl,
       locale: user.locale,
+      isActive: user.isActive,
       workspaces: user.memberships.map((m) => ({
         id: m.workspace.id,
         name: m.workspace.name,
@@ -240,6 +256,178 @@ export class AuthService {
         role: m.role,
         logoUrl: m.workspace.logoUrl,
       })),
+    };
+  }
+
+  /**
+   * Secure "Continue with Google" handler supporting both Sign In and Sign Up.
+   * - Verifies token signature, issuer, audience, expiry, and email status via GoogleAuthService.
+   * - Matches existing user by googleId or email safely (avoids duplicate accounts).
+   * - Preserves existing roles and permissions (never automatically elevates roles).
+   * - If new user, creates user record with standard MEMBER role and personal workspace.
+   */
+  async loginWithGoogle(dto: GoogleAuthDto) {
+    const rawToken = dto.idToken || dto.credential;
+    if (!rawToken) {
+      throw new BadRequestException('Google ID token is required');
+    }
+
+    const googleUser = await this.googleAuthService.verifyIdToken(rawToken);
+
+    // 1. Check if user exists by either googleId or email
+    let user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { googleId: googleUser.sub },
+          { email: googleUser.email },
+        ],
+      },
+      include: {
+        memberships: {
+          include: {
+            workspace: true,
+          },
+        },
+      },
+    });
+
+    if (user) {
+      // 2. Reject deactivated or soft-deleted accounts
+      if (user.deletedAt || !user.isActive) {
+        throw new UnauthorizedException('Account is deactivated. Please contact your platform administrator.');
+      }
+
+      // 3. Link googleId or update avatar if newly signing in via Google with matching email
+      const needsGoogleIdLink = !user.googleId;
+      const needsAvatarUpdate = !user.avatarUrl && googleUser.picture;
+
+      if (needsGoogleIdLink || needsAvatarUpdate) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            ...(needsGoogleIdLink ? { googleId: googleUser.sub } : {}),
+            ...(needsAvatarUpdate ? { avatarUrl: googleUser.picture } : {}),
+          },
+          include: {
+            memberships: {
+              include: {
+                workspace: true,
+              },
+            },
+          },
+        });
+      }
+    } else {
+      // 4. New user: register via Google with standard non-elevated MEMBER role
+      const fullName = googleUser.name || googleUser.email.split('@')[0];
+
+      user = await this.prisma.user.create({
+        data: {
+          email: googleUser.email,
+          fullName,
+          avatarUrl: googleUser.picture || null,
+          googleId: googleUser.sub,
+          passwordHash: null,
+          isActive: true,
+        },
+        include: {
+          memberships: {
+            include: {
+              workspace: true,
+            },
+          },
+        },
+      });
+
+      // Create user's initial default personal workspace with standard MEMBER role
+      const baseSlug = fullName
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .slice(0, 30);
+      const slug = `${baseSlug}-workspace-${Math.floor(Math.random() * 10000)}`;
+
+      const workspace = await this.prisma.workspace.create({
+        data: {
+          name: `${user.fullName}'s Workspace`,
+          slug,
+          memberships: {
+            create: {
+              userId: user.id,
+              role: Role.MEMBER, // Never automatically grant elevated roles to Google users
+            },
+          },
+        },
+      });
+
+      user.memberships = [
+        {
+          id: 'initial',
+          workspaceId: workspace.id,
+          userId: user.id,
+          role: Role.MEMBER,
+          projectPermissions: {},
+          createdAt: new Date(),
+          workspace,
+        } as any,
+      ];
+    }
+
+    const defaultWorkspaceId = user.memberships?.[0]?.workspaceId;
+    const token = this.generateToken(user.id, user.email, defaultWorkspaceId);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        avatarUrl: user.avatarUrl,
+        locale: user.locale,
+        isActive: user.isActive,
+        googleLinked: Boolean(user.googleId),
+      },
+      workspaces: (user.memberships || []).map((m) => ({
+        id: m.workspace?.id || m.workspaceId,
+        name: m.workspace?.name || 'Workspace',
+        slug: m.workspace?.slug || '',
+        role: m.role,
+      })),
+      activeWorkspaceId: defaultWorkspaceId,
+      accessToken: token,
+    };
+  }
+
+  /**
+   * Link Google account to an authenticated user session
+   */
+  async linkGoogleAccount(userId: string, dto: GoogleAuthDto) {
+    const rawToken = dto.idToken || dto.credential;
+    if (!rawToken) {
+      throw new BadRequestException('Google ID token is required');
+    }
+
+    const googleUser = await this.googleAuthService.verifyIdToken(rawToken);
+
+    // Verify whether this googleId is already linked to another user account
+    const existingGoogleUser = await this.prisma.user.findFirst({
+      where: { googleId: googleUser.sub },
+    });
+
+    if (existingGoogleUser && existingGoogleUser.id !== userId) {
+      throw new ConflictException('This Google account is already linked to another FlowTrack user.');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        googleId: googleUser.sub,
+        ...(googleUser.picture ? { avatarUrl: googleUser.picture } : {}),
+      },
+    });
+
+    return {
+      message: 'Google account linked successfully',
+      googleId: updated.googleId,
     };
   }
 

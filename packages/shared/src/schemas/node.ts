@@ -24,6 +24,10 @@ export const createNodeSchema = z.object({
   ownerId: z.string().uuid().nullable().optional(),
   reviewerId: z.string().uuid().nullable().optional(),
   teamId: z.string().uuid().nullable().optional(),
+  assignedById: z.string().uuid().nullable().optional(),
+  assignedAt: isoDateTimeSchema,
+  submitterId: z.string().uuid().nullable().optional(),
+  submittedAt: isoDateTimeSchema,
   statusId: z.string().uuid().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
   weight: z.number().positive().default(1.0),
@@ -60,7 +64,7 @@ export const batchUpdateNodePositionsSchema = z.object({
 });
 
 export const approveTaskSchema = z.object({
-  decision: z.enum(['approved', 'rejected']),
+  decision: z.enum(['approved', 'rejected', 'changes_requested']),
   feedback: z.string().optional(),
 });
 
@@ -74,9 +78,24 @@ export const requestDeadlineExtensionSchema = z.object({
   justification: z.string().min(1, 'Justification is required'),
 });
 
-export type CreateNodeDto = z.infer<typeof createNodeSchema>;
+export const taskApprovalSchema = z.object({
+  id: z.string().uuid().optional(),
+  workspaceId: z.string().uuid(),
+  nodeId: z.string().uuid(),
+  submitterId: z.string().uuid().nullable().optional(),
+  submittedAt: isoDateTimeSchema,
+  reviewerId: z.string().uuid(),
+  decision: z.enum(['approved', 'rejected', 'changes_requested']),
+  feedback: z.string().nullable().optional(),
+  decidedAt: isoDateTimeSchema,
+  createdAt: isoDateTimeSchema,
+});
+
+export type CreateNodeDto = z.input<typeof createNodeSchema>;
+export type CreateNodeOutput = z.infer<typeof createNodeSchema>;
 export type UpdateNodeDto = z.infer<typeof updateNodeSchema>;
 export type BatchUpdateNodePositionsDto = z.infer<typeof batchUpdateNodePositionsSchema>;
 export type ApproveTaskDto = z.infer<typeof approveTaskSchema>;
 export type ReportBlockerDto = z.infer<typeof reportBlockerSchema>;
 export type RequestDeadlineExtensionDto = z.infer<typeof requestDeadlineExtensionSchema>;
+export type TaskApprovalDto = z.infer<typeof taskApprovalSchema>;

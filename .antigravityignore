@@ -1,0 +1,83 @@
+# Antigravity Ignore Rules
+# Improves agent indexing, search speed, and token efficiency by excluding
+# non-source, generated, binary, and large temporary files.
+
+# --- Dependencies ---
+node_modules/
+**/node_modules/
+
+# --- Build Outputs & Compilation ---
+dist/
+**/dist/
+build/
+**/build/
+out/
+**/out/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# --- Environment & Sensitive Files ---
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+
+# --- Package Manager Lockfiles & Binaries ---
+# Lockfiles consume massive token context during file searches and indexing
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+pnpm.cmd
+pnpm.ps1
+
+# --- Test Coverage & Tool Caches ---
+coverage/
+**/coverage/
+.nyc_output/
+.turbo/
+**/.turbo/
+.cache/
+**/.cache/
+.vite/
+**/.vite/
+
+# --- Runtime Uploads & Storage Data ---
+vault_storage/
+**/vault_storage/
+storage/
+**/storage/
+uploads/
+**/uploads/
+
+# --- Logs & Debug Dumps ---
+*.log
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- OS & Editor Metadata ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+**/.idea/
+*.swp
+*.swo
+*~
+
+# --- Large Binaries, Documents & Archives ---
+*.docx
+*.pdf
+*.zip
+*.tar
+*.gz
+*.tar.gz
+*.rar
+*.7z
+*.exe
+*.dll
+*.iso

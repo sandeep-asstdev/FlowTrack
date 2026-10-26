@@ -100,5 +100,39 @@ export class ProjectsController {
     const actorId = req.user?.id || req.user?.sub;
     return this.projectsService.saveAsTemplate(id, wsId, actorId, dto);
   }
+
+  @Get(':id/members')
+  getMembers(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    return this.projectsService.listProjectMembers(id, wsId);
+  }
+
+  @Post(':id/members')
+  addMember(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.addOrUpdateProjectMember(id, wsId, actorId, dto);
+  }
+
+  @Delete(':id/members/:userId')
+  removeMember(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.removeProjectMember(id, wsId, actorId, userId);
+  }
 }
 

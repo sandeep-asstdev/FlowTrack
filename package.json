@@ -10,7 +10,7 @@
     "build:shared": "pnpm --filter @flowtrack/shared build",
     "build": "pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api build && pnpm --filter @flowtrack/web build",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r --if-present run lint"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

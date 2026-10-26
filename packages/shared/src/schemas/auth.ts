@@ -21,7 +21,18 @@ export const verifyOtpSchema = z.object({
   otp: z.string().length(6, 'OTP must be 6 digits'),
 });
 
+export const googleAuthSchema = z
+  .object({
+    idToken: z.string().optional(),
+    credential: z.string().optional(),
+  })
+  .refine((data) => Boolean(data.idToken || data.credential), {
+    message: 'Google ID token or credential is required',
+    path: ['idToken'],
+  });
+
 export type RegisterDto = z.infer<typeof registerSchema>;
 export type LoginDto = z.infer<typeof loginSchema>;
 export type RequestOtpDto = z.infer<typeof requestOtpSchema>;
 export type VerifyOtpDto = z.infer<typeof verifyOtpSchema>;
+export type GoogleAuthDto = z.infer<typeof googleAuthSchema>;

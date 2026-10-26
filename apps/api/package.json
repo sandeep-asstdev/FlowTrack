@@ -10,6 +10,8 @@
     "start:prod": "node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
     "test": "vitest run"
   },
@@ -31,6 +33,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "dotenv": "^16.4.7",
+    "google-auth-library": "^11.3.1",
     "ioredis": "^5.4.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

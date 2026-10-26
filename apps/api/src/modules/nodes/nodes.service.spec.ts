@@ -44,7 +44,7 @@ describe('NodesService - Workflow Transition Rules, Progress Rollup & Approvals'
       membership: {
         findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
       },
-      $transaction: vi.fn((calls) => Promise.all(calls)),
+      $transaction: vi.fn((calls) => (typeof calls === 'function' ? calls(mockPrisma) : Promise.all(calls))),
     };
 
     service = new NodesService(mockPrisma);
@@ -192,8 +192,8 @@ describe('NodesService - Workflow Transition Rules, Progress Rollup & Approvals'
         projectId: 'proj-1',
         reviewerId: 'reviewer-sarah',
         approvalStatus: 'pending',
-        workspace: { memberships: [{ role: 'MEMBER' }] },
-        project: { members: [{ role: 'MEMBER' }] },
+        workspace: { memberships: [{ role: 'MANAGER' }] },
+        project: { members: [{ role: 'MANAGER' }] },
       });
 
       mockPrisma.node.update.mockResolvedValueOnce({
@@ -230,13 +230,14 @@ describe('NodesService - Workflow Transition Rules, Progress Rollup & Approvals'
         workspaceId: 'ws-1',
         projectId: 'proj-1',
         reviewerId: 'reviewer-sarah', // Assigned to Sarah
+        approvalStatus: 'pending',
         workspace: { memberships: [{ role: 'MEMBER' }] }, // Tom is only a regular member
         project: { members: [{ role: 'MEMBER' }] },
       });
 
       await expect(
         service.approveTask('task-audit-gate', 'unauthorized-tom', { decision: 'approved' })
-      ).rejects.toThrow(/Unauthorized: Only the designated reviewer/);
+      ).rejects.toThrow(/Unauthorized: Only Managers and Team Leads can approve or reject tasks/);
     });
   });
 

@@ -31,6 +31,8 @@ export interface DynamicCustomFieldsFormProps {
   onChange: (updatedValues: Record<string, any>) => void;
   onBlur?: () => void;
   userRole?: string;
+  currentUserRole?: string;
+  members?: any[];
   isReadOnly?: boolean;
   errors?: Record<string, string>;
   className?: string;
@@ -43,11 +45,14 @@ export const DynamicCustomFieldsForm: React.FC<DynamicCustomFieldsFormProps> = (
   onChange,
   onBlur,
   userRole,
+  currentUserRole,
+  members,
   isReadOnly = false,
   errors = {},
   className = '',
   gridCols = 2,
 }) => {
+  const effectiveUserRole = userRole || currentUserRole;
   const { i18n } = useTranslation();
   const currentLang = i18n.language || 'en';
 

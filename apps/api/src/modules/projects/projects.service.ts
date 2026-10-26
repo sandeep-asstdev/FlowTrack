@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto, UpdateProjectDto, validateCustomData } from '@flowtrack/shared';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
@@ -442,6 +443,147 @@ export class ProjectsService {
     }
 
     return template;
+  }
+
+  async listProjectMembers(projectId: string, workspaceId: string) {
+    await this.getProject(projectId, workspaceId);
+
+    const members = await this.prisma.projectMember.findMany({
+      where: { projectId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            avatarUrl: true,
+            isActive: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return members;
+  }
+
+  async addOrUpdateProjectMember(
+    projectId: string,
+    workspaceId: string,
+    actorId: string,
+    dto: { userId: string; role?: Role }
+  ) {
+    await this.getProject(projectId, workspaceId);
+
+    // Verify actor is Admin or Project Manager
+    const wsMembership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: actorId } },
+    });
+    if (!wsMembership) {
+      throw new ForbiddenException('Unauthorized: Not a member of this workspace');
+    }
+
+    if (wsMembership.role !== Role.ADMIN) {
+      const projMember = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId: actorId } },
+      });
+      if (!projMember || (projMember.role !== Role.MANAGER && projMember.role !== Role.ADMIN)) {
+        throw new ForbiddenException('Unauthorized: Only Admins or Project Managers can assign project members');
+      }
+    }
+
+    // Target user must be an active workspace member
+    const targetWsMembership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: dto.userId } },
+      include: { user: true },
+    });
+
+    if (!targetWsMembership || !targetWsMembership.user.isActive || targetWsMembership.user.deletedAt) {
+      throw new BadRequestException('Target user is not an active member of this workspace');
+    }
+
+    const member = await this.prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId, userId: dto.userId } },
+      update: { role: dto.role || Role.MEMBER },
+      create: { projectId, userId: dto.userId, role: dto.role || Role.MEMBER },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            avatarUrl: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId,
+        projectId,
+        entityName: 'ProjectMember',
+        entityId: member.id,
+        actorId,
+        action: 'PROJECT_MEMBER_ASSIGNED',
+        newValues: { projectId, userId: dto.userId, role: member.role },
+      },
+    }).catch(() => null);
+
+    return member;
+  }
+
+  async removeProjectMember(
+    projectId: string,
+    workspaceId: string,
+    actorId: string,
+    userId: string
+  ) {
+    await this.getProject(projectId, workspaceId);
+
+    const wsMembership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: actorId } },
+    });
+    if (!wsMembership) {
+      throw new ForbiddenException('Unauthorized: Not a member of this workspace');
+    }
+
+    if (wsMembership.role !== Role.ADMIN) {
+      const projMember = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId: actorId } },
+      });
+      if (!projMember || (projMember.role !== Role.MANAGER && projMember.role !== Role.ADMIN)) {
+        throw new ForbiddenException('Unauthorized: Only Admins or Project Managers can remove project members');
+      }
+    }
+
+    const target = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+
+    if (!target) {
+      throw new NotFoundException('Project member not found');
+    }
+
+    // Removing membership must NOT erase historical tasks or approvals
+    await this.prisma.projectMember.delete({
+      where: { projectId_userId: { projectId, userId } },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        workspaceId,
+        projectId,
+        entityName: 'ProjectMember',
+        entityId: target.id,
+        actorId,
+        action: 'PROJECT_MEMBER_REMOVED',
+        oldValues: { projectId, userId, role: target.role },
+      },
+    }).catch(() => null);
+
+    return { success: true };
   }
 }
 

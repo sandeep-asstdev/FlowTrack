@@ -288,4 +288,65 @@ describe('Canvas Core Operations & Workflow Interaction Tests', () => {
       expect(parsedIso).toBeNull();
     });
   });
+
+  describe('n8n-Style Workflow Connection & Edge Lifecycle', () => {
+    it('preserves sourceHandle and targetHandle metadata in edge creation payload', () => {
+      const connectionParams = {
+        source: 'node-step-1',
+        target: 'node-step-2',
+        sourceHandle: 'right',
+        targetHandle: 'left',
+      };
+
+      const edgePayload = {
+        projectId: 'proj-1',
+        sourceNodeId: connectionParams.source,
+        targetNodeId: connectionParams.target,
+        kind: 'sequence',
+        metadata: {
+          sourceHandle: connectionParams.sourceHandle,
+          targetHandle: connectionParams.targetHandle,
+        },
+      };
+
+      expect(edgePayload.metadata.sourceHandle).toBe('right');
+      expect(edgePayload.metadata.targetHandle).toBe('left');
+    });
+
+    it('computes distinct selection styling when edge is selected', () => {
+      const getEdgeVisualProps = (isDependency: boolean, selected?: boolean) => {
+        const defaultStroke = isDependency ? '#f59e0b' : '#3b82f6';
+        const strokeColor = selected ? '#2563eb' : defaultStroke;
+        const strokeWidth = selected ? 4 : isDependency ? 3 : 2.5;
+        return { strokeColor, strokeWidth };
+      };
+
+      const normalSeq = getEdgeVisualProps(false, false);
+      expect(normalSeq.strokeColor).toBe('#3b82f6');
+      expect(normalSeq.strokeWidth).toBe(2.5);
+
+      const selectedSeq = getEdgeVisualProps(false, true);
+      expect(selectedSeq.strokeColor).toBe('#2563eb');
+      expect(selectedSeq.strokeWidth).toBe(4);
+
+      const selectedDep = getEdgeVisualProps(true, true);
+      expect(selectedDep.strokeColor).toBe('#2563eb');
+      expect(selectedDep.strokeWidth).toBe(4);
+    });
+
+    it('removes deleted edge correctly from the active edge list on deletion', () => {
+      const initialEdges = [
+        { id: 'e1', source: 'n1', target: 'n2' },
+        { id: 'e2', source: 'n2', target: 'n3' },
+        { id: 'e3', source: 'n3', target: 'n4' },
+      ];
+
+      const deleteEdgeId = 'e2';
+      const updatedEdges = initialEdges.filter((e) => e.id !== deleteEdgeId);
+
+      expect(updatedEdges.length).toBe(2);
+      expect(updatedEdges.find((e) => e.id === 'e2')).toBeUndefined();
+      expect(updatedEdges.map((e) => e.id)).toEqual(['e1', 'e3']);
+    });
+  });
 });

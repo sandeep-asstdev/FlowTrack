@@ -1,3 +1,5 @@
+import { hasRolePermission, PERMISSIONS, Role } from '@flowtrack/shared';
+
 export type UserRole = 'ADMIN' | 'MANAGER' | 'TEAM_LEAD' | 'MEMBER' | 'GUEST' | 'VIEWER';
 
 export interface RolePermissions {
@@ -36,8 +38,8 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       canAssignTasks: true,
       canAssignToAnyone: true,
       canAssignToMembers: true,
-      canApproveTasks: true,
-      canApproveDeadlineExtension: true,
+      canApproveTasks: false, // Platform Admin must NEVER approve tasks
+      canApproveDeadlineExtension: false,
       canToggleLock: true,
       canViewConfidential: true,
       canCreateChildNodes: true,
@@ -80,8 +82,8 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       canAssignTasks: true, // Team Leads can assign tasks to members
       canAssignToAnyone: false,
       canAssignToMembers: true, // Can assign tasks to team members
-      canApproveTasks: false,
-      canApproveDeadlineExtension: false,
+      canApproveTasks: true, // Team Leads can approve tasks within scope
+      canApproveDeadlineExtension: true,
       canToggleLock: false,
       canViewConfidential: false, // Cannot access manager/admin confidential documents
       canCreateChildNodes: true,

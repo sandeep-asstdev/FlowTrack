@@ -55,6 +55,14 @@ export class ReportsController {
     return this.reportsService.getWorkspaceDashboard(workspaceId, req.user.id);
   }
 
+  @Get('role-dashboard')
+  async getRoleScopedDashboard(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any
+  ) {
+    return this.reportsService.getRoleScopedDashboard(workspaceId, req.user.id);
+  }
+
   @Get('export/:projectId')
   async exportProjectReport(
     @Param('workspaceId') workspaceId: string,

@@ -26,4 +26,21 @@ export class AuditController {
       action,
     });
   }
+
+  @Get('workspaces/:workspaceId/history')
+  async getWorkspaceHistory(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('entityName') entityName?: string,
+    @Query('action') action?: string
+  ) {
+    return this.auditService.getWorkspaceHistory(workspaceId, req.user?.id, {
+      limit: limit ? parseInt(limit, 10) : 50,
+      offset: offset ? parseInt(offset, 10) : 0,
+      entityName,
+      action,
+    });
+  }
 }

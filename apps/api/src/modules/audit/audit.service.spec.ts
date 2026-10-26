@@ -92,5 +92,39 @@ describe('AuditService & Data Sanitization', () => {
       expect(history.total).toBe(2);
       expect(history.items).toHaveLength(2);
     });
+
+    it('retrieves workspace audit history for authorized Admin/Manager', async () => {
+      mockPrisma.membership = {
+        findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
+      };
+
+      const history = await auditService.getWorkspaceHistory('ws-100', 'admin-user', {
+        limit: 25,
+        offset: 0,
+        action: 'ROLE_CHANGE',
+      });
+
+      expect(mockPrisma.membership.findUnique).toHaveBeenCalledWith({
+        where: { workspaceId_userId: { workspaceId: 'ws-100', userId: 'admin-user' } },
+      });
+      expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { workspaceId: 'ws-100', action: 'ROLE_CHANGE' },
+          take: 25,
+          skip: 0,
+        })
+      );
+      expect(history.total).toBe(2);
+    });
+
+    it('denies workspace audit history inspection for unauthorized Member (403)', async () => {
+      mockPrisma.membership = {
+        findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }),
+      };
+
+      await expect(
+        auditService.getWorkspaceHistory('ws-100', 'regular-member')
+      ).rejects.toThrow(/Forbidden: Only Admins and Managers can inspect workspace audit logs/);
+    });
   });
 });

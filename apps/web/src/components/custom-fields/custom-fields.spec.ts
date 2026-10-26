@@ -82,7 +82,7 @@ describe('Custom Fields & Dynamic Form Integration (Chunk 5)', () => {
     });
 
     it('handles Dealership industry metadata: brand approval reference, showroom readiness', () => {
-      const dealershipFields: FieldDefinitionDto[] = [
+      const dealershipFields: any[] = [
         {
           id: 'cf-deal-1',
           targetType: 'task',
@@ -127,7 +127,7 @@ describe('Custom Fields & Dynamic Form Integration (Chunk 5)', () => {
     });
 
     it('handles Education industry metadata: accreditation deadline, department, classroom readiness', () => {
-      const educationFields: FieldDefinitionDto[] = [
+      const educationFields: any[] = [
         {
           id: 'cf-edu-1',
           targetType: 'project',
@@ -182,7 +182,7 @@ describe('Custom Fields & Dynamic Form Integration (Chunk 5)', () => {
 
   describe('Conditional Visibility Rules & Safe Evaluation', () => {
     it('dynamically hides fields and bypasses validation when condition is not satisfied', () => {
-      const conditionalFields: FieldDefinitionDto[] = [
+      const conditionalFields: any[] = [
         {
           id: 'f1',
           fieldKey: 'isSubcontracted',
@@ -223,7 +223,7 @@ describe('Custom Fields & Dynamic Form Integration (Chunk 5)', () => {
     });
 
     it('safely handles operators (contains, greater_than, is_empty) without eval', () => {
-      const fieldWithContains: FieldDefinitionDto = {
+      const fieldWithContains: any = {
         id: 'fc',
         fieldKey: 'expeditedHandlingReason',
         label: 'Expedite Reason',

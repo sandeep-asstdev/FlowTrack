@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
 import { DynamicCustomFieldsForm } from '../custom-fields/DynamicCustomFieldsForm';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
+import { canApproveTask } from '@flowtrack/shared';
 import {
   X,
   Clock,
@@ -15,30 +16,32 @@ import {
   Send,
   Mic,
   Square,
-  Play,
-  Pause,
-  Image as ImageIcon,
   Calendar,
   User,
+  Users,
   Plus,
   ArrowRight,
-  Sparkles,
   Sliders,
   Check,
   FileText,
   Trash2,
   Download,
-  Eye,
   History,
   UploadCloud,
-  ExternalLink,
   ThumbsUp,
   ThumbsDown,
   ShieldCheck,
   Lock,
   Unlock,
-  Shield,
-  Users,
+  ShieldAlert,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
+  FileCheck,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { getRolePermissions } from '../../utils/permissions';
 
@@ -51,37 +54,30 @@ interface NodeDetailDrawerProps {
   onOpenViewDetails?: (nodeId: string) => void;
 }
 
+type TabKey = 'overview' | 'work' | 'activity';
+
 export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   nodeId,
   onClose,
   onNodeUpdated,
   onDrillDown,
   onDeleteNode,
-  onOpenViewDetails,
 }) => {
   const [node, setNode] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<
-    'remarks' | 'details' | 'approval' | 'children' | 'docs' | 'history'
-  >('remarks');
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [drawerSaveStatus, setDrawerSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
 
-  // Role & Auth
-  const { user, workspaces, activeWorkspaceId, getActiveRole } = useAuthStore();
+  // Role & Auth State
+  const { user, activeWorkspaceId, getActiveRole } = useAuthStore();
   const currentRole = getActiveRole();
   const permissions = getRolePermissions(currentRole);
-  const isManager = permissions.canApproveTasks;
   const isNodeLocked = Boolean(node?.customData?.isLocked);
   const isConfidentialHidden = isNodeLocked && !permissions.canViewConfidential;
 
-  // Manager Approval State
-  const [approvalNote, setApprovalNote] = useState('');
-  const [approving, setApproving] = useState(false);
-
-  // Deadline Extension Modal State
-  const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
-  const [pendingDueDate, setPendingDueDate] = useState('');
-
-  // Editable fields
+  // Form Fields (Persistent across tab switches)
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [progressPct, setProgressPct] = useState(0);
@@ -92,10 +88,33 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [dueDate, setDueDate] = useState('');
   const [ownerId, setOwnerId] = useState('');
   const [reviewerId, setReviewerId] = useState('');
+  const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [workspaceMembers, setWorkspaceMembers] = useState<any[]>([]);
   const [customData, setCustomData] = useState<Record<string, any>>({});
+  const [documents, setDocuments] = useState<any[]>([]);
 
-  // Remarks state
+  // Subtasks / Checklist
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [creatingSubtask, setCreatingSubtask] = useState(false);
+
+  // Work Submission
+  const [submissionNotes, setSubmissionNotes] = useState('');
+  const [submittingWork, setSubmittingWork] = useState(false);
+
+  // Blocker Reporting
+  const [isReportingBlocker, setIsReportingBlocker] = useState(false);
+  const [blockerReason, setBlockerReason] = useState('');
+  const [submittingBlocker, setSubmittingBlocker] = useState(false);
+
+  // Approval / Review
+  const [approvalNote, setApprovalNote] = useState('');
+  const [approving, setApproving] = useState(false);
+
+  // Deadline Extension Modal
+  const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
+  const [pendingDueDate, setPendingDueDate] = useState('');
+
+  // Remarks / Comments & Voice
   const [newRemarkText, setNewRemarkText] = useState('');
   const [submittingRemark, setSubmittingRemark] = useState(false);
   const [attachedPhoto, setAttachedPhoto] = useState<string | null>(null);
@@ -107,22 +126,16 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
-  // Documents state
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [docCategory, setDocCategory] = useState<'evidence' | 'deliverable' | 'specification' | 'contract' | 'general'>('evidence');
+  // Documents
+  const [docCategory, setDocCategory] = useState<'evidence' | 'deliverable' | 'specification' | 'general'>('evidence');
   const [uploadingDoc, setUploadingDoc] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState<any | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // History state
+  // History
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Children state
-  const [newChildTitle, setNewChildTitle] = useState('');
-  const [creatingChild, setCreatingChild] = useState(false);
-
-  // Audio helper: generates a clean, valid PCM WAV chime encoded in base64 data URL
+  // Synthesize audible WAV chime fallback if microphone permission is denied
   const generateChimeDataUrl = (): string => {
     const sampleRate = 8000;
     const duration = 0.8;
@@ -175,12 +188,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
-  const loadNode = async (id: string) => {
+  const loadNode = useCallback(async (id: string) => {
     try {
       setLoading(true);
       const data = await ApiClient.getNode(id);
       setNode(data);
-      setTitle(data.title);
+      setTitle(data.title || '');
       setDescription(data.description || '');
       setProgressPct(data.progressPct || 0);
       setStatusId(data.statusId || '');
@@ -190,6 +203,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       setDueDate(toDateTimeLocal(data.dueDate));
       setOwnerId(data.ownerId || '');
       setReviewerId(data.reviewerId || '');
+      setCollaboratorIds(data.customData?.collaboratorIds || []);
       setCustomData(data.customData || {});
       setDocuments(data.documents || []);
     } catch (e) {
@@ -197,25 +211,24 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadWorkspaceMembers = async () => {
+  const loadWorkspaceMembers = useCallback(async () => {
     try {
       const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
       if (wsId) {
         const data = await ApiClient.getWorkspaceMembers(wsId);
-        setWorkspaceMembers(data || []);
+        const activeOnly = (data || []).filter(
+          (m: any) => m.user?.isActive !== false && !m.user?.deletedAt
+        );
+        setWorkspaceMembers(activeOnly);
       }
     } catch (e) {
       console.error('Failed to load workspace members in drawer', e);
     }
-  };
-
-  useEffect(() => {
-    loadWorkspaceMembers();
   }, [activeWorkspaceId]);
 
-  const loadHistory = async (id: string) => {
+  const loadHistory = useCallback(async (id: string) => {
     try {
       setLoadingHistory(true);
       const data = await ApiClient.getNodeHistory(id);
@@ -225,7 +238,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     } finally {
       setLoadingHistory(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadWorkspaceMembers();
+  }, [loadWorkspaceMembers]);
 
   useEffect(() => {
     if (nodeId) {
@@ -233,13 +250,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     } else {
       setNode(null);
     }
-  }, [nodeId]);
+  }, [nodeId, loadNode]);
 
   useEffect(() => {
-    if (nodeId && activeTab === 'history') {
+    if (nodeId && activeTab === 'activity') {
       loadHistory(nodeId);
     }
-  }, [nodeId, activeTab]);
+  }, [nodeId, activeTab, loadHistory]);
 
   // Keyboard accessibility: Escape to close
   useEffect(() => {
@@ -252,269 +269,214 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   if (!nodeId || !node) return null;
 
+  // Confidential Security Guard
   if (isConfidentialHidden) {
     return (
-      <div className="fixed inset-y-0 right-0 w-full sm:w-[460px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
-        <div>
-          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-              <Lock className="w-5 h-5 text-amber-500" />
-              <span className="font-bold text-sm text-slate-900 dark:text-white">Confidential Task</span>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-            >
+      <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Lock className="w-4 h-4 text-amber-500" />
+              Confidential Task
+            </span>
+            <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
               <X className="w-5 h-5" />
             </button>
           </div>
-          <div className="mt-8 text-center p-6 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60">
-            <Lock className="w-10 h-10 text-amber-600 dark:text-amber-400 mx-auto mb-3" />
-            <h3 className="font-bold text-base text-slate-900 dark:text-white">Access Restricted</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">
-              This node has been locked as confidential by{' '}
-              <strong className="text-slate-900 dark:text-white">
-                {node?.customData?.lockedBy || 'Manager'}
-              </strong>
-              {node?.customData?.lockedAt && ` on ${new Date(node.customData.lockedAt).toLocaleDateString()}`}.
-            </p>
-            <p className="text-xs text-slate-500 mt-2">
-              Editing, document viewing, and remarks are restricted to Managers and Super Admins.
+          <div className="p-6 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-center space-y-3">
+            <ShieldAlert className="w-10 h-10 text-amber-500 mx-auto" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Access Restricted</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              This task has been locked as confidential by a Manager or Administrator. Only authorized leadership may inspect or edit its deliverables.
             </p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors"
         >
-          Close Drawer
+          Close Panel
         </button>
       </div>
     );
   }
 
-  const countdown = calculateTimeCountdown(node.dueDate, node.status?.category);
-
-  const handleSaveDetails = async (explicitDueDate?: string, explicitCustom?: Record<string, any>) => {
-    if (!node) return;
+  // Save changes to backend with status indication
+  const saveNodeUpdates = async (fieldUpdates: Record<string, any>) => {
     try {
-      const activeDue = explicitDueDate !== undefined ? explicitDueDate : dueDate;
-      const parsedStart = startDate && !isNaN(new Date(startDate).getTime()) ? new Date(startDate).toISOString() : null;
-      const parsedDue = activeDue && !isNaN(new Date(activeDue).getTime()) ? new Date(activeDue).toISOString() : null;
-      const activeCustom = explicitCustom !== undefined ? explicitCustom : customData;
-
+      setDrawerSaveStatus('saving');
       await ApiClient.updateNode(node.id, {
-        title,
-        description,
-        progressPct,
-        statusId: statusId || undefined,
-        priority: priority as any,
-        weight: Number(weight),
-        startDate: parsedStart,
-        dueDate: parsedDue,
-        ownerId: ownerId || null,
-        reviewerId: reviewerId || null,
-        customData: activeCustom,
-        version: node.version,
+        ...fieldUpdates,
       });
-      onNodeUpdated();
-      loadNode(node.id);
-    } catch (e) {
-      console.error('Failed to update node', e);
-    }
-  };
-
-  const handleToggleNodeLock = async () => {
-    if (!permissions.canToggleLock) return;
-    try {
-      const nextLocked = !isNodeLocked;
-      const updatedCustom = {
-        ...customData,
-        isLocked: nextLocked,
-        lockedBy: user?.fullName || 'Manager',
-        lockedAt: new Date().toISOString(),
-      };
-      setCustomData(updatedCustom);
-      await ApiClient.updateNode(node.id, {
-        customData: updatedCustom,
-        version: node.version,
-      });
+      setDrawerSaveStatus('saved');
       onNodeUpdated();
       await loadNode(node.id);
-    } catch (e) {
-      console.error('Failed to toggle lock', e);
+    } catch (e: any) {
+      console.error('Failed to save task update:', e);
+      setDrawerSaveStatus('error');
     }
   };
 
-  const handleToggleDocLock = async (docId: string, currentLocked: boolean) => {
-    if (!permissions.canToggleLock) return;
-    try {
-      const lockedDocs = customData?.lockedDocIds || [];
-      const updatedLockedDocs = currentLocked
-        ? lockedDocs.filter((id: string) => id !== docId)
-        : [...lockedDocs, docId];
-      const updatedCustom = {
-        ...customData,
-        lockedDocIds: updatedLockedDocs,
-      };
-      setCustomData(updatedCustom);
-      await ApiClient.updateNode(node.id, {
-        customData: updatedCustom,
-        version: node.version,
-      });
-      onNodeUpdated();
-      await loadNode(node.id);
-    } catch (e) {
-      console.error('Failed to toggle document lock', e);
-    }
-  };
+  // Plain English Status & Countdown
+  const countdown = calculateTimeCountdown(dueDate, node.status?.category);
+  const statusOptions = node.nodeType?.statusSet?.statuses || [];
 
-  const handleConfirmDeadlineExtension = async (
-    reason: string,
-    revisedDueDate?: string,
-    attachedDoc?: string
-  ) => {
-    const finalDueDate = revisedDueDate || pendingDueDate || dueDate;
-    setDueDate(finalDueDate);
-    const docName = attachedDoc ? `Delay-Notice-${Date.now().toString().slice(-4)}.pdf` : null;
+  // Approval authorization verification (Platform Admin cannot approve, self-approval forbidden)
+  const approvalAuth = canApproveTask({
+    userRole: currentRole,
+    userId: user?.id || '',
+    taskOwnerId: node.ownerId,
+    taskSubmitterId: node.submitterId,
+    taskReviewerId: node.reviewerId,
+  });
 
-    if (attachedDoc && docName) {
-      await ApiClient.addDocument(node.id, {
-        name: docName,
-        mimeType: 'application/pdf',
-        fileSize: 1024 * 50,
-        storageKey: attachedDoc,
-      });
-    }
+  const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
+  const isPendingApproval = node.approvalStatus === 'pending' || node.status?.category === 'pending';
+  const isApproved = node.approvalStatus === 'approved' || node.status?.category === 'done';
+  const isRejected = node.approvalStatus === 'rejected';
 
-    const extData = {
-      reason,
-      revisedDueDate: finalDueDate,
-      docName,
-      status: 'PENDING',
-      requestedBy: user?.fullName || 'Member',
-      requestedAt: new Date().toISOString(),
-    };
-
-    const updatedCustom = {
-      ...customData,
-      deadlineReason: reason,
-      deadlineExtension: extData,
-    };
-    setCustomData(updatedCustom);
-
-    await ApiClient.updateNode(node.id, {
-      dueDate: finalDueDate ? new Date(finalDueDate).toISOString() : null,
-      deadlineReason: reason,
-      customData: updatedCustom,
-      version: node.version,
-    });
-
-    onNodeUpdated();
-    await loadNode(node.id);
-  };
-
-  const handleApproveDeadlineExtension = async () => {
-    if (!permissions.canApproveDeadlineExtension) return;
-    try {
-      const ext = customData?.deadlineExtension;
-      if (!ext) return;
-      const updatedCustom = {
-        ...customData,
-        deadlineExtension: {
-          ...ext,
-          status: 'APPROVED',
-          reviewedBy: user?.fullName || 'Manager',
-          reviewedAt: new Date().toISOString(),
-        },
-      };
-      setCustomData(updatedCustom);
-      await ApiClient.updateNode(node.id, {
-        dueDate: ext.revisedDueDate ? new Date(ext.revisedDueDate).toISOString() : node.dueDate,
-        customData: updatedCustom,
-        version: node.version,
-      });
-      onNodeUpdated();
-      await loadNode(node.id);
-    } catch (e) {
-      console.error('Failed to approve deadline extension', e);
-    }
-  };
-
-  const handleRejectDeadlineExtension = async () => {
-    if (!permissions.canApproveDeadlineExtension) return;
-    try {
-      const ext = customData?.deadlineExtension;
-      if (!ext) return;
-      const updatedCustom = {
-        ...customData,
-        deadlineExtension: {
-          ...ext,
-          status: 'REJECTED',
-          reviewedBy: user?.fullName || 'Manager',
-          reviewedAt: new Date().toISOString(),
-        },
-      };
-      setCustomData(updatedCustom);
-      await ApiClient.updateNode(node.id, {
-        customData: updatedCustom,
-        version: node.version,
-      });
-      onNodeUpdated();
-      await loadNode(node.id);
-    } catch (e) {
-      console.error('Failed to reject deadline extension', e);
-    }
-  };
-
-  const handleManagerApprove = async () => {
+  // Handlers
+  const handleApproveWork = async () => {
+    if (!approvalAuth.allowed) return;
     try {
       setApproving(true);
       await ApiClient.approveTask(node.id, {
         decision: 'approved',
-        feedback: approvalNote || 'Plan & Deliverables verified and approved by Reviewer.',
+        feedback: approvalNote.trim() || 'Work reviewed and approved.',
       });
-
-      const doneStatus = node.nodeType?.statusSet?.statuses?.find(
-        (s: any) => s.category === 'done' || s.key === 'done'
-      );
-      if (doneStatus && node.statusId !== doneStatus.id) {
-        await ApiClient.updateNode(node.id, {
-          statusId: doneStatus.id,
-          progressPct: 100,
-          version: node.version + 1,
-        }).catch(() => null);
-      }
-
+      setApprovalNote('');
       onNodeUpdated();
       await loadNode(node.id);
-      setActiveTab('approval');
-    } catch (e) {
-      console.error('Failed to approve node', e);
+      setActiveTab('activity');
+    } catch (err: any) {
+      alert(err.message || 'Failed to approve task');
     } finally {
       setApproving(false);
     }
   };
 
-  const handleManagerRework = async () => {
+  const handleRejectWork = async () => {
+    if (!approvalAuth.allowed) return;
+    if (!approvalNote.trim()) {
+      alert('Please enter required rework notes or explanation for the changes requested.');
+      return;
+    }
     try {
       setApproving(true);
       await ApiClient.approveTask(node.id, {
         decision: 'rejected',
-        feedback: approvalNote || 'Review requested rework on deliverables.',
+        feedback: approvalNote.trim(),
       });
-
+      setApprovalNote('');
       onNodeUpdated();
       await loadNode(node.id);
-      setActiveTab('approval');
-    } catch (e) {
-      console.error('Failed to request rework', e);
+      setActiveTab('activity');
+    } catch (err: any) {
+      alert(err.message || 'Failed to request rework');
     } finally {
       setApproving(false);
     }
   };
 
-  // Remarks handling
+  const handleSubmitWork = async () => {
+    try {
+      setSubmittingWork(true);
+      await ApiClient.submitTask(node.id, {
+        notes: submissionNotes.trim() || undefined,
+      });
+      setSubmissionNotes('');
+      onNodeUpdated();
+      await loadNode(node.id);
+      setActiveTab('activity');
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit work for approval');
+    } finally {
+      setSubmittingWork(false);
+    }
+  };
+
+  const handleReportBlocker = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!blockerReason.trim()) return;
+    try {
+      setSubmittingBlocker(true);
+      await ApiClient.reportBlocker(node.id, {
+        reason: blockerReason.trim(),
+      });
+      setBlockerReason('');
+      setIsReportingBlocker(false);
+      onNodeUpdated();
+      await loadNode(node.id);
+    } catch (err: any) {
+      alert(err.message || 'Failed to report blocker');
+    } finally {
+      setSubmittingBlocker(false);
+    }
+  };
+
+  const handleCreateSubtask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSubtaskTitle.trim()) return;
+    try {
+      setCreatingSubtask(true);
+      const childCount = node.children?.length || 0;
+      const childX = node.positionX !== undefined ? Math.round(node.positionX) : 100;
+      const childY = node.positionY !== undefined ? Math.round(node.positionY + 230 + childCount * 170) : 350;
+
+      const created = await ApiClient.createNode({
+        projectId: node.projectId,
+        parentNodeId: node.id,
+        nodeTypeId: node.nodeTypeId,
+        title: newSubtaskTitle.trim(),
+        description: `Subtask of ${node.title}`,
+        positionX: childX,
+        positionY: childY,
+        progressPct: 0,
+      });
+
+      // Connect parent to child
+      await ApiClient.createEdge({
+        projectId: node.projectId,
+        sourceNodeId: node.id,
+        targetNodeId: created.id,
+        kind: 'sequence',
+        metadata: { sourceHandle: 'bottom', targetHandle: 'top' },
+      });
+
+      setNewSubtaskTitle('');
+      await loadNode(node.id);
+      onNodeUpdated();
+    } catch (err) {
+      console.error('Failed to create subtask', err);
+    } finally {
+      setCreatingSubtask(false);
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    try {
+      setUploadingDoc(true);
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target?.result as string;
+        await ApiClient.addDocument(node.id, {
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          fileSize: file.size,
+          category: docCategory,
+          storageKey: dataUrl,
+        });
+        await loadNode(node.id);
+        onNodeUpdated();
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      alert(err.message || 'Failed to upload document');
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
   const handleAddRemark = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
     const text = customText || newRemarkText;
@@ -539,7 +501,6 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     }
   };
 
-  // Voice recording logic via Web Audio / MediaRecorder API
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -555,8 +516,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const reader = new FileReader();
         reader.onloadend = () => {
-          const base64Audio = reader.result as string;
-          setRecordedAudioUrl(base64Audio);
+          setRecordedAudioUrl(reader.result as string);
         };
         reader.readAsDataURL(audioBlob);
         stream.getTracks().forEach((track) => track.stop());
@@ -568,9 +528,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
-    } catch (err) {
-      console.warn('Microphone access denied or not supported:', err);
-      // Fallback voice note: generate a real audible synthesized chime audio data URL
+    } catch {
       const chimeDataUrl = generateChimeDataUrl();
       setRecordedAudioUrl(chimeDataUrl);
     }
@@ -579,586 +537,261 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
-      clearInterval(recordingTimerRef.current);
       setIsRecording(false);
-    } else if (isRecording) {
       clearInterval(recordingTimerRef.current);
-      setIsRecording(false);
     }
-  };
-
-  // Client-side image compressor to ensure fast remark uploads
-  const compressImage = (dataUrl: string, maxDim = 1200): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
-      };
-      img.onerror = () => resolve(dataUrl);
-      img.src = dataUrl;
-    });
-  };
-
-  // Photo attachment handling with auto-compression
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const raw = event.target?.result as string;
-        const compressed = await compressImage(raw);
-        setAttachedPhoto(compressed);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Document upload handling
-  const handleFileUpload = async (file: File) => {
-    try {
-      setUploadingDoc(true);
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const dataUrl = e.target?.result as string;
-        await ApiClient.addDocument(node.id, {
-          name: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          fileSize: file.size,
-          category: docCategory,
-          storageKey: dataUrl,
-        });
-        await loadNode(node.id);
-        onNodeUpdated();
-      };
-      reader.readAsDataURL(file);
-    } catch (err: any) {
-      console.error('Failed to upload document', err);
-      alert(err.message || 'Failed to upload document');
-    } finally {
-      setUploadingDoc(false);
-    }
-  };
-
-  const handleVerifyEvidence = async (docId: string, decision: 'APPROVED' | 'REJECTED') => {
-    const feedback = prompt(
-      decision === 'APPROVED'
-        ? 'Enter verification approval note (optional):'
-        : 'Enter required rework feedback for this evidence deliverable:'
-    );
-    if (decision === 'REJECTED' && !feedback) {
-      alert('Rework feedback is required when requesting changes.');
-      return;
-    }
-    try {
-      await ApiClient.verifyEvidence(docId, {
-        decision,
-        feedback: feedback || 'Evidence inspected and verified by reviewer.',
-      });
-      await loadNode(node.id);
-      onNodeUpdated();
-    } catch (err: any) {
-      alert(err.message || 'Failed to verify evidence');
-    }
-  };
-
-  const handleDeleteDocument = async (docId: string, docName: string) => {
-    if (window.confirm(`Delete document "${docName}"?`)) {
-      await ApiClient.deleteDocument(docId);
-      await loadNode(node.id);
-      onNodeUpdated();
-    }
-  };
-
-  // Child node creation
-  const handleCreateChild = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newChildTitle.trim()) return;
-    try {
-      setCreatingChild(true);
-      const childCount = node.children?.length || 0;
-      const childX = node.positionX !== undefined ? Math.round(node.positionX) : 100;
-      const childY = node.positionY !== undefined ? Math.round(node.positionY + 240 + childCount * 180) : 350;
-
-      const created = await ApiClient.createNode({
-        projectId: node.projectId,
-        parentNodeId: node.id,
-        nodeTypeId: node.nodeTypeId,
-        title: newChildTitle,
-        description: `Sub-task of ${node.title}`,
-        positionX: childX,
-        positionY: childY,
-        progressPct: 0,
-      });
-
-      // Also create sequence edge connecting parent to child!
-      await ApiClient.createEdge({
-        projectId: node.projectId,
-        sourceNodeId: node.id,
-        targetNodeId: created.id,
-        kind: 'sequence',
-        metadata: {
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-        },
-      });
-
-      setNewChildTitle('');
-      await loadNode(node.id);
-      onNodeUpdated();
-    } catch (err) {
-      console.error('Failed to create child node', err);
-    } finally {
-      setCreatingChild(false);
-    }
-  };
-
-  const quickRemarkPresets = [
-    'Draft sent for client review and verification',
-    'Awaiting physical stamp from local authority',
-    'Site boundary inspection completed successfully',
-    'Payment milestone invoice raised',
-    'Urgent clarification required on easement setback',
-  ];
-
-  const formatSeconds = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const secs = sec % 60;
-    return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
-      {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between bg-slate-50/70 dark:bg-slate-950/70">
-        <div className="flex-1 mr-3">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400">
-              {node.nodeType?.name || 'Task'}
-            </span>
-            {node.nodeType?.isGroup && (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 rounded-md flex items-center gap-1">
-                <Layers className="w-3 h-3" />
-                Group ({node.children?.length || 0} sub-items)
-              </span>
-            )}
-            {node.status?.category === 'blocked' && (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-md flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                Waiting Blocker
-              </span>
-            )}
-            {node.rollup && (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-md">
-                Rollup: {node.rollup.progressPct}%
-              </span>
-            )}
+    <div
+      className={`fixed inset-y-0 right-0 ${
+        isExpanded ? 'w-full sm:w-[760px]' : 'w-full sm:w-[520px]'
+      } bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col transition-all duration-200 animate-in slide-in-from-right`}
+    >
+      {/* 1. TOP HEADER (Always Visible) */}
+      <div className="h-16 border-b border-slate-200 dark:border-slate-800 px-5 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
+          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <FileText className="w-4 h-4" />
           </div>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={handleSaveDetails}
-            className="w-full text-base font-bold bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-none text-slate-900 dark:text-white"
-            placeholder="Node Title"
-          />
+          <div className="min-w-0 flex-1">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => saveNodeUpdates({ title })}
+              disabled={!permissions.canEditProject}
+              className="w-full text-sm font-bold text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-none truncate"
+              placeholder="Task Name"
+            />
+            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+              <span>{node.nodeType?.name || 'Task'}</span>
+              <span>•</span>
+              <span className="font-mono">{node.id.slice(0, 8)}</span>
+              {drawerSaveStatus === 'saving' ? (
+                <span className="flex items-center gap-1 text-amber-500 font-semibold">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Saving...
+                </span>
+              ) : drawerSaveStatus === 'saved' ? (
+                <span className="text-emerald-500 font-semibold flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Saved
+                </span>
+              ) : (
+                <span className="text-rose-500 font-semibold">Save failed</span>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          {/* Lock / Unlock Node Toggle (Manager & Super Admin) */}
-          {permissions.canToggleLock ? (
-            <button
-              onClick={handleToggleNodeLock}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-sm ${
-                isNodeLocked
-                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                  : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-950/50'
-              }`}
-              title={isNodeLocked ? 'Confidential node is locked. Click to unlock.' : 'Lock node as confidential.'}
-            >
-              {isNodeLocked ? <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> : <Unlock className="w-3.5 h-3.5" />}
-              <span>{isNodeLocked ? 'Locked' : 'Lock'}</span>
-            </button>
-          ) : isNodeLocked ? (
-            <div className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
-              <Lock className="w-3.5 h-3.5" />
-              <span>Confidential</span>
-            </div>
-          ) : null}
+        {/* Header Right Actions */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Expand / Minimize Width Toggle */}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hidden sm:inline-flex"
+            title={isExpanded ? 'Collapse width' : 'Expand width'}
+          >
+            {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
 
-          {onOpenViewDetails && (
-            <button
-              onClick={() => {
-                onClose();
-                onOpenViewDetails(node.id);
-              }}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 transition-colors flex items-center gap-1 shadow-sm"
-              title="Open Complete Task Details & Documents Modal"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span>Full Details</span>
-            </button>
-          )}
-
-          {onDeleteNode && (
-            <button
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Are you sure you want to delete task "${node.title}"? This cannot be undone.`
-                  )
-                ) {
-                  onDeleteNode(node.id);
-                  onClose();
-                }
-              }}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 transition-colors flex items-center gap-1 shadow-sm"
-              title="Delete this task"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete</span>
-            </button>
-          )}
+          {/* Close Button */}
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800"
-            title="Close Drawer (Esc)"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Close (Esc)"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Tabs Navigation Bar */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 overflow-x-auto">
+      {/* 2. THE THREE CLEAN TABS NAVIGATION */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 px-4 shrink-0">
         <button
-          onClick={() => setActiveTab('remarks')}
-          className={`flex-1 py-2.5 px-2 text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'remarks'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+          onClick={() => setActiveTab('overview')}
+          className={`flex-1 py-3 px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-2 transition-all ${
+            activeTab === 'overview'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <MessageSquare className="w-3.5 h-3.5" />
-          <span>Remarks</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800">
-            {node.remarks?.length || 0}
-          </span>
+          <FileText className="w-3.5 h-3.5" />
+          <span>Overview</span>
         </button>
 
         <button
-          onClick={() => setActiveTab('details')}
-          className={`flex-1 py-2.5 px-2 text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'details'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+          onClick={() => setActiveTab('work')}
+          className={`flex-1 py-3 px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-2 transition-all ${
+            activeTab === 'work'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>Details</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('approval')}
-          className={`flex-1 py-2.5 px-2 text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'approval'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Approval</span>
-          {node.customData?.managerReview?.reaction && (
-            <span className="text-[10px]">
-              {node.customData.managerReview.reaction === 'thumbs_up' ? '👍' : '👎'}
+          <Paperclip className="w-3.5 h-3.5" />
+          <span>Work &amp; Evidence</span>
+          {(documents.length > 0 || (node.children?.length || 0) > 0) && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+              {documents.length + (node.children?.length || 0)}
             </span>
           )}
         </button>
 
         <button
-          onClick={() => setActiveTab('docs')}
-          className={`flex-1 py-2.5 px-2 text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'docs'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+          onClick={() => setActiveTab('activity')}
+          className={`flex-1 py-3 px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-2 transition-all ${
+            activeTab === 'activity'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <Paperclip className="w-3.5 h-3.5" />
-          <span>Docs</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800">
-            {documents.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('children')}
-          className={`flex-1 py-2.5 px-2 text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'children'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Children</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800">
-            {node.children?.length || 0}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`flex-1 py-2.5 px-2 text-xs font-bold border-b-2 transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'history'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-          }`}
-        >
-          <History className="w-3.5 h-3.5" />
-          <span>History</span>
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Activity &amp; Approvals</span>
+          {isPendingApproval ? (
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+          ) : isApproved ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          ) : isRejected ? (
+            <span className="w-2 h-2 rounded-full bg-rose-500" />
+          ) : null}
         </button>
       </div>
 
-      {/* Tab Body */}
-      <div className="flex-1 overflow-y-auto p-5">
-        {/* TAB 1: REMARKS & COMMENTS (Voice, Photos, Presets) */}
-        {activeTab === 'remarks' && (
-          <div className="flex flex-col h-full space-y-4">
-            {/* Quick remark presets */}
-            <div>
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-                ⚡ Quick Status Updates
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {quickRemarkPresets.map((preset, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleAddRemark(undefined, preset)}
-                    disabled={submittingRemark}
-                    className="text-[11px] text-left px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 text-slate-700 dark:text-slate-300 transition-colors"
-                  >
-                    + {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Input Form with Audio & Photo Upload */}
-            <form
-              onSubmit={handleAddRemark}
-              className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2.5"
-            >
-              <textarea
-                value={newRemarkText}
-                onChange={(e) => setNewRemarkText(e.target.value)}
-                placeholder="Write a field remark or update..."
-                rows={2}
-                className="w-full text-xs bg-transparent border-0 focus:outline-none text-slate-900 dark:text-slate-100 resize-none"
-              />
-
-              {/* Photo Attachment Preview */}
-              {attachedPhoto && (
-                <div className="relative inline-block border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden max-w-[200px]">
-                  <img src={attachedPhoto} alt="Attachment" className="max-h-28 object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setAttachedPhoto(null)}
-                    className="absolute top-1 right-1 p-1 rounded-full bg-slate-900/80 text-white hover:bg-rose-600"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-
-              {/* Recorded Audio Preview */}
-              {recordedAudioUrl && (
-                <div className="flex items-center gap-2 p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900">
-                  <Mic className="w-4 h-4 text-blue-600" />
-                  <audio src={recordedAudioUrl} controls className="h-7 w-full max-w-[240px]" />
-                  <button
-                    type="button"
-                    onClick={() => setRecordedAudioUrl(null)}
-                    className="p-1 text-slate-400 hover:text-rose-600"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-
-              {/* Active Voice Recording Indicator */}
-              {isRecording && (
-                <div className="flex items-center justify-between p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600">
-                  <div className="flex items-center gap-2 text-xs font-bold">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                    <span>Recording audio: {formatSeconds(recordingSeconds)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={stopRecording}
-                    className="px-2 py-1 bg-rose-600 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-sm"
-                  >
-                    <Square className="w-3 h-3" />
-                    <span>Stop</span>
-                  </button>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800">
-                <div className="flex items-center gap-1 text-slate-400">
-                  {/* Voice recording trigger */}
-                  {!isRecording ? (
-                    <button
-                      type="button"
-                      onClick={startRecording}
-                      className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 transition-colors"
-                      title="Record Voice Note"
-                    >
-                      <Mic className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={stopRecording}
-                      className="p-1.5 rounded-lg bg-rose-100 text-rose-600"
-                      title="Stop Recording"
-                    >
-                      <Square className="w-4 h-4" />
-                    </button>
-                  )}
-
-                  {/* Photo attachment trigger */}
-                  <button
-                    type="button"
-                    onClick={() => photoInputRef.current?.click()}
-                    className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 hover:text-blue-600 transition-colors"
-                    title="Attach Site Photo"
-                  >
-                    <ImageIcon className="w-4 h-4" />
-                  </button>
-                  <input
-                    type="file"
-                    ref={photoInputRef}
-                    onChange={handlePhotoSelect}
-                    accept="image/*"
-                    hidden
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submittingRemark || (!newRemarkText.trim() && !recordedAudioUrl && !attachedPhoto)}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm shadow-blue-500/20 disabled:opacity-50 flex items-center gap-1 transition-all"
-                >
-                  <Send className="w-3 h-3" />
-                  <span>{submittingRemark ? 'Posting...' : 'Post Remark'}</span>
-                </button>
-              </div>
-            </form>
-
-            {/* Remarks Timeline */}
-            <div className="flex-1 space-y-3 pt-2">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Activity & Remarks Feed
-              </span>
-
-              {node.remarks?.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-xs">
-                  No remarks yet. Add a quick update, voice note, or photo above!
-                </div>
-              ) : (
-                node.remarks?.map((remark: any) => (
-                  <div
-                    key={remark.id}
-                    className="p-3.5 rounded-xl border border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 shadow-sm space-y-2"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
-                          {remark.author?.fullName?.[0] || 'U'}
-                        </div>
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                          {remark.author?.fullName || 'Collaborator'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        {new Date(remark.createdAt).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
-                      {remark.body}
-                    </p>
-
-                    {/* Render attached photo if available */}
-                    {remark.photoUrl && (
-                      <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
-                        <img
-                          src={remark.photoUrl}
-                          alt="Remark photo"
-                          className="max-h-48 w-full object-cover cursor-pointer hover:opacity-95"
-                          onClick={() => window.open(remark.photoUrl, '_blank')}
-                        />
-                      </div>
-                    )}
-
-                    {/* Render voice note if available */}
-                    {remark.voiceUrl && (
-                      <div className="mt-2 flex items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                        <Mic className="w-3.5 h-3.5 text-blue-500" />
-                        <audio src={remark.voiceUrl} controls className="h-6 w-full" />
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: DETAILS (Dates, Priority, Weight, Progress, Custom Fields) */}
-        {activeTab === 'details' && (
+      {/* 3. TAB CONTENT BODY */}
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        {/* ============================================================== */}
+        {/* TAB 1: OVERVIEW                                                */}
+        {/* ============================================================== */}
+        {activeTab === 'overview' && (
           <div className="space-y-4">
-            {/* Assigned Team Member & Presence (Assigning enabled for Manager & Team Lead) */}
-            <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Assigned Team Member</span>
-                </label>
-                {permissions.canAssignTasks && (
-                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-md">
-                    Assign Enabled ({permissions.roleLabel})
+            {/* Contextual Primary Action Callout */}
+            {isPendingApproval ? (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                      Waiting for approval
+                    </h4>
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                      Submitted by {node.submitter?.fullName || 'Assignee'}. Review decision required.
+                    </p>
+                  </div>
+                </div>
+                {approvalAuth.allowed ? (
+                  <button
+                    onClick={() => setActiveTab('activity')}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap"
+                  >
+                    Review &amp; Decide
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold italic">
+                    {approvalAuth.reason}
                   </span>
                 )}
               </div>
+            ) : isRejected ? (
+              <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-rose-900 dark:text-rose-200">
+                      Changes requested
+                    </h4>
+                    <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-0.5">
+                      Reviewer requested rework before this task can be approved.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab('activity')}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-sm transition-colors whitespace-nowrap"
+                >
+                  View Feedback
+                </button>
+              </div>
+            ) : isApproved ? (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 flex items-center gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  Task Approved &amp; Completed
+                </span>
+              </div>
+            ) : !node.ownerId && permissions.canAssignTasks ? (
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-xs text-blue-800 dark:text-blue-300 flex items-center justify-between">
+                <span>Task is currently unassigned. Select a team member below to start.</span>
+              </div>
+            ) : null}
 
-              {permissions.canAssignTasks ? (
-                <div className="space-y-2">
+            {/* Essential Task Controls: Status & Priority */}
+            <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  Status
+                </label>
+                <select
+                  value={statusId || node.statusId || ''}
+                  onChange={(e) => {
+                    const nextStatusId = e.target.value;
+                    setStatusId(nextStatusId);
+                    saveNodeUpdates({ statusId: nextStatusId });
+                  }}
+                  disabled={!permissions.canEditProject}
+                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {statusOptions.map((s: any) => (
+                    <option key={s.id} value={s.id}>
+                      {s.labelI18n?.en || s.name || s.key}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  Priority
+                </label>
+                <select
+                  value={priority}
+                  onChange={(e) => {
+                    const nextPriority = e.target.value;
+                    setPriority(nextPriority);
+                    saveNodeUpdates({ priority: nextPriority });
+                  }}
+                  disabled={!permissions.canEditProject}
+                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="LOW">Low</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HIGH">High</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+              </div>
+            </div>
+
+            {/* People: Assigned To & Designated Reviewer */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between mb-1">
+                  <span>Assigned to</span>
+                  {node.owner && (
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      Assigned by {node.assignedBy?.fullName || 'Manager'}
+                    </span>
+                  )}
+                </label>
+                {permissions.canAssignTasks ? (
                   <select
                     value={ownerId}
-                    onChange={async (e) => {
-                      const newOwnerId = e.target.value;
-                      setOwnerId(newOwnerId);
+                    onChange={(e) => {
+                      const nextOwner = e.target.value;
+                      setOwnerId(nextOwner);
                       const chosen = workspaceMembers.find(
-                        (m) => (m.user?.id || m.userId) === newOwnerId
+                        (m) => (m.user?.id || m.userId) === nextOwner
                       );
                       const assigneeName = chosen?.user?.fullName || chosen?.user?.email;
                       const assigneeAvatar = chosen?.user?.avatarUrl;
@@ -1168,1019 +801,949 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                         assigneeAvatar: assigneeAvatar || undefined,
                       };
                       setCustomData(updatedCustom);
-                      await ApiClient.updateNode(node.id, {
-                        ownerId: newOwnerId || null,
+                      saveNodeUpdates({
+                        ownerId: nextOwner || null,
                         customData: updatedCustom,
-                        version: node.version,
                       });
-                      onNodeUpdated();
-                      await loadNode(node.id);
                     }}
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">-- Unassigned (Click to Assign) --</option>
+                    <option value="">-- Unassigned --</option>
                     {workspaceMembers.map((m: any) => {
                       const u = m.user || {};
                       const uid = u.id || m.userId;
                       return (
                         <option key={m.id || uid} value={uid}>
-                          {u.fullName || u.email || 'Team Member'} ({m.role || 'MEMBER'})
+                          {u.fullName || u.email || 'Member'} ({m.role || 'MEMBER'})
                         </option>
                       );
                     })}
                   </select>
+                ) : (
+                  <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
+                      {node.owner?.fullName ? node.owner.fullName[0] : 'U'}
+                    </div>
+                    <span className="text-xs font-semibold text-slate-900 dark:text-white">
+                      {node.owner?.fullName || 'Unassigned'}
+                    </span>
+                  </div>
+                )}
+              </div>
 
-                  {/* Designated Reviewer / Approver Selection */}
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-                      <span>Designated Reviewer / Approver</span>
-                    </label>
-                    <select
-                      value={reviewerId}
-                      onChange={async (e) => {
-                        const newRevId = e.target.value;
-                        setReviewerId(newRevId);
-                        await ApiClient.updateNode(node.id, {
-                          reviewerId: newRevId || null,
-                          version: node.version,
-                        });
-                        onNodeUpdated();
-                        await loadNode(node.id);
-                      }}
-                      className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    >
-                      <option value="">-- No specific reviewer (Any Manager can sign off) --</option>
-                      {workspaceMembers.map((m: any) => {
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  Designated Reviewer
+                </label>
+                {permissions.canAssignTasks ? (
+                  <select
+                    value={reviewerId}
+                    onChange={(e) => {
+                      const nextRev = e.target.value;
+                      setReviewerId(nextRev);
+                      saveNodeUpdates({ reviewerId: nextRev || null });
+                    }}
+                    className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">-- Any Authorized Manager / Lead --</option>
+                    {workspaceMembers
+                      .filter((m: any) => m.role === 'MANAGER' || m.role === 'TEAM_LEAD' || m.role === 'ADMIN')
+                      .map((m: any) => {
                         const u = m.user || {};
                         const uid = u.id || m.userId;
                         return (
                           <option key={m.id || uid} value={uid}>
-                            {u.fullName || u.email || 'Team Member'} ({m.role || 'MEMBER'})
+                            {u.fullName || u.email} ({m.role})
                           </option>
                         );
                       })}
-                    </select>
+                  </select>
+                ) : (
+                  <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300">
+                    {node.reviewer?.fullName || 'Any Authorized Manager'}
                   </div>
+                )}
+              </div>
 
-                  {/* Presence Status Toggle (Live vs Offline) */}
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          customData?.isLive !== false ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
-                        }`}
-                      />
-                      <span>Presence Status:</span>
-                    </span>
-                    <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const updated = { ...customData, isLive: true };
-                          setCustomData(updated);
-                          await ApiClient.updateNode(node.id, { customData: updated, version: node.version });
-                          onNodeUpdated();
-                        }}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          customData?.isLive !== false
-                            ? 'bg-emerald-500 text-white shadow-xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        🟢 Live
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const updated = { ...customData, isLive: false };
-                          setCustomData(updated);
-                          await ApiClient.updateNode(node.id, { customData: updated, version: node.version });
-                          onNodeUpdated();
-                        }}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          customData?.isLive === false
-                            ? 'bg-slate-600 text-white shadow-xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        Offline
-                      </button>
-                    </div>
+              {/* Additional Collaborators / Multi-Assignees */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between mb-1">
+                  <span>Additional Collaborators ({collaboratorIds.length})</span>
+                </label>
+                {permissions.canAssignTasks ? (
+                  <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 max-h-28 overflow-y-auto">
+                    {workspaceMembers.map((m: any) => {
+                      const u = m.user || {};
+                      const uid = u.id || m.userId;
+                      const isSelected = collaboratorIds.includes(uid);
+                      return (
+                        <button
+                          key={uid}
+                          type="button"
+                          onClick={() => {
+                            const newCols = isSelected
+                              ? collaboratorIds.filter((id) => id !== uid)
+                              : [...collaboratorIds, uid];
+                            setCollaboratorIds(newCols);
+                            const updatedCustom = {
+                              ...customData,
+                              collaboratorIds: newCols,
+                            };
+                            setCustomData(updatedCustom);
+                            saveNodeUpdates({ customData: updatedCustom });
+                          }}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold flex items-center gap-1 transition-colors ${
+                            isSelected
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                          }`}
+                        >
+                          <span>{u.fullName || u.email || 'Member'}</span>
+                          {isSelected && <Check className="w-2.5 h-2.5" />}
+                        </button>
+                      );
+                    })}
                   </div>
-                </div>
-              ) : (
-                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
-                        {node.owner?.fullName ? node.owner.fullName[0] : 'U'}
-                      </div>
-                      <span
-                        className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-slate-800 ${
-                          customData?.isLive !== false ? 'bg-emerald-500' : 'bg-slate-400'
-                        }`}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                        {node.owner?.fullName || customData?.assigneeName || 'Unassigned'}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        {customData?.isLive !== false ? '🟢 Active & Live' : '⚪ Offline'}
-                      </div>
-                    </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {collaboratorIds.length === 0 ? (
+                      <span className="text-[11px] text-slate-400 italic">No additional collaborators</span>
+                    ) : (
+                      collaboratorIds.map((cid) => {
+                        const m = workspaceMembers.find((wm) => (wm.user?.id || wm.userId) === cid);
+                        return (
+                          <span
+                            key={cid}
+                            className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                          >
+                            {m?.user?.fullName || m?.user?.email || 'Collaborator'}
+                          </span>
+                        );
+                      })
+                    )}
                   </div>
-                  <span className="text-[10px] text-slate-400 italic">Read-only (Member)</span>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Description
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onBlur={handleSaveDetails}
-                rows={3}
-                className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Scope of work and instructions..."
-              />
-            </div>
-
-            {/* Dates (Start & Due with Date and Time) */}
-            <div className="space-y-2.5">
+            {/* Dates & Deadline Status */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    Start Date & Time
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Start Date
                   </label>
                   <input
                     type="datetime-local"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    onBlur={handleSaveDetails}
-                    className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    onBlur={() => {
+                      const parsed = startDate ? new Date(startDate).toISOString() : null;
+                      saveNodeUpdates({ startDate: parsed });
+                    }}
+                    disabled={!permissions.canEditProject}
+                    className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    Due Date & Time
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Due Date
                   </label>
                   <input
                     type="datetime-local"
                     value={dueDate}
-                    onChange={(e) => {
-                      const newVal = e.target.value;
-                      setDueDate(newVal);
-                      handleSaveDetails(newVal);
+                    onChange={(e) => setDueDate(e.target.value)}
+                    onBlur={() => {
+                      const parsed = dueDate ? new Date(dueDate).toISOString() : null;
+                      saveNodeUpdates({ dueDate: parsed });
                     }}
-                    onBlur={(e) => {
-                      handleSaveDetails(e.target.value);
-                    }}
+                    disabled={!permissions.canEditProject}
                     className={`w-full p-2 text-xs rounded-xl border ${
-                      countdown.isOverdue
-                        ? 'border-rose-400 ring-2 ring-rose-500/20'
-                        : 'border-slate-200 dark:border-slate-700'
-                    } bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium`}
+                      countdown.isOverdue ? 'border-rose-400 text-rose-600' : 'border-slate-200 dark:border-slate-700'
+                    } bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500`}
                   />
                 </div>
               </div>
 
-              {/* Due Date Alert / Overdue Action Banner */}
+              {/* Deadline Status Banner */}
               {countdown.isOverdue ? (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900/60 flex items-center justify-between text-xs text-rose-800 dark:text-rose-300">
-                  <div className="flex items-center gap-2 font-bold">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 flex items-center justify-between text-xs text-rose-800 dark:text-rose-300">
+                  <span className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
                     <span>🚨 {countdown.formattedText}</span>
-                  </div>
+                  </span>
                   <button
                     type="button"
                     onClick={() => {
                       setPendingDueDate(dueDate);
                       setIsDeadlineModalOpen(true);
                     }}
-                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-sm flex items-center gap-1 transition-colors cursor-pointer"
+                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors"
                   >
-                    <span>Extend Deadline</span>
-                    <ArrowRight className="w-3 h-3" />
+                    Extend Deadline
                   </button>
                 </div>
               ) : countdown.isTwoDaysAlert ? (
-                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900/60 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 font-bold">
-                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>{countdown.formattedText} - Due Date Approaching!</span>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Priority & Weight */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Priority
-                </label>
-                <select
-                  value={priority}
-                  onChange={(e) => {
-                    setPriority(e.target.value);
-                    ApiClient.updateNode(node.id, { priority: e.target.value as any }).then(() => {
-                      onNodeUpdated();
-                      loadNode(node.id);
-                    });
-                  }}
-                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                >
-                  <option value="LOW">Low</option>
-                  <option value="MEDIUM">Medium</option>
-                  <option value="HIGH">High</option>
-                  <option value="URGENT">Urgent</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Weight (Rollup Impact)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  value={weight}
-                  onChange={(e) => setWeight(Number(e.target.value))}
-                  onBlur={handleSaveDetails}
-                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Dynamic Custom Fields Schema */}
-            {((node.applicableFields && node.applicableFields.length > 0) || (node.nodeType?.fields && node.nodeType.fields.length > 0)) && (
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Custom Properties & Industry Metadata ({node.nodeType?.name || 'Task'})</span>
-                </span>
-                <DynamicCustomFieldsForm
-                  fields={node.applicableFields || node.nodeType?.fields || []}
-                  values={customData}
-                  onChange={(newCustom) => {
-                    setCustomData(newCustom);
-                    handleSaveDetails(undefined, newCustom);
-                  }}
-                  currentUserRole={currentRole}
-                  isReadOnly={isConfidentialHidden}
-                  members={workspaceMembers.map((m: any) => ({
-                    id: m.userId || m.user?.id || m.id,
-                    name: m.user?.fullName || m.user?.email || 'Member',
-                    email: m.user?.email,
-                    role: m.role,
-                  }))}
-                />
-              </div>
-            )}
-
-            {/* Technical Metadata Card */}
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Node ID:</span>
-                <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
-                  {node.id.slice(0, 12)}...
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Status:</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">
-                  {node.status?.labelI18n?.en || node.status?.name || 'In Progress'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Version:</span>
-                <span className="font-bold">v{node.version}</span>
-              </div>
-            </div>
-
-            {/* Danger Zone: Delete Task */}
-            {onDeleteNode && (
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
-                <div className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/20 flex items-center justify-between">
-                  <div>
-                    <h5 className="text-xs font-bold text-rose-700 dark:text-rose-400">
-                      Delete this task
-                    </h5>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Remove this task, remarks, and connections
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Are you sure you want to delete task "${node.title}"? This cannot be undone.`
-                        )
-                      ) {
-                        onDeleteNode(node.id);
-                        onClose();
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB: MANAGER APPROVAL & REVIEW WORKFLOW (EXCLUSIVE TO MANAGERS) */}
-        {activeTab === 'approval' && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center mx-auto shadow-md shadow-emerald-500/20">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Manager Review & Sign-Off
-                </h4>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Approving turns this task <span className="font-bold text-emerald-600">BRIGHT GREEN (#10b981)</span>. Rework turns it <span className="font-bold text-rose-600">AMBER/RED</span>.
-                </p>
-              </div>
-
-              {/* Assignment Check */}
-              {!node.owner && !node.ownerId ? (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 text-left text-xs text-amber-800 dark:text-amber-300 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>Task Assignment Required</span>
-                  </div>
-                  <p className="text-[11px]">
-                    This task must have an assigned member before manager sign-off.
-                  </p>
+                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 text-xs text-amber-800 dark:text-amber-300 font-bold flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>{countdown.formattedText} (Approaching)</span>
                 </div>
               ) : (
-                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-left flex items-center justify-between text-xs shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4 text-blue-500" />
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      Assigned Lead: {node.owner?.fullName || 'Assigned Member'}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200">
-                    ✓ Assigned
-                  </span>
+                <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <Check className="w-3 h-3 text-emerald-500" />
+                  <span>On schedule</span>
                 </div>
               )}
+            </div>
 
-              {/* Non-Manager Read Only View */}
-              {!isManager ? (
-                <div className="p-3.5 rounded-xl border bg-slate-50 dark:bg-slate-900 text-left space-y-2">
-                  <div className="flex items-center gap-1.5 font-bold text-xs text-slate-700 dark:text-slate-300">
-                    <ShieldCheck className="w-4 h-4 text-blue-500" />
-                    <span>Manager Review Status (Read-Only)</span>
-                  </div>
-                  {node.customData?.managerReview ? (
-                    <div
-                      className={`p-3 rounded-lg border text-xs space-y-1 ${
-                        node.customData.managerReview.reaction === 'thumbs_up'
-                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
-                          : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
-                      }`}
-                    >
-                      <div className="font-bold flex items-center gap-1.5">
-                        {node.customData.managerReview.reaction === 'thumbs_up' ? (
-                          <>
-                            <ThumbsUp className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600" />
-                            <span>Approved by {node.customData.managerReview.reviewer}</span>
-                          </>
-                        ) : (
-                          <>
-                            <ThumbsDown className="w-3.5 h-3.5 text-rose-600 fill-rose-600" />
-                            <span>Rework Requested by {node.customData.managerReview.reviewer}</span>
-                          </>
-                        )}
-                      </div>
-                      {node.customData.managerReview.note && (
-                        <p className="text-[11px] italic bg-white/60 dark:bg-slate-800/60 p-2 rounded">
-                          "{node.customData.managerReview.note}"
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400">
-                      ⏳ Pending Manager Review. Only workspace managers have permission to approve or request rework.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                /* Manager Controls (Exclusive to Manager) */
-                <div className="text-left space-y-3 pt-1">
+            {/* Parent Stage / Hierarchy (if applicable) */}
+            {node.parentNode && (
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-500">Parent Step / Stage:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {node.parentNode.title}
+                </span>
+              </div>
+            )}
+
+            {/* Work Progress Slider */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-slate-700 dark:text-slate-300">Work Progress</span>
+                <span className="text-blue-600 dark:text-blue-400 font-mono">{progressPct}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={progressPct}
+                onChange={(e) => setProgressPct(Number(e.target.value))}
+                onMouseUp={() => saveNodeUpdates({ progressPct })}
+                onTouchEnd={() => saveNodeUpdates({ progressPct })}
+                disabled={!permissions.canEditProject}
+                className="w-full accent-blue-600 cursor-pointer"
+              />
+            </div>
+
+            {/* Progressive Disclosure: Advanced Settings */}
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex items-center justify-between w-full p-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                <span>Advanced details (Scope, Custom Properties, Weight)</span>
+                {showAdvanced ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-3 space-y-4 animate-in fade-in duration-150">
+                  {/* Task Instructions / Scope */}
                   <div>
-                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-1">
-                      Manager Assessment / Feedback Note
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                      Instructions &amp; Scope
                     </label>
                     <textarea
-                      rows={2}
-                      value={approvalNote}
-                      onChange={(e) => setApprovalNote(e.target.value)}
-                      placeholder="e.g. Drawings checked, deliverables inspected, approved..."
-                      className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      onBlur={() => saveNodeUpdates({ description })}
+                      disabled={!permissions.canEditProject}
+                      rows={3}
+                      className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      placeholder="Detailed instructions or specifications for the assignee..."
                     />
                   </div>
 
+                  {/* Task Weight */}
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                      Task Weight (Progress Impact)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={weight}
+                      onChange={(e) => setWeight(Number(e.target.value))}
+                      onBlur={() => saveNodeUpdates({ weight: Number(weight) })}
+                      disabled={!permissions.canEditProject}
+                      className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  {/* Dynamic Custom Fields */}
+                  {((node.applicableFields && node.applicableFields.length > 0) ||
+                    (node.nodeType?.fields && node.nodeType.fields.length > 0)) && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                        Custom Properties
+                      </span>
+                      <DynamicCustomFieldsForm
+                        fields={node.applicableFields || node.nodeType?.fields || []}
+                        values={customData}
+                        onChange={(newCustom) => {
+                          setCustomData(newCustom);
+                          saveNodeUpdates({ customData: newCustom });
+                        }}
+                        currentUserRole={currentRole}
+                        isReadOnly={!permissions.canEditProject}
+                        members={workspaceMembers.map((m: any) => ({
+                          id: m.userId || m.user?.id || m.id,
+                          name: m.user?.fullName || m.user?.email || 'Member',
+                          email: m.user?.email,
+                          role: m.role,
+                        }))}
+                      />
+                    </div>
+                  )}
+
+                  {/* Danger Zone: Delete Task */}
+                  {onDeleteNode && permissions.canEditProject && (
+                    <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
+                      <div>
+                        <span className="text-xs font-bold text-rose-600 block">Delete Task</span>
+                        <span className="text-[11px] text-slate-400">Remove this node and its dependencies</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Delete task "${node.title}"? This cannot be undone.`)) {
+                            onDeleteNode(node.id);
+                            onClose();
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-400 text-xs font-bold transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* TAB 2: WORK & EVIDENCE                                         */}
+        {/* ============================================================== */}
+        {activeTab === 'work' && (
+          <div className="space-y-5">
+            {/* 1. Checklist & Subtasks */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Checklist &amp; Subtasks ({node.children?.length || 0})</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => onDrillDown({ id: node.id, title: node.title })}
+                  className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                >
+                  <span>Open Sub-Canvas</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* Add Subtask Input */}
+              {permissions.canCreateChildNodes && (
+                <form onSubmit={handleCreateSubtask} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    placeholder="Add step or subtask..."
+                    className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={creatingSubtask || !newSubtaskTitle.trim()}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm"
+                  >
+                    + Add
+                  </button>
+                </form>
+              )}
+
+              {/* Subtasks List */}
+              <div className="space-y-1.5">
+                {(node.children || []).length === 0 ? (
+                  <p className="text-xs text-slate-400 py-2 text-center">
+                    No subtasks yet. Add step-by-step checklist items above.
+                  </p>
+                ) : (
+                  node.children.map((sub: any) => {
+                    const isDone = sub.status?.category === 'done';
+                    return (
+                      <div
+                        key={sub.id}
+                        className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isDone}
+                            onChange={async (e) => {
+                              const doneStatus = sub.nodeType?.statusSet?.statuses?.find(
+                                (s: any) => s.category === 'done' || s.key === 'done'
+                              );
+                              const activeStatus = sub.nodeType?.statusSet?.statuses?.find(
+                                (s: any) => s.category === 'active' || s.key === 'in_progress'
+                              );
+                              const targetStatus = e.target.checked ? doneStatus : activeStatus;
+                              if (targetStatus) {
+                                await ApiClient.updateNode(sub.id, {
+                                  statusId: targetStatus.id,
+                                  progressPct: e.target.checked ? 100 : 0,
+                                });
+                                await loadNode(node.id);
+                                onNodeUpdated();
+                              }
+                            }}
+                            className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer"
+                          />
+                          <span
+                            className={`text-xs font-medium truncate ${
+                              isDone ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'
+                            }`}
+                          >
+                            {sub.title}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (window.confirm(`Delete subtask "${sub.title}"?`)) {
+                              await ApiClient.deleteNode(sub.id);
+                              await loadNode(node.id);
+                              onNodeUpdated();
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-500 rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* 2. Dependencies & Blockers */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Dependencies &amp; Blockers</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setIsReportingBlocker(!isReportingBlocker)}
+                  className="text-[11px] font-bold text-amber-600 hover:underline"
+                >
+                  {isReportingBlocker ? 'Cancel' : 'Report Blocker'}
+                </button>
+              </div>
+
+              {isReportingBlocker && (
+                <form onSubmit={handleReportBlocker} className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl space-y-2">
+                  <input
+                    type="text"
+                    value={blockerReason}
+                    onChange={(e) => setBlockerReason(e.target.value)}
+                    placeholder="Why is this task blocked? (e.g. Waiting for client spec, missing part)"
+                    className="w-full p-2 text-xs rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="submit"
+                      disabled={submittingBlocker || !blockerReason.trim()}
+                      className="px-3 py-1 bg-amber-600 text-white rounded-lg text-xs font-bold"
+                    >
+                      {submittingBlocker ? 'Flagging...' : 'Flag Blocker'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {node.isBlocked || node.status?.category === 'blocked' ? (
+                <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 text-xs text-amber-800 dark:text-amber-300 font-medium">
+                  ⚠️ This task is blocked: {node.customData?.blockerReason || 'Waiting on previous steps'}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  No active blockers. Work can proceed normally.
+                </p>
+              )}
+            </div>
+
+            {/* 3. Attachments & Evidence Deliverables */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Paperclip className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Deliverables &amp; Evidence ({documents.length})</span>
+                </h4>
+                <div className="flex items-center gap-1">
+                  {(['evidence', 'specification', 'general'] as const).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setDocCategory(cat)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold capitalize transition-colors ${
+                        docCategory === cat
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Upload Dropzone */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) handleFileUpload(f);
+                }}
+                className="p-4 border-2 border-dashed border-blue-200 dark:border-blue-900/60 rounded-xl bg-blue-50/30 dark:bg-blue-950/20 text-center cursor-pointer hover:border-blue-400 transition-colors"
+              >
+                <UploadCloud className="w-6 h-6 text-blue-500 mx-auto mb-1" />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                  {uploadingDoc ? 'Uploading...' : `Add ${docCategory} file`}
+                </span>
+                <span className="text-[10px] text-slate-400">Click or drag file to attach</span>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileUpload(f);
+                  }}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Document List */}
+              <div className="space-y-1.5">
+                {documents.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-2 text-center">
+                    No files attached yet. Add reports, photos, or evidence above.
+                  </p>
+                ) : (
+                  documents.map((doc: any) => (
+                    <div
+                      key={doc.id}
+                      className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileCheck className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
+                            {doc.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            v{doc.version || 1} • {Math.round((doc.fileSize || 1024) / 1024)} KB • {doc.category || 'general'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <a
+                          href={ApiClient.getDocumentDownloadUrl(node.id, doc.id)}
+                          download={doc.name}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 text-blue-600 hover:text-blue-700 rounded"
+                          title="Download"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (window.confirm(`Delete document "${doc.name}"?`)) {
+                              await ApiClient.deleteDocument(doc.id);
+                              await loadNode(node.id);
+                              onNodeUpdated();
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-500 rounded"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 4. Comments & Collaboration Feed */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                <span>Comments &amp; Field Updates</span>
+              </h4>
+
+              {/* Quick Status Presets */}
+              <div className="flex flex-wrap gap-1.5">
+                {['Started work', 'Waiting for inspection', 'Draft ready for review', 'Task completed'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => handleAddRemark(undefined, preset)}
+                    disabled={submittingRemark}
+                    className="px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-semibold text-slate-700 dark:text-slate-300 hover:border-blue-500"
+                  >
+                    + {preset}
+                  </button>
+                ))}
+              </div>
+
+              {/* Comment Input */}
+              <form onSubmit={handleAddRemark} className="space-y-2">
+                <textarea
+                  value={newRemarkText}
+                  onChange={(e) => setNewRemarkText(e.target.value)}
+                  placeholder="Post an update or comment..."
+                  rows={2}
+                  className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+
+                {/* Voice / Photo preview */}
+                {recordedAudioUrl && (
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-xs">
+                    <Mic className="w-3.5 h-3.5 text-blue-600" />
+                    <audio src={recordedAudioUrl} controls className="h-6 w-full max-w-[200px]" />
+                    <button type="button" onClick={() => setRecordedAudioUrl(null)}>
+                      <X className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    {!isRecording ? (
+                      <button
+                        type="button"
+                        onClick={startRecording}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800"
+                        title="Voice note"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={stopRecording}
+                        className="p-1.5 text-rose-600 bg-rose-100 rounded-lg font-bold text-xs flex items-center gap-1"
+                      >
+                        <Square className="w-3.5 h-3.5" /> Stop
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={submittingRemark || (!newRemarkText.trim() && !recordedAudioUrl)}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm"
+                  >
+                    {submittingRemark ? 'Posting...' : 'Post Comment'}
+                  </button>
+                </div>
+              </form>
+
+              {/* Comments Timeline */}
+              <div className="space-y-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 max-h-56 overflow-y-auto">
+                {(node.remarks || []).length === 0 ? (
+                  <p className="text-xs text-slate-400 py-1 text-center">No comments yet.</p>
+                ) : (
+                  node.remarks.map((r: any) => (
+                    <div key={r.id} className="p-2.5 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-800 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {r.author?.fullName || 'Collaborator'}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(r.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-slate-700 dark:text-slate-300">{r.body}</p>
+                      {r.voiceUrl && <audio src={r.voiceUrl} controls className="h-6 w-full mt-1" />}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 5. Submit Work for Approval Action */}
+            {isAssignedToCurrentUser && !isPendingApproval && !isApproved && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white space-y-2 shadow-md">
+                <h4 className="text-xs font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Submit Work for Approval</span>
+                </h4>
+                <p className="text-[11px] text-blue-100">
+                  Ready for manager sign-off? Ensure deliverables and evidence are attached above, then submit.
+                </p>
+                <textarea
+                  value={submissionNotes}
+                  onChange={(e) => setSubmissionNotes(e.target.value)}
+                  placeholder="Notes for the reviewer (e.g. Completed per guidelines, see attached document)..."
+                  rows={2}
+                  className="w-full p-2 text-xs rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-blue-200 focus:outline-none focus:bg-white/20 resize-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSubmitWork}
+                  disabled={submittingWork}
+                  className="w-full py-2 bg-white text-blue-600 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-sm transition-colors"
+                >
+                  {submittingWork ? 'Submitting...' : 'Submit for Manager Review'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* TAB 3: ACTIVITY & APPROVALS                                    */}
+        {/* ============================================================== */}
+        {activeTab === 'activity' && (
+          <div className="space-y-5">
+            {/* Approval Decision Card (For Authorized Reviewers) */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-purple-600" />
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                    Approval &amp; Quality Review
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    Sign off on deliverables or request changes
+                  </span>
+                </div>
+              </div>
+
+              {/* Status Banner */}
+              <div
+                className={`p-3 rounded-xl border text-xs font-semibold ${
+                  isApproved
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
+                    : isRejected
+                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
+                    : isPendingApproval
+                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-amber-800 dark:text-amber-300'
+                    : 'bg-slate-100 dark:bg-slate-800 border-slate-200 text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                {isApproved
+                  ? `✓ Approved by ${node.reviewer?.fullName || 'Manager'}`
+                  : isRejected
+                  ? `⚠️ Changes Requested: ${node.approvalFeedback || 'Rework required'}`
+                  : isPendingApproval
+                  ? '⏳ Pending Manager Review'
+                  : 'No approval requested yet'}
+              </div>
+
+              {/* Reviewer Actions */}
+              {approvalAuth.allowed ? (
+                <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Review Assessment / Feedback Note
+                  </label>
+                  <textarea
+                    value={approvalNote}
+                    onChange={(e) => setApprovalNote(e.target.value)}
+                    placeholder="Enter approval note or specific rework requirements..."
+                    rows={2}
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  />
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={approving || (!node.owner && !node.ownerId)}
-                      onClick={handleManagerApprove}
-                      className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      disabled={approving}
+                      onClick={handleApproveWork}
+                      className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <ThumbsUp className="w-3.5 h-3.5" />
-                      <span>{approving ? 'Saving...' : '👍 Approve (Green)'}</span>
+                      <span>{approving ? 'Saving...' : 'Approve Work'}</span>
                     </button>
-
                     <button
                       type="button"
-                      disabled={approving || (!node.owner && !node.ownerId)}
-                      onClick={handleManagerRework}
-                      className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      disabled={approving}
+                      onClick={handleRejectWork}
+                      className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <ThumbsDown className="w-3.5 h-3.5" />
-                      <span>{approving ? 'Saving...' : '👎 Rework (Red)'}</span>
+                      <span>{approving ? 'Saving...' : 'Request Changes'}</span>
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* Deadline Extension Request Section */}
-              {customData?.deadlineExtension && (
-                <div className="p-3.5 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 text-left space-y-2 mt-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-amber-600" />
-                      <span>Timeline Extension Request</span>
-                    </span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                        customData.deadlineExtension.status === 'APPROVED'
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                          : customData.deadlineExtension.status === 'REJECTED'
-                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 animate-pulse'
-                      }`}
-                    >
-                      {customData.deadlineExtension.status || 'PENDING'}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-slate-700 dark:text-slate-300">
-                    <span className="font-semibold text-slate-500 dark:text-slate-400">Reason:</span>{' '}
-                    {customData.deadlineExtension.reason}
-                  </p>
-
-                  {customData.deadlineExtension.revisedDueDate && (
-                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                      <span className="font-semibold">Requested Deadline:</span>{' '}
-                      {new Date(customData.deadlineExtension.revisedDueDate).toLocaleString()}
-                    </p>
-                  )}
-
-                  {customData.deadlineExtension.docName && (
-                    <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/40 text-xs flex items-center gap-2">
-                      <Paperclip className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="font-semibold truncate">{customData.deadlineExtension.docName}</span>
-                    </div>
-                  )}
-
-                  {/* Manager Approval / Rejection buttons for extension */}
-                  {permissions.canApproveDeadlineExtension &&
-                    customData.deadlineExtension.status === 'PENDING' && (
-                      <div className="flex items-center gap-2 pt-2 border-t border-amber-200 dark:border-amber-900/60">
-                        <button
-                          type="button"
-                          onClick={handleApproveDeadlineExtension}
-                          className="flex-1 py-1.5 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-sm"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Approve Extension</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleRejectDeadlineExtension}
-                          className="flex-1 py-1.5 px-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-sm"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          <span>Reject</span>
-                        </button>
-                      </div>
-                    )}
-                </div>
-              )}
-
-              {/* Member Action: Request Extension if timeline exceeded or approaching */}
-              {permissions.canSubmitDeadlineExtension && !isManager && (
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsDeadlineModalOpen(true)}
-                    className="w-full py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all"
-                  >
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>Request Timeline Extension with Reason & Document</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: DOCUMENTS (Deliverables, Evidence, Versioning, Verification) */}
-        {activeTab === 'docs' && (
-          <div className="space-y-4">
-            {/* Category Selector Pills */}
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                Upload Document Category:
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                {[
-                  { id: 'evidence', label: 'Deliverable Evidence', icon: '📑', color: 'border-indigo-300 dark:border-indigo-800' },
-                  { id: 'specification', label: 'Technical Spec', icon: '📋', color: 'border-purple-300 dark:border-purple-800' },
-                  { id: 'contract', label: 'Contract / Legal', icon: '📄', color: 'border-amber-300 dark:border-amber-800' },
-                  { id: 'general', label: 'General File', icon: '📎', color: 'border-slate-300 dark:border-slate-700' },
-                ].map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setDocCategory(cat.id as any)}
-                    className={`p-2 rounded-xl text-left border text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                      docCategory === cat.id
-                        ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-700 dark:text-blue-300 shadow-xs'
-                        : 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>{cat.icon}</span>
-                    <span className="truncate">{cat.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Drag & Drop Upload Zone */}
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const file = e.dataTransfer.files?.[0];
-                if (file) handleFileUpload(file);
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              className="p-6 border-2 border-dashed border-blue-300 dark:border-blue-900/60 hover:border-blue-500 rounded-2xl bg-blue-50/40 dark:bg-blue-950/20 text-center cursor-pointer transition-all"
-            >
-              <UploadCloud className="w-8 h-8 text-blue-500 mx-auto mb-2" />
-              <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                {uploadingDoc ? 'Uploading document...' : `Upload ${docCategory.toUpperCase()} document`}
-              </p>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Drop files or click to browse (Max 25MB • Automated Versioning &amp; Evidence Audit)
-              </p>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileUpload(file);
-                }}
-                className="hidden"
-              />
-            </div>
-
-            {/* Documents List */}
-            <div className="space-y-2">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Attached Files &amp; Evidence Deliverables ({documents.length})
-              </span>
-
-              {documents.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 text-xs">
-                  No documents attached yet. Drop blueprint, report evidence, or specification above!
                 </div>
               ) : (
-                documents.map((doc: any) => {
-                  const isDocLocked =
-                    (customData?.lockedDocIds || []).includes(doc.id) || isNodeLocked;
-                  const isRestrictedForMember = isDocLocked && !permissions.canViewConfidential;
-                  const isEvidence = doc.category === 'evidence' || doc.category === 'deliverable';
-                  const verification = doc.metadata?.evidenceVerification;
-
-                  return (
-                    <div
-                      key={doc.id}
-                      className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
-                        isDocLocked
-                          ? 'border-amber-300 dark:border-amber-800/80 bg-amber-50/20 dark:bg-amber-950/20'
-                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 hover:border-blue-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                            isDocLocked
-                              ? 'bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400'
-                              : isEvidence
-                              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-                              : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                          }`}
-                        >
-                          {isDocLocked ? <Lock className="w-4 h-4" /> : isEvidence ? <FileCheck className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
-                              {doc.name}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                              v{doc.version}
-                            </span>
-                            {isEvidence && (
-                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                                Deliverable Evidence
-                              </span>
-                            )}
-                            {isDocLocked && (
-                              <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 rounded border border-amber-300 dark:border-amber-800">
-                                Confidential
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span>{Math.round(Number(doc.fileSize) / 1024) || 120} KB</span>
-                            <span>•</span>
-                            <span>Uploaded by {doc.uploader?.fullName || 'Collaborator'}</span>
-                          </div>
-
-                          {/* Evidence Verification Details */}
-                          {verification && (
-                            <div className="mt-1 text-[11px]">
-                              {verification.status === 'APPROVED' ? (
-                                <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Verified deliverable {verification.feedback ? `("${verification.feedback}")` : ''}</span>
-                                </span>
-                              ) : (
-                                <span className="font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                                  <AlertTriangle className="w-3.5 h-3.5" />
-                                  <span>Rework requested: &quot;{verification.feedback}&quot;</span>
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0 justify-end">
-                        {/* Evidence verification review actions for designated reviewer or manager */}
-                        {isEvidence && (isManager || node.reviewerId === user?.id) && (
-                          <div className="flex items-center gap-1 mr-1">
-                            <button
-                              type="button"
-                              onClick={() => handleVerifyEvidence(doc.id, 'APPROVED')}
-                              className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 shadow-xs transition-colors"
-                              title="Verify & Approve this evidence deliverable"
-                            >
-                              <Check className="w-3 h-3" />
-                              <span>Verify</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleVerifyEvidence(doc.id, 'REJECTED')}
-                              className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1 shadow-xs transition-colors"
-                              title="Request rework on this evidence deliverable"
-                            >
-                              <AlertTriangle className="w-3 h-3" />
-                              <span>Rework</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {isRestrictedForMember ? (
-                          <span
-                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1"
-                            title="Confidential document: Download and preview are restricted for Member role."
-                          >
-                            <Lock className="w-3 h-3 text-amber-600" />
-                            <span>Restricted</span>
-                          </span>
-                        ) : (
-                          <>
-                            {/* Toggle Confidential Lock Button */}
-                            {permissions.canToggleLock && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleDocLock(doc.id, isDocLocked)}
-                                className={`p-1.5 rounded-lg transition-colors ${
-                                  isDocLocked
-                                    ? 'text-amber-600 bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200'
-                                    : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                                }`}
-                                title={isDocLocked ? 'Document is locked. Click to make public.' : 'Lock document as confidential.'}
-                              >
-                                {isDocLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                              </button>
-                            )}
-
-                            {/* Preview button */}
-                            <button
-                              onClick={() => setPreviewDoc(doc)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50"
-                              title="Preview Document"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-
-                            {/* Secure Download button */}
-                            <a
-                              href={doc.storageKey?.startsWith('data:') ? doc.storageKey : ApiClient.getDocumentDownloadUrl(node.id, doc.id)}
-                              download={doc.name}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
-                              title="Download Document"
-                            >
-                              <Download className="w-4 h-4" />
-                            </a>
-
-                            {/* Delete button */}
-                            <button
-                              onClick={() => handleDeleteDocument(doc.id, doc.name)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
-                              title="Delete Document"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
+                <div className="text-[11px] text-slate-400 italic bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  ℹ️ {approvalAuth.reason}
+                </div>
               )}
             </div>
 
-            {/* Document Preview Modal */}
-            {previewDoc && (
-              <div
-                className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
-                onClick={() => setPreviewDoc(null)}
-              >
-                <div
-                  className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-4 shadow-2xl border border-slate-200 dark:border-slate-800"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                    <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-blue-500" />
-                      <span>{previewDoc.name}</span>
-                    </h4>
+            {/* Timeline Extension Requests */}
+            {customData?.deadlineExtension && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Timeline Extension Request</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-amber-100 text-amber-800 dark:bg-amber-900">
+                    {customData.deadlineExtension.status || 'PENDING'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-700 dark:text-slate-300">
+                  {customData.deadlineExtension.reason}
+                </p>
+                {customData.deadlineExtension.revisedDueDate && (
+                  <p className="text-[11px] text-slate-500">
+                    Requested due date: {new Date(customData.deadlineExtension.revisedDueDate).toLocaleDateString()}
+                  </p>
+                )}
+                {permissions.canApproveDeadlineExtension && customData.deadlineExtension.status === 'PENDING' && (
+                  <div className="flex gap-2 pt-2 border-t border-amber-200">
                     <button
-                      onClick={() => setPreviewDoc(null)}
-                      className="p-1 text-slate-400 hover:text-slate-600"
+                      type="button"
+                      onClick={async () => {
+                        const updated = {
+                          ...customData,
+                          deadlineExtension: { ...customData.deadlineExtension, status: 'APPROVED' },
+                        };
+                        setCustomData(updated);
+                        await ApiClient.updateNode(node.id, {
+                          dueDate: customData.deadlineExtension.revisedDueDate,
+                          customData: updated,
+                        });
+                        await loadNode(node.id);
+                        onNodeUpdated();
+                      }}
+                      className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold"
                     >
-                      <X className="w-4 h-4" />
+                      Approve Extension
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const updated = {
+                          ...customData,
+                          deadlineExtension: { ...customData.deadlineExtension, status: 'REJECTED' },
+                        };
+                        setCustomData(updated);
+                        await ApiClient.updateNode(node.id, { customData: updated });
+                        await loadNode(node.id);
+                        onNodeUpdated();
+                      }}
+                      className="px-3 py-1 bg-rose-600 text-white rounded-lg text-xs font-bold"
+                    >
+                      Reject
                     </button>
                   </div>
-                  <div className="py-4 text-center">
-                    {previewDoc.storageKey?.startsWith('data:image') ? (
-                      <img
-                        src={previewDoc.storageKey}
-                        alt="Preview"
-                        className="max-h-[60vh] mx-auto rounded-lg object-contain shadow-md"
-                      />
-                    ) : (
-                      <div className="p-8 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                        <FileText className="w-12 h-12 text-blue-500 mx-auto mb-3" />
-                        <p className="font-bold text-xs text-slate-700 dark:text-slate-300">
-                          {previewDoc.name}
-                        </p>
-                        <p className="text-[11px] text-slate-400 mt-1">
-                          Inline preview available for images and PDFs. Download to view CAD/DWG.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* TAB 4: CHILDREN & SUB-CANVAS */}
-        {activeTab === 'children' && (
-          <div className="space-y-4">
-            {/* Drill Down into Sub-Canvas Action Banner */}
-            <div className="p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-200 dark:border-purple-900/50">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-xs text-slate-900 dark:text-white">
-                    Sub-Canvas View
-                  </h4>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Open infinite sub-canvas dedicated to this item
-                  </p>
-                </div>
-                <button
-                  onClick={() => onDrillDown({ id: node.id, title: node.title })}
-                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold shadow-md shadow-purple-500/20 flex items-center gap-1.5"
-                >
-                  <span>Drill Down</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+            {/* Audit Trail & Activity Log */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-blue-500" />
+                <span>Audit Trail &amp; Revision Log</span>
+              </h4>
 
-            {/* Create dynamic child node */}
-            <form onSubmit={handleCreateChild} className="flex gap-2">
-              <input
-                type="text"
-                value={newChildTitle}
-                onChange={(e) => setNewChildTitle(e.target.value)}
-                placeholder="New child sub-item title..."
-                className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="submit"
-                disabled={creatingChild || !newChildTitle.trim()}
-                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 flex items-center gap-1 shadow-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add</span>
-              </button>
-            </form>
-
-            {/* List of child items */}
-            <div className="space-y-2">
-              {node.children?.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 text-xs">
-                  No children yet. Add a child above or drill down to create on canvas!
-                </div>
+              {loadingHistory ? (
+                <p className="text-xs text-slate-400 py-3 text-center">Loading audit log...</p>
+              ) : historyList.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">No history recorded yet.</p>
               ) : (
-                node.children?.map((child: any) => (
-                  <div
-                    key={child.id}
-                    className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="font-bold text-xs text-slate-900 dark:text-white">
-                        {child.title}
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        Weight: {child.weight}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {child.status?.name || 'Active'}
-                      </span>
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (window.confirm(`Delete child item "${child.title}"?`)) {
-                            await ApiClient.deleteNode(child.id);
-                            loadNode(node.id);
-                            onNodeUpdated();
-                          }
-                        }}
-                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                        title="Delete child task"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: HISTORY & AUDIT TRAIL */}
-        {activeTab === 'history' && (
-          <div className="space-y-4">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Audit Trail & Revision History
-            </span>
-
-            {loadingHistory ? (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                Loading history records...
-              </div>
-            ) : historyList.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs">
-                No history entries recorded yet. Changes will be audited automatically.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {historyList.map((log: any) => (
-                  <div
-                    key={log.id}
-                    className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                            log.action === 'DEADLINE_CHANGE'
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                              : log.action === 'MANAGER_APPROVAL'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400'
-                          }`}
-                        >
-                          {log.action}
-                        </span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {historyList.map((log: any) => (
+                    <div
+                      key={log.id}
+                      className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-xs space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
                           {log.actor?.fullName || 'Collaborator'}
                         </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(log.createdAt).toLocaleDateString()} {new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {new Date(log.createdAt).toLocaleString(undefined, {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                          hour12: true,
-                        })}
+                      <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950 text-blue-600">
+                        {log.action}
                       </span>
                     </div>
-
-                    {/* Formatted details for Deadline Change */}
-                    {log.action === 'DEADLINE_CHANGE' && log.newValues?.dueDate && (
-                      <div className="p-2.5 rounded-lg bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200 space-y-1">
-                        <div className="font-semibold flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-amber-600" />
-                          <span>
-                            Revised Due Date: {new Date(log.newValues.dueDate).toLocaleString()}
-                          </span>
-                        </div>
-                        {log.oldValues?.dueDate && (
-                          <div className="text-[11px] text-slate-500 line-through">
-                            Previous: {new Date(log.oldValues.dueDate).toLocaleString()}
-                          </div>
-                        )}
-                        {log.newValues.reason && (
-                          <div className="text-[11px] font-normal text-slate-600 dark:text-slate-400 mt-1 italic">
-                            &quot;{log.newValues.reason}&quot;
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Formatted details for Manager Approval */}
-                    {log.action === 'MANAGER_APPROVAL' && (
-                      <div className="p-2.5 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
-                        <div className="font-bold flex items-center gap-1.5">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Manager Verification &amp; Sign-off</span>
-                        </div>
-                        {log.newValues?.note && (
-                          <div className="text-[11px] font-normal text-slate-600 dark:text-slate-400 italic">
-                            &quot;{log.newValues.note}&quot;
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Generic changes fallback */}
-                    {log.action !== 'DEADLINE_CHANGE' &&
-                      log.action !== 'MANAGER_APPROVAL' &&
-                      log.newValues && (
-                        <div className="text-[11px] text-slate-500 font-mono bg-slate-50 dark:bg-slate-800 p-2 rounded-lg">
-                          {Object.entries(log.newValues)
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join(' • ')}
-                        </div>
-                      )}
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Deadline Extension Modal */}
+      {/* Deadline Extension Request Modal */}
       <DeadlineExtensionModal
         isOpen={isDeadlineModalOpen}
-        currentDueDate={node.dueDate}
-        pendingDueDate={pendingDueDate || node.dueDate}
         onClose={() => setIsDeadlineModalOpen(false)}
-        onConfirm={handleConfirmDeadlineExtension}
+        currentDueDate={dueDate}
+        newDueDate={pendingDueDate}
+        taskTitle={title}
+        onConfirm={async (reason, revisedDueDate, attachedDoc) => {
+          const finalDueDate = revisedDueDate || pendingDueDate || dueDate;
+          setDueDate(finalDueDate);
+          const docName = attachedDoc ? `Timeline-Revision-${Date.now().toString().slice(-4)}.pdf` : null;
+
+          if (attachedDoc && docName) {
+            await ApiClient.addDocument(node.id, {
+              name: docName,
+              mimeType: 'application/pdf',
+              fileSize: 1024 * 50,
+              storageKey: attachedDoc,
+            });
+          }
+
+          const extData = {
+            reason,
+            revisedDueDate: finalDueDate,
+            docName,
+            status: 'PENDING',
+            requestedBy: user?.fullName || 'Member',
+            requestedAt: new Date().toISOString(),
+          };
+
+          const updatedCustom = {
+            ...customData,
+            deadlineReason: reason,
+            deadlineExtension: extData,
+          };
+          setCustomData(updatedCustom);
+
+          await ApiClient.updateNode(node.id, {
+            dueDate: finalDueDate ? new Date(finalDueDate).toISOString() : null,
+            deadlineReason: reason,
+            customData: updatedCustom,
+            version: node.version,
+          });
+
+          setIsDeadlineModalOpen(false);
+          await loadNode(node.id);
+          onNodeUpdated();
+        }}
       />
     </div>
   );

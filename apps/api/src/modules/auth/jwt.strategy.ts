@@ -31,13 +31,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       },
     });
 
-    if (!user || user.deletedAt) {
+    if (!user || user.deletedAt || !user.isActive) {
       throw new UnauthorizedException('User not found or deactivated');
     }
 
+    const { passwordHash: _hash, ...safeUser } = user;
+
     return {
-      ...user,
-      activeWorkspaceId: payload.activeWorkspaceId || user.memberships[0]?.workspaceId,
+      ...safeUser,
+      activeWorkspaceId: payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId,
     };
   }
 }

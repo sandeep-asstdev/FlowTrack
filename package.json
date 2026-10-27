@@ -9,7 +9,7 @@
     "dev:api": "pnpm --filter @flowtrack/api dev",
     "dev:web": "pnpm --filter @flowtrack/web dev",
     "build:shared": "pnpm --filter @flowtrack/shared build",
-    "build": "pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api build && pnpm --filter @flowtrack/web build",
+    "build": "pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api prisma:generate && pnpm --filter @flowtrack/api build && pnpm --filter @flowtrack/web build",
     "test": "pnpm -r test",
     "lint": "pnpm -r --if-present run lint"
   },

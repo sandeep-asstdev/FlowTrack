@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json, urlencoded } from 'express';
 
 async function bootstrap() {
+  console.log(`===> FlowTrack API initializing on Node ${process.version}...`);
   const app = await NestFactory.create(AppModule);
 
   app.use(json({ limit: '50mb' }));

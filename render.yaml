@@ -6,7 +6,8 @@ services:
     region: oregon
     plan: free
     buildCommand: pnpm install --frozen-lockfile && pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api prisma:generate && pnpm --filter @flowtrack/api build
-    startCommand: pnpm --filter @flowtrack/api exec prisma db push --skip-generate --accept-data-loss && node apps/api/dist/main
+    preDeployCommand: pnpm --filter @flowtrack/api exec prisma db push --skip-generate --accept-data-loss || true
+    startCommand: node apps/api/dist/main
     envVars:
       - key: NODE_ENV
         value: production

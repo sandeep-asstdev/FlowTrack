@@ -1,8 +1,12 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = (import.meta as any).env?.VITE_API_URL
-  ? new URL((import.meta as any).env.VITE_API_URL).origin
-  : 'http://localhost:3001';
+const SOCKET_URL =
+  (import.meta as any).env?.VITE_SOCKET_URL ||
+  ((import.meta as any).env?.VITE_API_URL
+    ? new URL((import.meta as any).env.VITE_API_URL).origin
+    : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? 'https://flowtrack-api-rss4.onrender.com'
+    : 'http://localhost:3001');
 
 class SocketService {
   private socket: Socket | null = null;

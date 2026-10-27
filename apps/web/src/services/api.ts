@@ -1,4 +1,8 @@
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api/v1';
+const API_BASE =
+  (import.meta as any).env?.VITE_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? 'https://flowtrack-api-rss4.onrender.com/api/v1'
+    : 'http://localhost:3001/api/v1');
 
 export class ApiClient {
   private static token: string | null =

@@ -1,8 +1,8 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Production API URL — update this once Render assigns your backend URL
-const PRODUCTION_API_URL = 'https://flowtrack-api.onrender.com/api/v1';
+// Production API URL — live Render backend URL
+const PRODUCTION_API_URL = 'https://flowtrack-api-rss4.onrender.com/api/v1';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
   const socketUrl =
     env.VITE_SOCKET_URL ||
     process.env.VITE_SOCKET_URL ||
-    (isDev ? 'http://localhost:3001' : 'https://flowtrack-api.onrender.com');
+    (isDev ? 'http://localhost:3001' : 'https://flowtrack-api-rss4.onrender.com');
 
   return {
     plugins: [react()],

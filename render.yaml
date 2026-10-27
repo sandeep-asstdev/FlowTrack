@@ -23,30 +23,23 @@ services:
         value: 954853707879-khbiv8su3of67ih08vfflpj2vanqbj2j.apps.googleusercontent.com
       - key: CORS_ORIGIN
         value: https://flowtrack.asstitdev3.workers.dev
-      - key: REDIS_HOST
+      # Redis connection — use full connectionString URL (includes auth automatically)
+      - key: REDIS_URL
         fromService:
           type: redis
           name: flowtrack-redis
-          property: host
-      - key: REDIS_PORT
-        fromService:
-          type: redis
-          name: flowtrack-redis
-          property: port
-      - key: REDIS_PASSWORD
-        fromService:
-          type: redis
-          name: flowtrack-redis
-          property: password
+          property: connectionString
       - key: VAULT_STORAGE_PATH
         value: /tmp/vault_storage
 
-  # Redis (for BullMQ jobs) — must be under services:, NOT databases:
+  # Redis (for BullMQ jobs)
   - type: redis
     name: flowtrack-redis
     region: oregon
     plan: free
     maxmemoryPolicy: noeviction
+    # Allow only Render internal services (no public internet access)
+    ipAllowList: []
 
 # PostgreSQL Database
 databases:
@@ -55,4 +48,5 @@ databases:
     plan: free
     databaseName: flowtrack
     user: flowtrack
+
 

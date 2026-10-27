@@ -331,6 +331,10 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   });
 
   const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
+  const canSubmitWork = Boolean(
+    user?.id &&
+    (node.ownerId === user.id || !node.ownerId || currentRole === 'TEAM_LEAD' || currentRole === 'MANAGER' || currentRole === 'ADMIN')
+  );
   const isPendingApproval = node.approvalStatus === 'pending' || node.status?.category === 'pending';
   const isApproved = node.approvalStatus === 'approved' || node.status?.category === 'done';
   const isRejected = node.approvalStatus === 'rejected';
@@ -729,6 +733,26 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 <span>Task is currently unassigned. Select a team member below to start.</span>
               </div>
             ) : null}
+
+            {canSubmitWork && !isPendingApproval && !isApproved && (
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>
+                    {currentRole === 'MEMBER'
+                      ? 'Work completed? Ask for approval from your team leader, manager, or head of org.'
+                      : 'Ready for sign-off? Request approval from the Head of the Organization.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('work')}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shrink-0 transition-colors shadow-xs"
+                >
+                  Ask for Approval
+                </button>
+              </div>
+            )}
 
             {/* Essential Task Controls: Status & Priority */}
             <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
@@ -1489,14 +1513,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             </div>
 
             {/* 5. Submit Work for Approval Action */}
-            {isAssignedToCurrentUser && !isPendingApproval && !isApproved && (
+            {canSubmitWork && !isPendingApproval && !isApproved && (
               <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white space-y-2 shadow-md">
                 <h4 className="text-xs font-bold flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Submit Work for Approval</span>
+                  <span>
+                    {currentRole === 'MEMBER'
+                      ? 'Ask for Approval (from Team Lead / Manager / Head of Org)'
+                      : 'Request Approval from Head of Organization'}
+                  </span>
                 </h4>
                 <p className="text-[11px] text-blue-100">
-                  Ready for manager sign-off? Ensure deliverables and evidence are attached above, then submit.
+                  {currentRole === 'MEMBER'
+                    ? 'Work ready? Submit your deliverables to request approval from your Team Leader, Manager, or Head of Organization.'
+                    : 'Submit this task to request official sign-off and approval from the Head of the Organization.'}
                 </p>
                 <textarea
                   value={submissionNotes}
@@ -1509,9 +1539,16 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   type="button"
                   onClick={handleSubmitWork}
                   disabled={submittingWork}
-                  className="w-full py-2.5 min-h-[44px] bg-white text-blue-600 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center"
+                  className="w-full py-2.5 min-h-[44px] bg-white text-blue-600 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2"
                 >
-                  {submittingWork ? 'Submitting...' : 'Submit for Manager Review'}
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  <span>
+                    {submittingWork
+                      ? 'Submitting...'
+                      : currentRole === 'MEMBER'
+                      ? 'Ask for Approval'
+                      : 'Request Approval from Head of Org'}
+                  </span>
                 </button>
               </div>
             )}

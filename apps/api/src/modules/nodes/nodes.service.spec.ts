@@ -237,7 +237,7 @@ describe('NodesService - Workflow Transition Rules, Progress Rollup & Approvals'
 
       await expect(
         service.approveTask('task-audit-gate', 'unauthorized-tom', { decision: 'approved' })
-      ).rejects.toThrow(/Unauthorized: Only Managers and Team Leads can approve or reject tasks/);
+      ).rejects.toThrow(/Unauthorized: Only Managers, Team Leads, and Platform Admins can approve or reject tasks/);
     });
   });
 

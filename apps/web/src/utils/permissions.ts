@@ -38,8 +38,8 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       canAssignTasks: true,
       canAssignToAnyone: true,
       canAssignToMembers: true,
-      canApproveTasks: false, // Platform Admin must NEVER approve tasks
-      canApproveDeadlineExtension: false,
+      canApproveTasks: true, // Platform Admin / Head of Organization can oversee and approve all tasks
+      canApproveDeadlineExtension: true,
       canToggleLock: true,
       canViewConfidential: true,
       canCreateChildNodes: true,

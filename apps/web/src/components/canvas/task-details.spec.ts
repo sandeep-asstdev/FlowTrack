@@ -82,10 +82,10 @@ describe('Redesigned 3-Tab Manager-Friendly Task Details Interface', () => {
   });
 
   describe('2. Role-Aware Actions & Authorization Constraints', () => {
-    it('strictly forbids Platform Admin from approving or rejecting tasks', () => {
+    it('allows Platform Admin to oversee and approve tasks as Head of Organization', () => {
       const adminRole = 'ADMIN';
       const perms = getRolePermissions(adminRole);
-      expect(perms.canApproveTasks).toBe(false);
+      expect(perms.canApproveTasks).toBe(true);
 
       const decision = canApproveTask({
         userRole: adminRole,
@@ -94,8 +94,8 @@ describe('Redesigned 3-Tab Manager-Friendly Task Details Interface', () => {
         taskSubmitterId: 'worker-456',
       });
 
-      expect(decision.allowed).toBe(false);
-      expect(decision.reason).toContain('Platform Admins are not permitted to approve');
+      expect(decision.allowed).toBe(true);
+      expect(decision.statusCode).toBe(200);
     });
 
     it('strictly forbids self-approval by assignee or submitter', () => {
@@ -150,7 +150,7 @@ describe('Redesigned 3-Tab Manager-Friendly Task Details Interface', () => {
       });
 
       expect(memberReview.allowed).toBe(false);
-      expect(memberReview.reason).toContain('Only Managers and Team Leads');
+      expect(memberReview.reason).toContain('Only Managers, Team Leads, and Platform Admins');
     });
   });
 

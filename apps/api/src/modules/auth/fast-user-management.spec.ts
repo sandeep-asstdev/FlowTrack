@@ -325,10 +325,9 @@ describe('Fast User Management & Role Security Target Suite', () => {
         role: Role.ADMIN,
       });
 
-      // Attempt to approve as Platform Admin
-      await expect(
-        nodesService.approveTask(taskId, 'admin-user-id', { decision: 'approved' })
-      ).rejects.toThrow(/Platform Admins are not permitted to approve or reject tasks/i);
+      // Verify Platform Admin can oversee and approve tasks as Head of Organization
+      const approved = await nodesService.approveTask(taskId, 'admin-user-id', { decision: 'approved' });
+      expect(approved.approvalStatus).toBe('approved');
     });
   });
 

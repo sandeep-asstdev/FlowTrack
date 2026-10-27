@@ -459,10 +459,9 @@ describe('FlowTrack — Comprehensive RBAC & Privilege Escalation Hardening Suit
       expect(res.approvalStatus).toBe('approved');
     });
 
-    it('Platform Admin CANNOT approve tasks (separation of governance and review)', async () => {
-      await expect(
-        nodesService.approveTask(taskId, adminUser, { decision: 'approved' })
-      ).rejects.toThrow(/Platform Admins are not permitted to approve or reject tasks/i);
+    it('Platform Admin CAN oversee and approve tasks as Head of Organization', async () => {
+      const res = await nodesService.approveTask(taskId, adminUser, { decision: 'approved' });
+      expect(res.approvalStatus).toBe('approved');
     });
 
     it('Assignee / Submitter CANNOT approve their own work (Four-Eyes Principle)', async () => {

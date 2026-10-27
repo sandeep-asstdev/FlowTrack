@@ -8,7 +8,7 @@ export const registerSchema = z.object({
     .string()
     .regex(/^\+91[6-9]\d{9}$/, 'Must be a valid Indian mobile number with +91 prefix and 10 digits')
     .optional(),
-  requestedRole: z.enum(['MANAGER', 'TEAM_LEAD']).optional(),
+  requestedRole: z.enum(['MANAGER', 'TEAM_LEAD', 'MEMBER']).optional(),
   workspaceName: z.string().min(2).optional(),
 });
 

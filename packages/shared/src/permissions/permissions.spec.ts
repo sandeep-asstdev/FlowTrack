@@ -64,15 +64,14 @@ describe('Shared Role and Permission Contracts', () => {
       expect(res.statusCode).toBe(401);
     });
 
-    it('rejects Platform Admin with 403 (Admin is never an approver)', () => {
+    it('allows Platform Admin to oversee and approve tasks as Head of Organization', () => {
       const res = canApproveTask({
         userId: 'admin-1',
         userRole: 'ADMIN',
         taskOwnerId: 'worker-1',
       });
-      expect(res.allowed).toBe(false);
-      expect(res.statusCode).toBe(403);
-      expect(res.reason).toContain('Platform Admins are not permitted to approve or reject tasks');
+      expect(res.allowed).toBe(true);
+      expect(res.statusCode).toBe(200);
     });
 
     it('rejects self-approval for Manager with 403 when assigned to task', () => {
@@ -105,7 +104,7 @@ describe('Shared Role and Permission Contracts', () => {
       });
       expect(res.allowed).toBe(false);
       expect(res.statusCode).toBe(403);
-      expect(res.reason).toContain('Only Managers and Team Leads can approve or reject tasks');
+      expect(res.reason).toContain('Only Managers, Team Leads, and Platform Admins can approve or reject tasks');
     });
 
     it('allows Manager to approve task assigned to someone else', () => {

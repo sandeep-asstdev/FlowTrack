@@ -201,13 +201,9 @@ export function canApproveTask(params: ApprovalCheckParams): AuthorizationResult
 
   const role = (params.userRole || '').toUpperCase() as Role;
 
-  // Rule 1: Platform Admin is never an approver
+  // Platform Admin (Head of Organization) can oversee and approve anything across the organization
   if (role === MEMBERSHIP_ROLES.ADMIN) {
-    return {
-      allowed: false,
-      statusCode: 403,
-      reason: 'Platform Admins are not permitted to approve or reject tasks.',
-    };
+    return { allowed: true, statusCode: 200 };
   }
 
   // Rule 2: No one can approve their own work or submission
@@ -232,7 +228,7 @@ export function canApproveTask(params: ApprovalCheckParams): AuthorizationResult
     return {
       allowed: false,
       statusCode: 403,
-      reason: 'Unauthorized: Only Managers and Team Leads can approve or reject tasks.',
+      reason: 'Unauthorized: Only Managers, Team Leads, and Platform Admins can approve or reject tasks.',
     };
   }
 

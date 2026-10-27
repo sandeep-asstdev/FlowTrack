@@ -39,7 +39,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Registration specific fields
   const [fullName, setFullName] = useState('');
   const [phoneDigits, setPhoneDigits] = useState('9876543210');
-  const [requestedRole, setRequestedRole] = useState<'MANAGER' | 'TEAM_LEAD'>('MANAGER');
+  const [requestedRole, setRequestedRole] = useState<'MEMBER' | 'TEAM_LEAD' | 'MANAGER'>('MEMBER');
   const [workspaceName, setWorkspaceName] = useState('');
 
   // Password Recovery specific fields
@@ -519,8 +519,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       onChange={(e) => setRequestedRole(e.target.value as any)}
                       className="w-full px-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="MANAGER">Manager (Approver)</option>
+                      <option value="MEMBER">Member (Contributor / Assignee)</option>
                       <option value="TEAM_LEAD">Team Lead (Approver)</option>
+                      <option value="MANAGER">Manager (Approver)</option>
                     </select>
                   </div>
 
@@ -545,8 +546,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 text-[11px] text-blue-700 dark:text-blue-300 flex items-start gap-2">
                   <Shield className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    <strong>Security Policy:</strong> Public signup grants standard Manager or Team Lead
-                    scopes. Platform Admin roles require explicit authorization by existing administrators.
+                    <strong>Security Policy:</strong> Public signup allows registering as Member, Team Lead, or Manager. Platform Admin roles require explicit authorization by existing administrators.
                   </span>
                 </div>
 

@@ -94,6 +94,8 @@ export class AuthService {
       assignedRole = Role.MANAGER;
     } else if (dto.requestedRole === 'TEAM_LEAD') {
       assignedRole = Role.TEAM_LEAD;
+    } else if (dto.requestedRole === 'MEMBER') {
+      assignedRole = Role.MEMBER;
     }
 
     // Create a personal default workspace for new user

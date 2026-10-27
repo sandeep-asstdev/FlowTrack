@@ -1447,12 +1447,14 @@ export class NodesService {
       throw new ForbiddenException(check.reason);
     }
 
-    // Explicit self-approval and self-submission guards
-    if (node.ownerId && node.ownerId === actorId) {
-      throw new ForbiddenException('Self-approval is forbidden: You cannot approve or reject a task you are assigned to.');
-    }
-    if (node.submitterId && node.submitterId === actorId) {
-      throw new ForbiddenException('Self-approval is forbidden: You cannot approve or reject work you submitted.');
+    // Explicit self-approval and self-submission guards (Platform Admin can oversee all)
+    if (effectiveRole !== Role.ADMIN) {
+      if (node.ownerId && node.ownerId === actorId) {
+        throw new ForbiddenException('Self-approval is forbidden: You cannot approve or reject a task you are assigned to.');
+      }
+      if (node.submitterId && node.submitterId === actorId) {
+        throw new ForbiddenException('Self-approval is forbidden: You cannot approve or reject work you submitted.');
+      }
     }
 
     // Cross-project scope check for Manager
@@ -1642,6 +1644,7 @@ export class NodesService {
       ? await this.prisma.teamMember.findMany({ where: { userId: actorId } })
       : [];
 
+    const isWsAdmin = memberships.some((m: any) => m.role === 'ADMIN');
     const isWsManager = memberships.some((m: any) => m.role === 'MANAGER');
     const managedProjectIds = projectMembers
       .filter((pm: any) => pm.role === 'MANAGER' || pm.role === 'ADMIN')
@@ -1652,8 +1655,8 @@ export class NodesService {
 
     const isTeamLead = ledTeamIds.length > 0;
 
-    // Platform Admins and non-managers/leads have no review queue
-    if (!isWsManager && managedProjectIds.length === 0 && !isTeamLead) {
+    // Platform Admins, Managers, and Team Leads have a review queue
+    if (!isWsAdmin && !isWsManager && managedProjectIds.length === 0 && !isTeamLead) {
       return [];
     }
 
@@ -1693,13 +1696,13 @@ export class NodesService {
     });
 
     return pendingNodes.filter((node) => {
-      // Reviewer cannot be submitter or assignee
-      if (node.ownerId === actorId || node.submitterId === actorId) {
+      // Reviewer cannot be submitter or assignee (unless Platform Admin overseeing)
+      if (!isWsAdmin && (node.ownerId === actorId || node.submitterId === actorId)) {
         return false;
       }
       const teamEligible = node.teamId && ledTeamIds.includes(node.teamId);
       const projectEligible = managedProjectIds.includes(node.projectId);
-      const wsEligible = isWsManager;
+      const wsEligible = isWsManager || isWsAdmin;
       return teamEligible || projectEligible || wsEligible;
     });
   }

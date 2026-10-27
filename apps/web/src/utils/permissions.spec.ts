@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { getRolePermissions } from './permissions';
 
 describe('Role-Based Access Control Permissions', () => {
-  it('grants full administrative permissions to Super Admin but restricts task approval', () => {
+  it('grants full administrative and overarching approval permissions to Super Admin', () => {
     const adminPerms = getRolePermissions('ADMIN');
     expect(adminPerms.canCreateProject).toBe(true);
     expect(adminPerms.canDeleteProject).toBe(true);
-    expect(adminPerms.canApproveTasks).toBe(false); // Platform Admin must never approve tasks
-    expect(adminPerms.canApproveDeadlineExtension).toBe(false);
+    expect(adminPerms.canApproveTasks).toBe(true);
+    expect(adminPerms.canApproveDeadlineExtension).toBe(true);
     expect(adminPerms.canViewConfidential).toBe(true);
     expect(adminPerms.canEditLayout).toBe(true);
   });

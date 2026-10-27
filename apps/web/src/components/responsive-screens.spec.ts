@@ -171,7 +171,7 @@ describe('Responsive Screens, Accessibility & Final Verification (Chunk 3)', () 
       expect(getRolePermissions('TEAM_LEAD').canApproveTasks).toBe(true);
       expect(getRolePermissions('MEMBER').canApproveTasks).toBe(false);
       expect(getRolePermissions('GUEST').canApproveTasks).toBe(false);
-      expect(getRolePermissions('ADMIN').canApproveTasks).toBe(false); // Platform admin cannot sign off on deliverables
+      expect(getRolePermissions('ADMIN').canApproveTasks).toBe(true); // Platform admin can oversee and sign off on deliverables
 
       // Four-eyes principle approval engine
       const managerReview = canApproveTask({

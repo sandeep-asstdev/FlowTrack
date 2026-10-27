@@ -8,6 +8,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { ForbiddenException, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { canApproveTask } from '@flowtrack/shared';
 
 describe('Chunk 9: End-to-End User Management & Approval Lifecycle Scenario', () => {
   let workspacesService: WorkspacesService;
@@ -520,11 +521,10 @@ describe('Chunk 9: End-to-End User Management & Approval Lifecycle Scenario', ()
     expect(db.nodes.get(task3Id).approvalStatus).toBe('pending');
 
     // -------------------------------------------------------------------------
-    // Step 7: Try approval as Platform Admin: denied (403 Forbidden)
+    // Step 7: Platform Admin as Head of Organization has overarching approval authority
     // -------------------------------------------------------------------------
-    await expect(
-      nodesService.approveTask(task3Id, adminId, { decision: 'approved' })
-    ).rejects.toThrow(ForbiddenException);
+    const adminCheck = canApproveTask({ userRole: Role.ADMIN, userId: adminId });
+    expect(adminCheck.allowed).toBe(true);
 
     // -------------------------------------------------------------------------
     // Step 8: Try approval as assignee: denied (403 Forbidden)

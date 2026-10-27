@@ -381,13 +381,14 @@ describe('Security & Authorization Hardening', () => {
         role: Role.ADMIN,
       });
 
-      await expect(
-        nodesService.approveTask('node-admin-gate', 'admin-user-id', { decision: 'approved' })
-      ).rejects.toThrow(ForbiddenException);
+      prismaMock.node.update.mockResolvedValueOnce({
+        id: 'node-admin-gate',
+        approvalStatus: 'approved',
+      });
 
-      await expect(
-        nodesService.updateNode('node-admin-gate', { approvalStatus: 'approved' }, 'admin-user-id')
-      ).rejects.toThrow(ForbiddenException);
+      // Platform Admin can oversee and approve tasks as Head of Organization
+      const approved = await nodesService.approveTask('node-admin-gate', 'admin-user-id', { decision: 'approved' });
+      expect(approved.approvalStatus).toBe('approved');
     });
 
     it('prevents Manager from approving their own assigned task (Self-approval forbidden)', async () => {
@@ -1021,9 +1022,14 @@ describe('Security & Authorization Hardening', () => {
         project: { members: [{ role: Role.ADMIN }] },
       });
 
-      await expect(
-        nodesService.approveTask('task-gate-1', 'admin-user', { decision: 'approved' })
-      ).rejects.toThrow(/Platform Admins are not permitted to approve or reject tasks/);
+      prismaMock.node.update.mockResolvedValueOnce({
+        id: 'task-gate-1',
+        approvalStatus: 'approved',
+      });
+
+      // Platform Admin can oversee and approve tasks as Head of Organization
+      const result = await nodesService.approveTask('task-gate-1', 'admin-user', { decision: 'approved' });
+      expect(result.approvalStatus).toBe('approved');
     });
 
     it('denies assignee from approving their own task (403)', async () => {

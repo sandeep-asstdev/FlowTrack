@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateWorkspaceDto, UpdateWorkspaceDto, InviteMemberDto } from '@flowtrack/shared';
 import { Role } from '@prisma/client';
@@ -138,7 +138,16 @@ export class WorkspacesService {
     });
   }
 
-  async listMembers(workspaceId: string) {
+  async listMembers(workspaceId: string, actorUserId?: string) {
+    if (actorUserId) {
+      const membership = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: actorUserId } },
+      });
+      if (!membership) {
+        throw new ForbiddenException('Unauthorized: You are not a member of this workspace.');
+      }
+    }
+
     return this.prisma.membership.findMany({
       where: { workspaceId },
       include: {
@@ -181,6 +190,20 @@ export class WorkspacesService {
 
     if (user && user.id === inviterUserId) {
       throw new ForbiddenException('Self-promotion or altering your own role is not permitted.');
+    }
+
+    if (user) {
+      const existingMembership = await this.prisma.membership.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId,
+            userId: user.id,
+          },
+        },
+      });
+      if (existingMembership && existingMembership.userId === user.id) {
+        throw new ConflictException('User is already a member of this workspace.');
+      }
     }
 
     if (!user) {

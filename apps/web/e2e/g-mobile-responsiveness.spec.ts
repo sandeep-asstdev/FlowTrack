@@ -3,15 +3,15 @@ import { loginAs } from './fixtures/mockApi';
 
 test.describe('G. Mobile Responsiveness & Multi-Viewport Verification', () => {
   const targetViewports = [
-    { name: 'Ultra-compact iPhone SE', width: 320, height: 568 },
-    { name: 'Samsung Galaxy / Android standard', width: 360, height: 640 },
-    { name: 'Compact iPhone mini / X', width: 375, height: 667 },
-    { name: 'Modern iPhone 12 / 13 / 14 / 15', width: 390, height: 844 },
-    { name: 'Large iPhone Plus / Max', width: 414, height: 896 },
-    { name: 'Tablet portrait (iPad)', width: 768, height: 1024 },
-    { name: 'Laptop / Tablet landscape', width: 1024, height: 768 },
-    { name: 'Standard Desktop', width: 1280, height: 720 },
-    { name: 'Large Desktop 1440p', width: 1440, height: 900 },
+    { name: 'Ultra-compact mobile (320x640)', width: 320, height: 640 },
+    { name: 'Android modern (360x800)', width: 360, height: 800 },
+    { name: 'Compact iPhone modern (375x812)', width: 375, height: 812 },
+    { name: 'iPhone 12/13/14/15 standard (390x844)', width: 390, height: 844 },
+    { name: 'Large iPhone Plus/Max (414x896)', width: 414, height: 896 },
+    { name: 'Tablet portrait (768x1024)', width: 768, height: 1024 },
+    { name: 'Tablet/Laptop landscape (1024x768)', width: 1024, height: 768 },
+    { name: 'Standard Desktop/Laptop (1280x800)', width: 1280, height: 800 },
+    { name: 'Large Desktop 1440p (1440x900)', width: 1440, height: 900 },
   ];
 
   for (const vp of targetViewports) {

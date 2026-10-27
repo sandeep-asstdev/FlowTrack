@@ -101,6 +101,14 @@ export class ApiClient {
     return this.request('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ phone, otp }) });
   }
 
+  static forgotPassword(email: string) {
+    return this.request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+  }
+
+  static resetPassword(data: { email: string; token: string; newPassword: string }) {
+    return this.request('/auth/reset-password', { method: 'POST', body: JSON.stringify(data) });
+  }
+
   static getMe() {
     return this.request('/auth/me');
   }

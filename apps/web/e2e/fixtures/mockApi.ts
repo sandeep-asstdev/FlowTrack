@@ -330,6 +330,68 @@ export async function setupMockApi(page: Page, customState?: Partial<MockState>)
       });
     }
 
+    // 3b. Auth: register
+    if (path === '/auth/register' && method === 'POST') {
+      const body = request.postDataJSON();
+      if (!body.fullName || body.fullName.trim().length < 2) {
+        return json(400, { message: 'Full name must be at least 2 characters' });
+      }
+      if (!body.password || body.password.length < 8) {
+        return json(400, { message: 'Password must be at least 8 characters' });
+      }
+      if (body.requestedRole === 'ADMIN') {
+        return json(400, { message: 'Public signup cannot grant Platform Admin role' });
+      }
+      if (body.phone && !/^\+91[6-9]\d{9}$/.test(body.phone)) {
+        return json(400, { message: 'Phone number must be a valid Indian mobile number (+91 prefix followed by 10 digits)' });
+      }
+
+      const newUser = {
+        id: `usr-reg-${Date.now()}`,
+        email: (body.email || '').toLowerCase().trim(),
+        fullName: body.fullName.trim(),
+        role: body.requestedRole === 'MANAGER' ? 'MANAGER' : body.requestedRole === 'TEAM_LEAD' ? 'TEAM_LEAD' : 'MEMBER',
+        isActive: true,
+      };
+
+      state.users.push(newUser);
+      state.currentUser = newUser;
+      const token = `mock-jwt-token-for-${newUser.id}`;
+
+      return json(200, {
+        token,
+        accessToken: token,
+        user: newUser,
+        activeWorkspaceId: state.activeWorkspaceId,
+        role: newUser.role,
+        workspaces: state.workspaces.map((ws) => ({
+          ...ws,
+          role: newUser.role,
+        })),
+      });
+    }
+
+    // 3c. Auth: forgot-password
+    if (path === '/auth/forgot-password' && method === 'POST') {
+      const body = request.postDataJSON();
+      return json(200, {
+        message: 'If an account exists with this email, password recovery instructions have been dispatched.',
+        resetToken: 'mock-dev-reset-token-12345',
+      });
+    }
+
+    // 3d. Auth: reset-password
+    if (path === '/auth/reset-password' && method === 'POST') {
+      const body = request.postDataJSON();
+      if (!body.token || body.token !== 'mock-dev-reset-token-12345') {
+        return json(400, { message: 'Invalid or expired password reset token.' });
+      }
+      if (!body.newPassword || body.newPassword.length < 8) {
+        return json(400, { message: 'Password must be at least 8 characters.' });
+      }
+      return json(200, { message: 'Password has been successfully updated. You may now log in with your new credentials.' });
+    }
+
     // 4. Auth: Google login
     if (path === '/auth/google' && method === 'POST') {
       const body = request.postDataJSON();

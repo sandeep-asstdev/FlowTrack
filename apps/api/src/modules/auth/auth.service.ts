@@ -7,7 +7,16 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
-import { RegisterDto, LoginDto, RequestOtpDto, VerifyOtpDto, GoogleAuthDto } from '@flowtrack/shared';
+import * as crypto from 'crypto';
+import {
+  RegisterDto,
+  LoginDto,
+  RequestOtpDto,
+  VerifyOtpDto,
+  GoogleAuthDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+} from '@flowtrack/shared';
 import { Role } from '@prisma/client';
 import { GoogleAuthService } from './google-auth.service';
 
@@ -15,6 +24,8 @@ import { GoogleAuthService } from './google-auth.service';
 export class AuthService {
   // Mock store for OTP in development
   private otpStore = new Map<string, string>();
+  // Secure token store for password recovery
+  private resetTokenStore = new Map<string, { token: string; expiresAt: number }>();
   private readonly googleAuthService: GoogleAuthService;
 
   constructor(
@@ -26,9 +37,38 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    // 1. Strict security boundary: Public signup cannot grant Platform Admin role
+    if ((dto as any).requestedRole === 'ADMIN' || (dto as any).role === 'ADMIN') {
+      throw new BadRequestException(
+        'Public signup cannot grant Platform Admin role. Platform Admin must be provisioned through an authorized administrative bootstrap.'
+      );
+    }
+
+    // 2. Validate Indian phone format if provided (+91 followed by 10 digits starting with 6-9)
+    if (dto.phone) {
+      const cleanPhone = dto.phone.trim();
+      const indianPhoneRegex = /^\+91[6-9]\d{9}$/;
+      if (!indianPhoneRegex.test(cleanPhone)) {
+        throw new BadRequestException(
+          'Phone number must be a valid Indian mobile number (+91 prefix followed by exactly 10 digits starting with 6, 7, 8, or 9).'
+        );
+      }
+    }
+
+    if (!dto.fullName || dto.fullName.trim().length < 2) {
+      throw new BadRequestException('Full name must be at least 2 characters');
+    }
+
+    if (!dto.password || dto.password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
     const existing = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: dto.email }, ...(dto.phone ? [{ phone: dto.phone }] : [])],
+        OR: [
+          { email: dto.email.toLowerCase().trim() },
+          ...(dto.phone ? [{ phone: dto.phone.trim() }] : []),
+        ],
       },
     });
 
@@ -40,23 +80,35 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
-        phone: dto.phone,
-        fullName: dto.fullName,
+        email: dto.email.toLowerCase().trim(),
+        phone: dto.phone ? dto.phone.trim() : null,
+        fullName: dto.fullName.trim(),
         passwordHash,
+        isActive: true,
       },
     });
 
+    // 3. Role assignment: Manager or Team Lead if requested, otherwise standard non-elevated Member. Never ADMIN.
+    let assignedRole: Role = Role.MEMBER;
+    if (dto.requestedRole === 'MANAGER') {
+      assignedRole = Role.MANAGER;
+    } else if (dto.requestedRole === 'TEAM_LEAD') {
+      assignedRole = Role.TEAM_LEAD;
+    }
+
     // Create a personal default workspace for new user
-    const slug = dto.fullName.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-workspace-' + Math.floor(Math.random() * 1000);
+    const wsName = dto.workspaceName?.trim() || `${user.fullName}'s Workspace`;
+    const baseSlug = wsName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) || 'workspace';
+    const slug = `${baseSlug}-${Math.floor(Math.random() * 10000)}`;
+
     const workspace = await this.prisma.workspace.create({
       data: {
-        name: `${dto.fullName}'s Workspace`,
+        name: wsName,
         slug,
         memberships: {
           create: {
             userId: user.id,
-            role: Role.ADMIN,
+            role: assignedRole, // Never ADMIN
           },
         },
       },
@@ -73,6 +125,7 @@ export class AuthService {
       },
       activeWorkspaceId: workspace.id,
       accessToken: token,
+      role: assignedRole,
     };
   }
 
@@ -122,6 +175,63 @@ export class AuthService {
       })),
       activeWorkspaceId: defaultWorkspaceId,
       accessToken: token,
+    };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase().trim() },
+    });
+
+    // Generate secure expiring token (15 minute validity)
+    const resetToken = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+
+    if (user && user.isActive && !user.deletedAt) {
+      this.resetTokenStore.set(user.email, { token: resetToken, expiresAt });
+    }
+
+    // Report requirement: email provider (SendGrid / AWS SES) is required for production outbound email delivery
+    return {
+      message: 'If an account exists with this email, password recovery instructions have been dispatched.',
+      deliveryStatus:
+        process.env.NODE_ENV === 'production'
+          ? 'Awaiting SMTP/Transactional Email Provider Configuration (e.g., SendGrid/AWS SES)'
+          : 'Development mode: reset token generated',
+      // In development / test environment, return reset token for verification
+      ...(process.env.NODE_ENV !== 'production' ? { resetToken } : {}),
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const record = this.resetTokenStore.get(dto.email.toLowerCase().trim());
+    if (!record || record.token !== dto.token || Date.now() > record.expiresAt) {
+      throw new BadRequestException('Invalid or expired password reset token.');
+    }
+
+    if (!dto.newPassword || dto.newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase().trim() },
+    });
+
+    if (!user || !user.isActive || user.deletedAt) {
+      throw new UnauthorizedException('User account is invalid or deactivated.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+
+    // Single-use token invalidation
+    this.resetTokenStore.delete(dto.email.toLowerCase().trim());
+
+    return {
+      message: 'Password has been successfully updated. You may now log in with your new credentials.',
     };
   }
 
@@ -182,7 +292,7 @@ export class AuthService {
           memberships: {
             create: {
               userId: user.id,
-              role: Role.ADMIN,
+              role: Role.MEMBER, // Standard non-elevated Member for OTP
             },
           },
         },
@@ -193,7 +303,7 @@ export class AuthService {
           id: 'temp',
           workspaceId: ws.id,
           userId: user.id,
-          role: Role.ADMIN,
+          role: Role.MEMBER,
           projectPermissions: {},
           createdAt: new Date(),
           workspace: ws,

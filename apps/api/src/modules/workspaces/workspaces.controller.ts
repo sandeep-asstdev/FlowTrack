@@ -30,8 +30,8 @@ export class WorkspacesController {
   }
 
   @Get(':id/members')
-  listMembers(@Param('id') id: string) {
-    return this.workspacesService.listMembers(id);
+  listMembers(@Req() req: any, @Param('id') id: string) {
+    return this.workspacesService.listMembers(id, req.user?.id);
   }
 
   @Post(':id/members/invite')

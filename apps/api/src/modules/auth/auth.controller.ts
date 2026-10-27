@@ -1,6 +1,14 @@
 import { Controller, Post, Body, Get, UseGuards, Req } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RequestOtpDto, VerifyOtpDto, GoogleAuthDto } from '@flowtrack/shared';
+import {
+  RegisterDto,
+  LoginDto,
+  RequestOtpDto,
+  VerifyOtpDto,
+  GoogleAuthDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+} from '@flowtrack/shared';
 import { AuthGuard } from '@nestjs/passport';
 
 @Controller('auth')
@@ -15,6 +23,16 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   @Post('google')

@@ -138,12 +138,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1703,
+                      "duration": 8650,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:26.935Z",
+                      "startTime": "2026-10-27T11:50:30.828Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -178,12 +178,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 765,
+                      "duration": 727,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:28.780Z",
+                      "startTime": "2026-10-27T11:50:39.651Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -218,12 +218,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 970,
+                      "duration": 803,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:29.556Z",
+                      "startTime": "2026-10-27T11:50:40.390Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -258,12 +258,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 933,
+                      "duration": 724,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:30.538Z",
+                      "startTime": "2026-10-27T11:50:41.203Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -315,12 +315,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1221,
+                      "duration": 1168,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:31.502Z",
+                      "startTime": "2026-10-27T11:50:41.972Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -355,12 +355,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1462,
+                      "duration": 1041,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:32.736Z",
+                      "startTime": "2026-10-27T11:50:43.152Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -395,12 +395,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 817,
+                      "duration": 674,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:34.214Z",
+                      "startTime": "2026-10-27T11:50:44.204Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -435,12 +435,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1249,
+                      "duration": 1044,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:35.045Z",
+                      "startTime": "2026-10-27T11:50:44.889Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -475,12 +475,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 939,
+                      "duration": 780,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:36.308Z",
+                      "startTime": "2026-10-27T11:50:45.945Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -532,12 +532,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1637,
+                      "duration": 1170,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:37.279Z",
+                      "startTime": "2026-10-27T11:50:46.754Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -572,12 +572,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1086,
+                      "duration": 1079,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:38.930Z",
+                      "startTime": "2026-10-27T11:50:47.936Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -612,12 +612,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2355,
+                      "duration": 1663,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:40.033Z",
+                      "startTime": "2026-10-27T11:50:49.026Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -652,12 +652,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 771,
+                      "duration": 710,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:42.402Z",
+                      "startTime": "2026-10-27T11:50:50.700Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -709,12 +709,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1065,
+                      "duration": 1138,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:43.203Z",
+                      "startTime": "2026-10-27T11:50:51.430Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -749,12 +749,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1532,
+                      "duration": 1323,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:44.279Z",
+                      "startTime": "2026-10-27T11:50:52.577Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -789,12 +789,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2009,
+                      "duration": 1965,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:45.824Z",
+                      "startTime": "2026-10-27T11:50:53.911Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -829,12 +829,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1533,
+                      "duration": 1386,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:47.842Z",
+                      "startTime": "2026-10-27T11:50:55.888Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -886,12 +886,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1538,
+                      "duration": 1196,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:49.409Z",
+                      "startTime": "2026-10-27T11:50:57.300Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -926,12 +926,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1646,
+                      "duration": 1355,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:50.964Z",
+                      "startTime": "2026-10-27T11:50:58.509Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -966,12 +966,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1446,
+                      "duration": 1180,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:52.625Z",
+                      "startTime": "2026-10-27T11:50:59.874Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1006,12 +1006,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 2744,
+                      "duration": 1998,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:54.083Z",
+                      "startTime": "2026-10-27T11:51:01.066Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1063,12 +1063,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1104,
+                      "duration": 947,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:56.864Z",
+                      "startTime": "2026-10-27T11:51:03.094Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1103,12 +1103,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1292,
+                      "duration": 1053,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:57.979Z",
+                      "startTime": "2026-10-27T11:51:04.050Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1143,12 +1143,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 749,
+                      "duration": 702,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:19:59.282Z",
+                      "startTime": "2026-10-27T11:51:05.113Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1185,7 +1185,7 @@
           "column": 6,
           "specs": [
             {
-              "title": "G1. Viewport 320x568 (Ultra-compact iPhone SE) - No unintended horizontal overflow",
+              "title": "G1. Viewport 320x640 (Ultra-compact mobile (320x640)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1200,18 +1200,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 891,
+                      "duration": 765,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:00.054Z",
+                      "startTime": "2026-10-27T11:51:05.848Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--56175-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--df2eb-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1219,13 +1219,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-bd79328193f408ae5bd1",
+              "id": "707f18b6dd6afc7e0920-9dcb6d3e5d5b3586b14e",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 360x640 (Samsung Galaxy / Android standard) - No unintended horizontal overflow",
+              "title": "G1. Viewport 360x800 (Android modern (360x800)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1240,18 +1240,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1144,
+                      "duration": 740,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:00.956Z",
+                      "startTime": "2026-10-27T11:51:06.624Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--67d2c-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--0f024-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1259,13 +1259,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-4ff520324f797fcb26f8",
+              "id": "707f18b6dd6afc7e0920-56ced61ae3566b50049b",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 375x667 (Compact iPhone mini / X) - No unintended horizontal overflow",
+              "title": "G1. Viewport 375x812 (Compact iPhone modern (375x812)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1280,18 +1280,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 930,
+                      "duration": 692,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:02.114Z",
+                      "startTime": "2026-10-27T11:51:07.375Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--796f9-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--e404b-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1299,13 +1299,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-ba3c8f60ece758707a84",
+              "id": "707f18b6dd6afc7e0920-8b297fd940780fcde4a2",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 390x844 (Modern iPhone 12 / 13 / 14 / 15) - No unintended horizontal overflow",
+              "title": "G1. Viewport 390x844 (iPhone 12/13/14/15 standard (390x844)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1320,18 +1320,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1001,
+                      "duration": 662,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:03.058Z",
+                      "startTime": "2026-10-27T11:51:08.078Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--f4a92-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--13917-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1339,13 +1339,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-6bc665e99f665091b446",
+              "id": "707f18b6dd6afc7e0920-220c161d434790cde2ad",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 414x896 (Large iPhone Plus / Max) - No unintended horizontal overflow",
+              "title": "G1. Viewport 414x896 (Large iPhone Plus/Max (414x896)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1360,18 +1360,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 993,
+                      "duration": 658,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:04.071Z",
+                      "startTime": "2026-10-27T11:51:08.748Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--8696d-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--f4314-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1379,13 +1379,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-56900a2d1c3f41cefc2c",
+              "id": "707f18b6dd6afc7e0920-902f5217f396b6978d5d",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 768x1024 (Tablet portrait (iPad)) - No unintended horizontal overflow",
+              "title": "G1. Viewport 768x1024 (Tablet portrait (768x1024)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1400,18 +1400,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 980,
+                      "duration": 775,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:05.077Z",
+                      "startTime": "2026-10-27T11:51:09.417Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--ae37d-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--48bbf-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1419,13 +1419,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-d83dc06b8911fb086d73",
+              "id": "707f18b6dd6afc7e0920-3a6109f1dc971d07d134",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 1024x768 (Laptop / Tablet landscape) - No unintended horizontal overflow",
+              "title": "G1. Viewport 1024x768 (Tablet/Laptop landscape (1024x768)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1440,18 +1440,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 838,
+                      "duration": 839,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:06.070Z",
+                      "startTime": "2026-10-27T11:51:10.204Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--90e62-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--97379-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1459,13 +1459,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-c1eb6399d22301488365",
+              "id": "707f18b6dd6afc7e0920-ad645d0386213ed2ef1f",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 1280x720 (Standard Desktop) - No unintended horizontal overflow",
+              "title": "G1. Viewport 1280x800 (Standard Desktop/Laptop (1280x800)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1480,18 +1480,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 806,
+                      "duration": 786,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:06.924Z",
+                      "startTime": "2026-10-27T11:51:11.056Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--6a172-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--c8d5b-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1499,13 +1499,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-4c0d9b5cc7076f68332c",
+              "id": "707f18b6dd6afc7e0920-07c879b7a9d1c0e52781",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
             },
             {
-              "title": "G1. Viewport 1440x900 (Large Desktop 1440p) - No unintended horizontal overflow",
+              "title": "G1. Viewport 1440x900 (Large Desktop 1440p (1440x900)) - No unintended horizontal overflow",
               "ok": true,
               "tags": [],
               "tests": [
@@ -1520,18 +1520,18 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 908,
+                      "duration": 744,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:07.744Z",
+                      "startTime": "2026-10-27T11:51:11.856Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--386c0-ntended-horizontal-overflow-chromium\\test-finished-1.png"
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\g-mobile-responsiveness-G--56869-ntended-horizontal-overflow-chromium\\test-finished-1.png"
                         }
                       ]
                     }
@@ -1539,7 +1539,7 @@
                   "status": "expected"
                 }
               ],
-              "id": "707f18b6dd6afc7e0920-490513189332f4525edc",
+              "id": "707f18b6dd6afc7e0920-68f9010f8c2324f71f2a",
               "file": "g-mobile-responsiveness.spec.ts",
               "line": 18,
               "column": 5
@@ -1560,12 +1560,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1016,
+                      "duration": 799,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:08.663Z",
+                      "startTime": "2026-10-27T11:51:12.609Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1600,12 +1600,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1414,
+                      "duration": 1142,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-10-27T10:20:09.689Z",
+                      "startTime": "2026-10-27T11:51:13.418Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -1627,13 +1627,190 @@
           ]
         }
       ]
+    },
+    {
+      "title": "h-user-management-auth.spec.ts",
+      "file": "h-user-management-auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "H. Frontend User Management & Authentication Workflows",
+          "file": "h-user-management-auth.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "H1. Public registration collects full name, email, +91 Indian phone, password & confirmation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1391,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T11:51:14.581Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\h-user-management-auth-H-F-76d63-phone-password-confirmation-chromium\\test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2f1e69c1b054a341daf1-42a9d9bc2ed8d60cee1c",
+              "file": "h-user-management-auth.spec.ts",
+              "line": 5,
+              "column": 3
+            },
+            {
+              "title": "H2. Password show/hide toggle toggles input visibility on Login & Registration",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1008,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T11:51:15.983Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\h-user-management-auth-H-F-9ca26-ility-on-Login-Registration-chromium\\test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2f1e69c1b054a341daf1-d7392b3c915499a4abad",
+              "file": "h-user-management-auth.spec.ts",
+              "line": 48,
+              "column": 3
+            },
+            {
+              "title": "H3. Forgot Password flow navigates to recovery view and dispatches token",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1010,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T11:51:17.001Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\h-user-management-auth-H-F-0f852-y-view-and-dispatches-token-chromium\\test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2f1e69c1b054a341daf1-e8c1e0ada1d4f9b9c008",
+              "file": "h-user-management-auth.spec.ts",
+              "line": 68,
+              "column": 3
+            },
+            {
+              "title": "H4. Invalid credentials triggers descriptive error without crashing UI",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1007,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-27T11:51:18.023Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\User\\Desktop\\Project-managment-app\\apps\\web\\test-results\\h-user-management-auth-H-F-213d8-e-error-without-crashing-UI-chromium\\test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2f1e69c1b054a341daf1-f15000891ef9d9b5a8e6",
+              "file": "h-user-management-auth.spec.ts",
+              "line": 92,
+              "column": 3
+            }
+          ]
+        }
+      ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-10-27T10:19:25.032Z",
-    "duration": 46594.8,
-    "expected": 35,
+    "startTime": "2026-10-27T11:50:28.639Z",
+    "duration": 50851.491,
+    "expected": 39,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

@@ -16,7 +16,9 @@ export class GoogleAuthService {
   private readonly configuredClientId: string | undefined;
 
   constructor() {
-    this.configuredClientId = process.env.GOOGLE_CLIENT_ID;
+    this.configuredClientId =
+      process.env.GOOGLE_CLIENT_ID ||
+      '954853707879-khbiv8su3of67ih08vfflpj2vanqbj2j.apps.googleusercontent.com';
     this.oauthClient = new OAuth2Client(this.configuredClientId);
   }
 

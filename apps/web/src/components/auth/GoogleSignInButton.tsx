@@ -33,7 +33,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   const [loading, setLoading] = useState(false);
   const [gisReady, setGisReady] = useState(false);
   const hiddenButtonRef = useRef<HTMLDivElement>(null);
-  const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '';
+  const clientId =
+    (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
+    '954853707879-khbiv8su3of67ih08vfflpj2vanqbj2j.apps.googleusercontent.com';
   const isDev = Boolean((import.meta as any).env?.DEV);
 
   const isPlaceholderClientId = useCallback((id: string) => {

@@ -65,6 +65,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      express:
+        specifier: ^4.22.1
+        version: 4.22.1(supports-color@8.1.1)
       google-auth-library:
         specifier: ^11.3.1
         version: 11.3.1(supports-color@8.1.1)

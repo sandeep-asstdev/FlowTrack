@@ -5,9 +5,8 @@ services:
     runtime: node
     region: oregon
     plan: free
-    rootDir: apps/api
-    buildCommand: cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api prisma:generate && pnpm --filter @flowtrack/api build
-    startCommand: node dist/main
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api prisma:generate && pnpm --filter @flowtrack/api build
+    startCommand: npx prisma db push --schema=apps/api/prisma/schema.prisma --skip-generate --accept-data-loss && node apps/api/dist/main
     envVars:
       - key: NODE_ENV
         value: production
@@ -48,5 +47,3 @@ databases:
     plan: free
     databaseName: flowtrack
     user: flowtrack
-
-

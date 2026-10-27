@@ -1509,6 +1509,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           {/* Quick Node Type Buttons */}
           <div className="hidden sm:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
             <button
+              id="toolbar-add-task-btn"
               onClick={() => handleAddNode('task')}
               className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
             >
@@ -2131,7 +2132,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         )}
 
         {/* Mobile Floating Action Controls (Easy touch access on mobile screens) */}
-        <div className="sm:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl mb-safe">
+        <div id="mobile-canvas-controls" className="sm:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl mb-safe">
           <button
             id="mobile-add-task-btn"
             onClick={() => setMobileCreateOpen(true)}

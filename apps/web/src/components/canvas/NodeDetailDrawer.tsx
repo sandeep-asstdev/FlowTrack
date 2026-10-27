@@ -544,6 +544,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   return (
     <div
+      id="node-detail-drawer"
       className={`fixed inset-y-0 right-0 ${
         isExpanded ? 'w-full sm:w-[760px]' : 'w-full sm:w-[520px]'
       } bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col pt-safe pb-safe transition-all duration-200 animate-in slide-in-from-right`}

@@ -22,7 +22,8 @@ describe('Chunk 3 — Security, Role Safety & End-to-End Hardening', () => {
   let jwtServiceMock: any;
   let mockOAuthClient: any;
 
-  const TEST_CLIENT_ID = 'test-flowtrack-google-client-id.apps.googleusercontent.com';
+  const TEST_CLIENT_ID =
+    process.env.GOOGLE_CLIENT_ID || 'test-flowtrack-google-client-id.apps.googleusercontent.com';
 
   beforeEach(() => {
     vi.restoreAllMocks();

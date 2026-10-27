@@ -35,5 +35,8 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       host: true,
     },
+    test: {
+      exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
+    },
   };
 });

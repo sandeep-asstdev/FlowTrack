@@ -79,7 +79,7 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col overscroll-contain">
+      <div id="invite-member-modal" role="dialog" aria-modal="true" className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col overscroll-contain">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5 text-blue-600 dark:text-blue-400">

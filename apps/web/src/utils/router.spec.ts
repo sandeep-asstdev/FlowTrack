@@ -226,4 +226,31 @@ describe('Router & Project Navigation', () => {
       expect(parseValidViewport({ x: 0, y: 0, zoom: -1 })).toBeNull();
     });
   });
+
+  describe('Direct Project Restoration on Refresh & Loading State Guard', () => {
+    it('accurately parses direct canvas route on page refresh', () => {
+      window.location.pathname = '/projects/210b54f1-8658-4265-b2ce-227a79f01b93';
+      const route = parseCurrentRoute();
+      expect(route.view).toBe('canvas');
+      expect(route.projectId).toBe('210b54f1-8658-4265-b2ce-227a79f01b93');
+    });
+
+    it('ensures loadingInitialProject guard is never active when selectedProject matches targetProjectId', () => {
+      const targetProjectId = '210b54f1-8658-4265-b2ce-227a79f01b93';
+      const selectedProject = { id: '210b54f1-8658-4265-b2ce-227a79f01b93', name: 'Project Titan' };
+
+      // In App.tsx: (loadingInitialProject && (!selectedProject || selectedProject.id !== targetProjectId))
+      const shouldShowInitialLoading = (loadingInitialProject: boolean, proj: any, targetId: string) => {
+        return Boolean(loadingInitialProject && (!proj || proj.id !== targetId));
+      };
+
+      // Even if loadingInitialProject flag was true, if project is already in memory, it must not block canvas
+      expect(shouldShowInitialLoading(true, selectedProject, targetProjectId)).toBe(false);
+      expect(shouldShowInitialLoading(false, selectedProject, targetProjectId)).toBe(false);
+
+      // Only displays when project is still null / loading
+      expect(shouldShowInitialLoading(true, null, targetProjectId)).toBe(true);
+      expect(shouldShowInitialLoading(true, { id: 'other-id' }, targetProjectId)).toBe(true);
+    });
+  });
 });

@@ -137,3 +137,38 @@ body {
     stroke-dashoffset: 0;
   }
 }
+
+/* Accessibility: Reduced-Motion Preferences (WCAG 2.1) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .react-flow__connection-path {
+    animation: none !important;
+  }
+}
+
+/* Accessibility: Visible Focus Indicators */
+:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Safe word break for long emails, UUIDs, and task names */
+.break-words-safe {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}

@@ -249,28 +249,31 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-1.5rem)] overscroll-contain">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-500" />
-              {creationMode === 'template' && step === 1
-                ? 'Create Project from Reusable Template'
-                : creationMode === 'blank'
-                ? 'Create Universal Blank Project'
-                : creationMode === 'clone'
-                ? 'Clone & Duplicate Existing Project'
-                : 'Configure Project Details'}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
+          <div className="min-w-0 pr-2">
+            <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 truncate">
+              <Sparkles className="w-4 h-4 text-blue-500 shrink-0" />
+              <span className="truncate">
+                {creationMode === 'template' && step === 1
+                  ? 'Create Project from Reusable Template'
+                  : creationMode === 'blank'
+                  ? 'Create Universal Blank Project'
+                  : creationMode === 'clone'
+                  ? 'Clone & Duplicate Existing Project'
+                  : 'Configure Project Details'}
+              </span>
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
               Configurable delivery pipelines across any industry, structure, or methodology
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Close modal"
+            className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -278,20 +281,20 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 
         {/* Creation Mode Segmented Bar (Only shown on Step 1) */}
         {step === 1 && (
-          <div className="px-6 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <div className="px-4 sm:px-6 pt-3 pb-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
             <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
               <button
                 type="button"
                 id="tab-mode-template"
                 onClick={() => setCreationMode('template')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 min-h-[44px] rounded-lg text-xs font-bold transition-all ${
                   creationMode === 'template'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
                 }`}
               >
-                <Layers className="w-3.5 h-3.5" />
-                Industry Blueprint
+                <Layers className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Blueprint</span>
               </button>
 
               <button
@@ -304,14 +307,14 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                   setDescription('Universal configurable project canvas');
                   setStep(2);
                 }}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 min-h-[44px] rounded-lg text-xs font-bold transition-all ${
                   creationMode === 'blank'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
                 }`}
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                Blank Canvas
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Blank</span>
               </button>
 
               <button
@@ -321,14 +324,14 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                   setCreationMode('clone');
                   setStep(2);
                 }}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2 px-2 sm:px-3 min-h-[44px] rounded-lg text-xs font-bold transition-all ${
                   creationMode === 'clone'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
                 }`}
               >
-                <Copy className="w-3.5 h-3.5" />
-                Clone Existing
+                <Copy className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Clone</span>
               </button>
             </div>
           </div>
@@ -614,12 +617,12 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             )}
 
             {/* Action Buttons */}
-            <div className="pt-3 flex gap-2">
+            <div className="pt-3 flex flex-col xs:flex-row gap-2">
               {creationMode === 'template' && (
                 <button
                   type="button"
                   onClick={() => setStep(1)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  className="flex-1 min-h-[44px] py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center"
                 >
                   &larr; Back to Blueprints
                 </button>
@@ -628,7 +631,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                 id="launch-canvas-btn"
                 type="submit"
                 disabled={loading}
-                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                className="flex-1 min-h-[44px] py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
               >
                 {loading
                   ? 'Instantiating Canvas...'
@@ -642,10 +645,10 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 
         {/* TEMPLATE PREVIEW DRAWER / MODAL OVERLAY */}
         {previewTemplate && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-2rem)] overscroll-contain">
               {/* Header */}
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/40">
+              <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/40">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
                     {TEMPLATE_ICONS[previewTemplate.icon] || <Layers className="w-5 h-5" />}
@@ -661,14 +664,15 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                 </div>
                 <button
                   onClick={() => setPreviewTemplate(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  aria-label="Close template preview"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Body */}
-              <div className="p-6 overflow-y-auto space-y-5">
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
                 <div>
                   <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                     Overview
@@ -765,11 +769,11 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               </div>
 
               {/* Footer */}
-              <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50 dark:bg-slate-800/40">
+              <div className="px-4 sm:px-6 py-3 border-t border-slate-100 dark:border-slate-800 flex flex-col-reverse xs:flex-row justify-end gap-2 bg-slate-50 dark:bg-slate-800/40">
                 <button
                   type="button"
                   onClick={() => setPreviewTemplate(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="min-h-[44px] px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center"
                 >
                   Close Preview
                 </button>
@@ -779,7 +783,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                     handleTemplateClick(previewTemplate);
                     setPreviewTemplate(null);
                   }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20"
+                  className="min-h-[44px] px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 flex items-center justify-center"
                 >
                   Use This Blueprint &rarr;
                 </button>

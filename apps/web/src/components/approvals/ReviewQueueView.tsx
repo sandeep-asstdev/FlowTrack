@@ -303,7 +303,7 @@ export const ReviewQueueView: React.FC = () => {
             ) : (
               <>
                 {/* Workload Summary KPI Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
                   <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
                     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Scoped Members</span>
                     <span className="text-2xl font-black text-slate-900 dark:text-white mt-1 block">
@@ -608,17 +608,17 @@ export const ReviewQueueView: React.FC = () => {
                   )}
 
                   {/* Review Action Buttons */}
-                  <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col-reverse xs:flex-row items-stretch xs:items-center justify-end gap-2 sm:gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
                     <button
                       onClick={() => handleOpenDecision(task, 'rejected')}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-sm"
+                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-sm w-full xs:w-auto"
                     >
                       <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                       Request Changes / Reject
                     </button>
                     <button
                       onClick={() => handleOpenDecision(task, 'approved')}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/20"
+                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/20 w-full xs:w-auto"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       Approve Deliverables
@@ -635,11 +635,11 @@ export const ReviewQueueView: React.FC = () => {
 
       {/* Decision Modal */}
       {activeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
             <div className="flex items-center gap-3">
               <div
-                className={`p-2.5 rounded-xl ${
+                className={`p-2.5 rounded-xl shrink-0 ${
                   activeModal.decision === 'approved'
                     ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400'
                     : 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400'
@@ -651,11 +651,11 @@ export const ReviewQueueView: React.FC = () => {
                   <XCircle className="w-6 h-6" />
                 )}
               </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">
                   {activeModal.decision === 'approved' ? 'Approve Task Deliverables' : 'Request Changes on Task'}
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{activeModal.task.title}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 break-words-safe">{activeModal.task.title}</p>
               </div>
             </div>
 
@@ -690,12 +690,12 @@ export const ReviewQueueView: React.FC = () => {
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col-reverse xs:flex-row items-stretch xs:items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setActiveModal(null)}
                 disabled={submitting}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors w-full xs:w-auto"
               >
                 Cancel
               </button>
@@ -703,11 +703,11 @@ export const ReviewQueueView: React.FC = () => {
                 type="button"
                 onClick={handleSubmitDecision}
                 disabled={submitting || (activeModal.decision === 'rejected' && !feedback.trim())}
-                className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition-colors shadow-sm ${
+                className={`px-5 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-white transition-colors shadow-sm ${
                   activeModal.decision === 'approved'
                     ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
                     : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                } disabled:opacity-50 disabled:cursor-not-allowed w-full xs:w-auto flex items-center justify-center`}
               >
                 {submitting
                   ? 'Recording Decision...'

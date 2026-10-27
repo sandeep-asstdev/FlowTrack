@@ -88,11 +88,13 @@ export function App() {
   // Project direct loading on refresh or route change to /projects/:id
   const targetIdRef = useRef<string | undefined>(targetProjectId);
   targetIdRef.current = targetProjectId;
+  const inFlightProjectIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if ((currentView === 'canvas' || currentView === 'reports') && targetProjectId) {
       // If we already have this project in memory, no need to refetch
       if (selectedProject?.id === targetProjectId) {
+        setLoadingInitialProject(false);
         return;
       }
 
@@ -100,6 +102,7 @@ export function App() {
       const existingInList = projects.find((p) => p.id === targetProjectId);
       if (existingInList) {
         setSelectedProject(existingInList);
+        setLoadingInitialProject(false);
         return;
       }
 
@@ -110,6 +113,7 @@ export function App() {
 
       // If not authenticated and no token
       if (!user && !ApiClient.getToken()) {
+        setLoadingInitialProject(false);
         setAuthModalOpen(true);
         setRouteError({
           type: 'session_expired',
@@ -118,21 +122,25 @@ export function App() {
         return;
       }
 
-      // Fetch the project directly from API using stable ID
-      let isCancelled = false;
+      // Prevent duplicate in-flight requests for the same targetProjectId
+      if (inFlightProjectIdRef.current === targetProjectId) {
+        return;
+      }
+
+      inFlightProjectIdRef.current = targetProjectId;
       setLoadingInitialProject(true);
       setRouteError(null);
 
       ApiClient.getProject(targetProjectId)
         .then((proj) => {
-          if (isCancelled) return;
+          if (targetIdRef.current !== targetProjectId) return;
           setSelectedProject(proj);
           if (proj.workspaceId && proj.workspaceId !== activeWorkspaceId) {
             setActiveWorkspace(proj.workspaceId);
           }
         })
         .catch((err: any) => {
-          if (isCancelled) return;
+          if (targetIdRef.current !== targetProjectId) return;
           const status = err.status || err.statusCode;
           const msg = err.message || '';
 
@@ -160,14 +168,13 @@ export function App() {
           }
         })
         .finally(() => {
-          if (!isCancelled) {
-            setLoadingInitialProject(false);
+          if (inFlightProjectIdRef.current === targetProjectId) {
+            inFlightProjectIdRef.current = null;
           }
+          setLoadingInitialProject(false);
         });
-
-      return () => {
-        isCancelled = true;
-      };
+    } else {
+      setLoadingInitialProject(false);
     }
   }, [currentView, targetProjectId, selectedProject?.id, projects, isAuthLoading, user, activeWorkspaceId, setActiveWorkspace]);
 
@@ -252,7 +259,7 @@ export function App() {
               </div>
             </div>
           </div>
-        ) : loadingInitialProject ? (
+        ) : (loadingInitialProject && (!selectedProject || selectedProject.id !== targetProjectId)) ? (
           /* Project Loading State on Direct URL / Refresh (Never redirects unexpectedly!) */
           <div className="flex-1 flex flex-col items-center justify-center p-8 gap-4">
             <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 flex items-center justify-center">

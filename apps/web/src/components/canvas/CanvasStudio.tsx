@@ -2131,36 +2131,64 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         )}
 
         {/* Mobile Floating Action Controls (Easy touch access on mobile screens) */}
-        <div className="sm:hidden absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl">
+        <div className="sm:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl mb-safe">
           <button
+            id="mobile-add-task-btn"
             onClick={() => setMobileCreateOpen(true)}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-500/25 active:scale-95 transition-all"
+            className="px-3.5 py-2 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-500/25 active:scale-95 transition-all"
             title="Create Task on Mobile"
+            aria-label="Add Task on Mobile"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Add Task</span>
+            <span>Add</span>
           </button>
 
           <button
+            id="mobile-zoom-in-btn"
+            onClick={() => reactFlowInstance.zoomIn({ duration: 250 })}
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors"
+            title="Zoom In"
+            aria-label="Zoom In"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+
+          <button
+            id="mobile-zoom-out-btn"
+            onClick={() => reactFlowInstance.zoomOut({ duration: 250 })}
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors"
+            title="Zoom Out"
+            aria-label="Zoom Out"
+          >
+            <span className="text-base leading-none">−</span>
+          </button>
+
+          <button
+            id="mobile-fit-view-btn"
             onClick={() => reactFlowInstance.fitView({ padding: 0.2, duration: 400 })}
-            className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors"
             title="Fit view on mobile"
+            aria-label="Fit view on mobile"
           >
             <Sparkles className="w-4 h-4 text-blue-500" />
           </button>
 
           <button
+            id="mobile-team-modal-btn"
             onClick={() => setIsTeamModalOpen(true)}
-            className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors"
             title="Team & Collaborators"
+            aria-label="Team & Collaborators"
           >
             <Users className="w-4 h-4 text-indigo-500" />
           </button>
 
           <button
+            id="mobile-report-modal-btn"
             onClick={() => setIsReportModalOpen(true)}
-            className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors"
             title="Project Report"
+            aria-label="Project Report"
           >
             <BarChart3 className="w-4 h-4 text-emerald-500" />
           </button>
@@ -2168,7 +2196,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
         {/* Floating Action / Feedback Toast */}
         {toastMessage && (
-          <div className="absolute bottom-16 sm:bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-2xl backdrop-blur-md border border-slate-700/80 flex items-center gap-2 z-40 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="absolute bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-2xl backdrop-blur-md border border-slate-700/80 flex items-center gap-2 z-40 animate-in fade-in slide-in-from-bottom-2 duration-150">
             <span className="w-2 h-2 rounded-full bg-blue-400"></span>
             <span>{toastMessage}</span>
           </div>
@@ -2178,11 +2206,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       {/* Mobile Easy Node Creation Modal / Bottom Sheet */}
       {mobileCreateOpen && (
         <div
-          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[90] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[90] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150 overflow-y-auto"
           onClick={() => setMobileCreateOpen(false)}
         >
           <div
-            className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in slide-in-from-bottom duration-200"
+            className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain pb-safe my-auto sm:my-auto animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -2201,7 +2229,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               </div>
               <button
                 onClick={() => setMobileCreateOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600"
+                aria-label="Close"
+                className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-xl"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2219,7 +2248,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                   value={mobileTitle}
                   onChange={(e) => setMobileTitle(e.target.value)}
                   placeholder="e.g. Foundation excavation survey"
-                  className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 />
               </div>
 
@@ -2238,7 +2267,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                       key={t.key}
                       type="button"
                       onClick={() => setMobileTypeKey(t.key)}
-                      className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all ${
+                      className={`p-2.5 min-h-[44px] rounded-xl border text-left text-xs font-bold transition-all flex items-center ${
                         mobileTypeKey === t.key
                           ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/20'
                           : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
@@ -2260,7 +2289,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                       key={p}
                       type="button"
                       onClick={() => setMobilePriority(p)}
-                      className={`py-1.5 text-[10px] font-extrabold rounded-lg border transition-all ${
+                      className={`py-2 min-h-[38px] text-[10px] font-extrabold rounded-lg border transition-all flex items-center justify-center ${
                         mobilePriority === p
                           ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
@@ -2272,18 +2301,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                 </div>
               </div>
 
-              <div className="pt-2 flex gap-2">
+              <div className="pt-2 flex flex-col-reverse sm:flex-row gap-2">
                 <button
                   type="button"
                   onClick={() => setMobileCreateOpen(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300"
+                  className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={creatingMobileNode || !mobileTitle.trim()}
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20"
+                  className="flex-1 min-h-[44px] py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-colors"
                 >
                   {creatingMobileNode ? 'Creating...' : 'Create Task'}
                 </button>

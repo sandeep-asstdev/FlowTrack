@@ -546,11 +546,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     <div
       className={`fixed inset-y-0 right-0 ${
         isExpanded ? 'w-full sm:w-[760px]' : 'w-full sm:w-[520px]'
-      } bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col transition-all duration-200 animate-in slide-in-from-right`}
+      } bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col pt-safe pb-safe transition-all duration-200 animate-in slide-in-from-right`}
     >
       {/* 1. TOP HEADER (Always Visible) */}
-      <div className="h-16 border-b border-slate-200 dark:border-slate-800 px-5 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
+      <div className="h-16 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-5 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 mr-2 sm:mr-3">
           <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
             <FileText className="w-4 h-4" />
           </div>
@@ -584,12 +584,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         </div>
 
         {/* Header Right Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Expand / Minimize Width Toggle */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Expand / Minimize Width Toggle (desktop / tablet) */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hidden sm:inline-flex"
+            className="w-10 h-10 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors hidden sm:inline-flex"
             title={isExpanded ? 'Collapse width' : 'Expand width'}
+            aria-label={isExpanded ? 'Collapse width' : 'Expand width'}
           >
             {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           </button>
@@ -597,8 +598,9 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           {/* Close Button */}
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             title="Close (Esc)"
+            aria-label="Close Task Details"
           >
             <X className="w-5 h-5" />
           </button>
@@ -606,31 +608,31 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       </div>
 
       {/* 2. THE THREE CLEAN TABS NAVIGATION */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 px-4 shrink-0">
+      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 px-2 sm:px-4 shrink-0 overflow-x-auto touch-pan-x">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-3 px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-2 transition-all ${
+          className={`flex-1 py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] shrink-0 ${
             activeTab === 'overview'
               ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <FileText className="w-3.5 h-3.5" />
+          <FileText className="w-3.5 h-3.5 shrink-0" />
           <span>Overview</span>
         </button>
 
         <button
           onClick={() => setActiveTab('work')}
-          className={`flex-1 py-3 px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-2 transition-all ${
+          className={`flex-1 py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] shrink-0 ${
             activeTab === 'work'
               ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <Paperclip className="w-3.5 h-3.5" />
-          <span>Work &amp; Evidence</span>
+          <Paperclip className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Work &amp; Evidence</span>
           {(documents.length > 0 || (node.children?.length || 0) > 0) && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
               {documents.length + (node.children?.length || 0)}
             </span>
           )}
@@ -638,26 +640,26 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
         <button
           onClick={() => setActiveTab('activity')}
-          className={`flex-1 py-3 px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-2 transition-all ${
+          className={`flex-1 py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] shrink-0 ${
             activeTab === 'activity'
               ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Activity &amp; Approvals</span>
+          <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Activity &amp; Approvals</span>
           {isPendingApproval ? (
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
           ) : isApproved ? (
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
           ) : isRejected ? (
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
+            <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
           ) : null}
         </button>
       </div>
 
       {/* 3. TAB CONTENT BODY */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+      <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 sm:space-y-5">
         {/* ============================================================== */}
         {/* TAB 1: OVERVIEW                                                */}
         {/* ============================================================== */}
@@ -1506,7 +1508,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   type="button"
                   onClick={handleSubmitWork}
                   disabled={submittingWork}
-                  className="w-full py-2 bg-white text-blue-600 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-sm transition-colors"
+                  className="w-full py-2.5 min-h-[44px] bg-white text-blue-600 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center"
                 >
                   {submittingWork ? 'Submitting...' : 'Submit for Manager Review'}
                 </button>

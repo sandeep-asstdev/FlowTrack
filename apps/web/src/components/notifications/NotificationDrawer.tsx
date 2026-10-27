@@ -202,10 +202,10 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex items-center gap-1.5 overflow-x-auto text-xs touch-pan-x">
+        <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex items-center gap-1.5 overflow-x-auto text-xs touch-pan-x shrink-0">
           <button
             onClick={() => { setFilterType('all'); setOnlyUnread(false); }}
-            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'all' && !onlyUnread
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -215,7 +215,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => setOnlyUnread(!onlyUnread)}
-            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               onlyUnread
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -225,7 +225,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => { setFilterType('ASSIGNMENT'); setOnlyUnread(false); }}
-            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'ASSIGNMENT'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -235,7 +235,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => { setFilterType('APPROVAL_REQUEST'); setOnlyUnread(false); }}
-            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'APPROVAL_REQUEST'
                 ? 'bg-purple-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -245,7 +245,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
           </button>
           <button
             onClick={() => { setFilterType('BLOCKER'); setOnlyUnread(false); }}
-            className={`px-3 py-2 min-h-[38px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
               filterType === 'BLOCKER'
                 ? 'bg-rose-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -291,7 +291,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <h5 className={`text-xs font-bold truncate ${notif.read ? 'text-slate-700 dark:text-slate-300' : 'text-slate-900 dark:text-white'}`}>
+                      <h5 className={`text-xs font-bold truncate break-words-safe ${notif.read ? 'text-slate-700 dark:text-slate-300' : 'text-slate-900 dark:text-white'}`}>
                         {notif.title}
                       </h5>
                       {!notif.read && (
@@ -299,7 +299,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                       )}
                     </div>
 
-                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed break-words-safe">
                       {notif.body}
                     </p>
 

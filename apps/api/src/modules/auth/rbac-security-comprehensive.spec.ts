@@ -214,7 +214,7 @@ describe('FlowTrack — Comprehensive RBAC & Privilege Escalation Hardening Suit
       },
     };
 
-    workspacesService = new WorkspacesService(prismaMock, null as any);
+    workspacesService = new WorkspacesService(prismaMock);
     nodesService = new NodesService(prismaMock, null as any, null as any, null as any);
     reflector = new Reflector();
     rolesGuard = new RolesGuard(reflector);

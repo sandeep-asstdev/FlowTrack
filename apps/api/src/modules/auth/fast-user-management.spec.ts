@@ -154,7 +154,7 @@ describe('Fast User Management & Role Security Target Suite', () => {
     };
 
     authService = new AuthService(prismaMock, jwtServiceMock);
-    workspacesService = new WorkspacesService(prismaMock, null as any);
+    workspacesService = new WorkspacesService(prismaMock);
     nodesService = new NodesService(prismaMock, null as any, null as any, null as any);
   });
 

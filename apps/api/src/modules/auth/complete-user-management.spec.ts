@@ -156,7 +156,7 @@ describe('FlowTrack — Complete User Management & Authentication Suite', () => 
     jwtStrategy = new JwtStrategy(prismaMock);
     reflector = new Reflector();
     rolesGuard = new RolesGuard(reflector);
-    workspacesService = new WorkspacesService(prismaMock, null as any);
+    workspacesService = new WorkspacesService(prismaMock);
     nodesService = new NodesService(prismaMock, null as any, null as any, null as any);
   });
 

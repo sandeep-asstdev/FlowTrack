@@ -1,11 +1,43 @@
+# Dependencies
 node_modules
+.pnpm-store
+
+# Production Builds & Bundler Caches
 dist
+dist-ssr
+build
+.next
+.turbo
+.cache
+
+# Environment & local credentials
 .env
 .env.local
-*.log
-.DS_Store
+.env.*.local
+!.env.example
+
+# Test outputs & Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+e2e-results.json
 coverage
-.turbo
-.next
+
+# Runtime uploads & ephemeral document storage
+vault_storage/
+uploads/
+
+# Cloudflare Wrangler local cache
+.wrangler/
+
+# System, IDE and editor metadata
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.log
+*.tsbuildinfo
+.eslintcache
 pnpm.cmd
 pnpm.ps1

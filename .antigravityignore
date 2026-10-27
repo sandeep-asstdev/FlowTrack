@@ -35,6 +35,12 @@ pnpm.ps1
 # --- Test Coverage & Tool Caches ---
 coverage/
 **/coverage/
+test-results/
+**/test-results/
+playwright-report/
+**/playwright-report/
+e2e-results.json
+**/e2e-results.json
 .nyc_output/
 .turbo/
 **/.turbo/

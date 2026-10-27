@@ -41,7 +41,14 @@ services:
       - key: VAULT_STORAGE_PATH
         value: /tmp/vault_storage
 
-  # PostgreSQL Database
+  # Redis (for BullMQ jobs) — must be under services:, NOT databases:
+  - type: redis
+    name: flowtrack-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: noeviction
+
+# PostgreSQL Database
 databases:
   - name: flowtrack-db
     region: oregon
@@ -49,9 +56,3 @@ databases:
     databaseName: flowtrack
     user: flowtrack
 
-  # Redis (for BullMQ jobs)
-  - type: redis
-    name: flowtrack-redis
-    region: oregon
-    plan: free
-    maxmemoryPolicy: noeviction

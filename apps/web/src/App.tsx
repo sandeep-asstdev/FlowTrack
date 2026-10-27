@@ -106,8 +106,8 @@ export function App() {
         return;
       }
 
-      // Wait until initial auth finishes checking session
-      if (isAuthLoading) {
+      // Wait until initial auth finishes checking session and workspace is resolved
+      if (isAuthLoading || (user && !activeWorkspaceId)) {
         return;
       }
 

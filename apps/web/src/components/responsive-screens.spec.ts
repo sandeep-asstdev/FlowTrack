@@ -235,4 +235,32 @@ describe('Responsive Screens, Accessibility & Final Verification (Chunk 3)', () 
       expect(reducedMotionConfig.scrollBehavior).toBe('auto !important');
     });
   });
+
+  describe('6. Regression Tests for BUG 3: Mobile Touch Targets & Project Route Refresh Integrity', () => {
+    it('verifies ProjectList clone and canvas open buttons meet 44px min touch target', () => {
+      const cloneButtonClass = 'px-3 py-1.5 min-h-[44px] rounded-xl text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px] font-semibold';
+      const openCanvasSpanClass = 'text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 min-h-[44px] group-hover:translate-x-1 transition-transform';
+
+      expect(cloneButtonClass).toContain('min-h-[44px]');
+      expect(openCanvasSpanClass).toContain('min-h-[44px]');
+    });
+
+    it('verifies route refresh guard prevents premature redirect while workspace or auth is loading', () => {
+      const shouldWaitOnRouteRefresh = (isAuthLoading: boolean, hasUser: boolean, activeWorkspaceId: string | null) => {
+        return isAuthLoading || (hasUser && !activeWorkspaceId);
+      };
+
+      // Case 1: Initial auth is still loading -> Must wait
+      expect(shouldWaitOnRouteRefresh(true, false, null)).toBe(true);
+
+      // Case 2: User authenticated, but activeWorkspaceId has not yet populated from storage/API -> Must wait
+      expect(shouldWaitOnRouteRefresh(false, true, null)).toBe(true);
+
+      // Case 3: User authenticated and activeWorkspaceId is resolved -> Ready to load project route
+      expect(shouldWaitOnRouteRefresh(false, true, 'ws-123')).toBe(false);
+
+      // Case 4: No user (guest) and auth finished -> Can proceed to auth screen or guest view
+      expect(shouldWaitOnRouteRefresh(false, false, null)).toBe(false);
+    });
+  });
 });

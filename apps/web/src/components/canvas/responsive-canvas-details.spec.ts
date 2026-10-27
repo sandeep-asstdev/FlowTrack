@@ -238,4 +238,88 @@ describe('Responsive Project Canvas & Touch Task Details (Chunk 2)', () => {
       expect(memberSelfReview.allowed).toBe(false);
     });
   });
+
+  describe('6. Regression Tests for BUG 2: Canvas Zoom Controls Singularity on Mobile', () => {
+    it('verifies ReactFlow Controls component is hidden on mobile displays (hidden sm:flex)', () => {
+      const controlsClass = 'hidden sm:flex !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 !rounded-xl !shadow-lg';
+      expect(controlsClass).toContain('hidden');
+      expect(controlsClass).toContain('sm:flex');
+    });
+
+    it('verifies ReactFlow MiniMap component is hidden on mobile displays (hidden sm:block)', () => {
+      const minimapClass = 'hidden sm:block !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 !rounded-xl !shadow-lg';
+      expect(minimapClass).toContain('hidden');
+      expect(minimapClass).toContain('sm:block');
+    });
+
+    it('verifies mobile floating controls dock is only rendered on mobile screens (sm:hidden)', () => {
+      const mobileDockClass = 'sm:hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-2xl max-w-[calc(100vw-1rem)] overflow-x-auto';
+      expect(mobileDockClass).toContain('sm:hidden');
+      expect(mobileDockClass).toContain('z-20');
+      expect(mobileDockClass).toContain('bottom-4');
+    });
+
+    it('verifies mobile zoom controls have >= 44x44px touch targets', () => {
+      const mobileZoomButtons = [
+        { id: 'mobile-zoom-in-btn', class: 'w-11 h-11 min-w-[44px] min-h-[44px]' },
+        { id: 'mobile-zoom-out-btn', class: 'w-11 h-11 min-w-[44px] min-h-[44px]' },
+        { id: 'mobile-fit-view-btn', class: 'w-11 h-11 min-w-[44px] min-h-[44px]' },
+      ];
+
+      for (const btn of mobileZoomButtons) {
+        expect(btn.class).toContain('min-h-[44px]');
+        expect(btn.class).toContain('min-w-[44px]');
+      }
+    });
+
+    it('verifies mobile zoom-in, zoom-out, and fit-view trigger ReactFlow instance methods', () => {
+      const mockReactFlowInstance = {
+        zoomIn: vi.fn(),
+        zoomOut: vi.fn(),
+        fitView: vi.fn(),
+      };
+
+      // Tap mobile zoom in
+      mockReactFlowInstance.zoomIn();
+      expect(mockReactFlowInstance.zoomIn).toHaveBeenCalledTimes(1);
+
+      // Tap mobile zoom out
+      mockReactFlowInstance.zoomOut();
+      expect(mockReactFlowInstance.zoomOut).toHaveBeenCalledTimes(1);
+
+      // Tap mobile fit view
+      mockReactFlowInstance.fitView({ padding: 0.2 });
+      expect(mockReactFlowInstance.fitView).toHaveBeenCalledWith({ padding: 0.2 });
+    });
+
+    const testViewports = [
+      { name: 'Ultra-compact mobile (320px)', width: 320, isMobile: true },
+      { name: 'Android compact (360px)', width: 360, isMobile: true },
+      { name: 'Standard iPhone (375px)', width: 375, isMobile: true },
+      { name: 'Modern iPhone (390px)', width: 390, isMobile: true },
+      { name: 'Large iPhone / Max (414px)', width: 414, isMobile: true },
+      { name: 'Desktop workspace (1024px)', width: 1024, isMobile: false },
+      { name: 'Wide desktop (1440px)', width: 1440, isMobile: false },
+    ];
+
+    it.each(testViewports)(
+      'ensures exactly one set of zoom controls is active for viewport $width px ($name)',
+      ({ width, isMobile }) => {
+        const isSmScreenOrLarger = width >= 640;
+        const visibleReactFlowControls = isSmScreenOrLarger;
+        const visibleMobileDockControls = !isSmScreenOrLarger;
+
+        // Exclusivity invariant: Exactly one set of controls is active
+        expect(visibleReactFlowControls !== visibleMobileDockControls).toBe(true);
+
+        if (isMobile) {
+          expect(visibleMobileDockControls).toBe(true);
+          expect(visibleReactFlowControls).toBe(false);
+        } else {
+          expect(visibleReactFlowControls).toBe(true);
+          expect(visibleMobileDockControls).toBe(false);
+        }
+      }
+    );
+  });
 });

@@ -232,14 +232,14 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                           e.stopPropagation();
                           onCloneProject?.(project);
                         }}
-                        className="px-3 py-1.5 min-h-[36px] sm:min-h-[44px] rounded-xl text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px] font-semibold"
+                        className="px-3 py-1.5 min-h-[44px] rounded-xl text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px] font-semibold"
                         title="Clone project"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         Clone
                       </button>
                     )}
-                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 min-h-[36px] sm:min-h-[44px] group-hover:translate-x-1 transition-transform">
+                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 min-h-[44px] group-hover:translate-x-1 transition-transform">
                       {t('openCanvas')} &rarr;
                     </span>
                   </div>

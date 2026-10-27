@@ -1947,10 +1947,10 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               color="#94a3b8"
               className="opacity-40"
             />
-            <Controls className="!bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 !rounded-xl !shadow-lg" />
+            <Controls className="hidden sm:flex !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 !rounded-xl !shadow-lg" />
             <MiniMap
               nodeColor={() => '#3b82f6'}
-              className="!bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 !rounded-xl !shadow-lg"
+              className="hidden sm:block !bg-white dark:!bg-slate-900 !border !border-slate-200 dark:!border-slate-800 !rounded-xl !shadow-lg"
               zoomable
               pannable
             />

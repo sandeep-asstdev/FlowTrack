@@ -14,11 +14,15 @@ import {
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto, UpdateProjectDto } from '@flowtrack/shared';
 import { AuthGuard } from '@nestjs/passport';
+import { CpmService } from './cpm.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('projects')
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly cpmService: CpmService
+  ) {}
 
   private getWorkspaceId(req: any, headerWorkspaceId?: string): string {
     const wsId = headerWorkspaceId || req.user.activeWorkspaceId;
@@ -53,6 +57,16 @@ export class ProjectsController {
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
     return this.projectsService.getProject(id, wsId);
+  }
+
+  @Get(':id/critical-path')
+  getCriticalPath(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    return this.cpmService.calculateProjectCriticalPath(id, wsId);
   }
 
   @Patch(':id')

@@ -191,6 +191,10 @@ export class ApiClient {
     return this.request(`/projects/${projectId}`);
   }
 
+  static getCriticalPath(projectId: string) {
+    return this.request(`/projects/${projectId}/critical-path`);
+  }
+
   static createProject(body: any) {
     return this.request('/projects', { method: 'POST', body: JSON.stringify(body) });
   }

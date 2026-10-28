@@ -5,7 +5,7 @@ import {
   EdgeProps,
   getBezierPath,
 } from '@xyflow/react';
-import { Plus, Trash2, Lock, ArrowRight, Link2 } from 'lucide-react';
+import { Plus, Trash2, Lock, ArrowRight, Link2, Zap } from 'lucide-react';
 
 export const FlowTrackEdge: React.FC<EdgeProps> = ({
   id,
@@ -34,15 +34,19 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
   const canEdit = (data as any)?.canEdit !== false;
   const onEdgeDelete = (data as any)?.onDelete;
   const onInsertNode = (data as any)?.onInsert;
+  const isCriticalEdge = Boolean((data as any)?.isCriticalEdge);
 
   // Distinct visual styling based on workflow relationship type:
+  // - Critical path: bold rose-500 line
   // - 'dependency': Enforced blocking relationship (amber-orange, dashed/solid with lock badge)
   // - 'sequence': Standard operational progression (blue, solid)
   // - 'related': Non-blocking informational association (slate, dotted)
   const isDependency = kind === 'dependency';
   const isRelated = kind === 'related';
 
-  const defaultStroke = isDependency
+  const defaultStroke = isCriticalEdge
+    ? '#f43f5e'
+    : isDependency
     ? '#f59e0b'
     : isRelated
     ? '#94a3b8'
@@ -52,7 +56,7 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
     ? '#2563eb'
     : defaultStroke;
 
-  const strokeDasharray = isDependency
+  const strokeDasharray = isDependency && !isCriticalEdge
     ? '6 4'
     : isRelated
     ? '3 3'
@@ -60,6 +64,8 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
 
   const strokeWidth = selected
     ? 4
+    : isCriticalEdge
+    ? 3.5
     : isDependency
     ? 3
     : 2.5;
@@ -106,6 +112,17 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
           }}
           className="nodrag nopan flex items-center gap-1 group z-10"
         >
+          {/* Critical Path Edge Badge */}
+          {isCriticalEdge && (
+            <span
+              className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-600 text-white flex items-center gap-1 shadow-md shadow-rose-500/30"
+              title="Critical Path: Delay on this dependency directly delays project completion"
+            >
+              <Zap className="w-2.5 h-2.5 fill-white" />
+              Critical
+            </span>
+          )}
+
           {/* Edge Badge / Type Indicator */}
           {isDependency && (
             <span

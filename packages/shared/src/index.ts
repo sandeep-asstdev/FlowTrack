@@ -11,6 +11,7 @@ export * from './schemas/document.js';
 export * from './schemas/team.js';
 export * from './calculation/rollup.js';
 export * from './calculation/reports.js';
+export * from './calculation/critical-path.js';
 export * from './domain/hierarchy.js';
 export * from './domain/dependencies.js';
 export * from './domain/custom-fields-validator.js';

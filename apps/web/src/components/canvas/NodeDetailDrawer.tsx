@@ -42,6 +42,7 @@ import {
   FileCheck,
   AlertCircle,
   ExternalLink,
+  Zap,
 } from 'lucide-react';
 import { getRolePermissions } from '../../utils/permissions';
 
@@ -86,12 +87,23 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [weight, setWeight] = useState(1.0);
   const [startDate, setStartDate] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [durationDays, setDurationDays] = useState<number>(1);
   const [ownerId, setOwnerId] = useState('');
   const [reviewerId, setReviewerId] = useState('');
   const [collaboratorIds, setCollaboratorIds] = useState<string[]>([]);
   const [workspaceMembers, setWorkspaceMembers] = useState<any[]>([]);
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [documents, setDocuments] = useState<any[]>([]);
+
+  // Calculates inclusive calendar finish date (convention: start Jan 15 + 5 days = finish Jan 19)
+  const calculatePlannedFinish = (startVal?: string, dur?: number): string => {
+    if (!startVal) return '';
+    const d = new Date(startVal);
+    if (isNaN(d.getTime())) return '';
+    const daysToAdd = Math.max(0, (dur || 1) - 1);
+    d.setUTCDate(d.getUTCDate() + daysToAdd);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  };
 
   // Subtasks / Checklist
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
@@ -201,6 +213,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       setWeight(data.weight || 1.0);
       setStartDate(toDateTimeLocal(data.startDate));
       setDueDate(toDateTimeLocal(data.dueDate));
+
+      const custom = data.customData || {};
+      let initialDuration = 1;
+      if (typeof custom.durationDays === 'number' && custom.durationDays > 0) {
+        initialDuration = custom.durationDays;
+      } else if (data.startDate && data.dueDate) {
+        const s = new Date(data.startDate).getTime();
+        const d = new Date(data.dueDate).getTime();
+        if (!isNaN(s) && !isNaN(d) && d >= s) {
+          initialDuration = Math.max(1, Math.round((d - s) / (24 * 60 * 60 * 1000)) + 1);
+        }
+      }
+      setDurationDays(initialDuration);
+
       setOwnerId(data.ownerId || '');
       setReviewerId(data.reviewerId || '');
       setCollaboratorIds(data.customData?.collaboratorIds || []);
@@ -953,26 +979,96 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
             </div>
 
-            {/* Dates & Deadline Status */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+            {/* Schedule, Duration & Inclusive Dates */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                  Schedule & Duration
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Inclusive calendar days
+                </span>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                    Start Date
+                    Planned Start Date
                   </label>
                   <input
                     type="datetime-local"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      setStartDate(newStart);
+                      if (newStart && durationDays > 0) {
+                        const s = new Date(newStart);
+                        if (!isNaN(s.getTime())) {
+                          s.setUTCDate(s.getUTCDate() + durationDays - 1);
+                          setDueDate(toDateTimeLocal(s.toISOString()));
+                        }
+                      }
+                    }}
                     onBlur={() => {
                       const parsed = startDate ? new Date(startDate).toISOString() : null;
-                      saveNodeUpdates({ startDate: parsed });
+                      let updatedDue = dueDate ? new Date(dueDate).toISOString() : null;
+                      if (startDate && durationDays > 0) {
+                        const s = new Date(startDate);
+                        s.setUTCDate(s.getUTCDate() + durationDays - 1);
+                        updatedDue = s.toISOString();
+                      }
+                      saveNodeUpdates({
+                        startDate: parsed,
+                        dueDate: updatedDue,
+                        customData: { ...customData, durationDays, fixedStartDate: parsed ? parsed.slice(0, 10) : undefined },
+                      });
                     }}
                     disabled={!permissions.canEditProject}
                     className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
+                <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Duration (Days)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={durationDays}
+                    onChange={(e) => {
+                      const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      setDurationDays(val);
+                      if (startDate) {
+                        const s = new Date(startDate);
+                        if (!isNaN(s.getTime())) {
+                          s.setUTCDate(s.getUTCDate() + val - 1);
+                          setDueDate(toDateTimeLocal(s.toISOString()));
+                        }
+                      }
+                    }}
+                    onBlur={() => {
+                      const updatedCustom = { ...customData, durationDays };
+                      setCustomData(updatedCustom);
+                      let updatedDue = dueDate ? new Date(dueDate).toISOString() : null;
+                      if (startDate) {
+                        const s = new Date(startDate);
+                        s.setUTCDate(s.getUTCDate() + durationDays - 1);
+                        updatedDue = s.toISOString();
+                      }
+                      saveNodeUpdates({
+                        dueDate: updatedDue,
+                        customData: updatedCustom,
+                      });
+                    }}
+                    disabled={!permissions.canEditProject}
+                    className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                     Due Date
@@ -983,6 +1079,16 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     onChange={(e) => setDueDate(e.target.value)}
                     onBlur={() => {
                       const parsed = dueDate ? new Date(dueDate).toISOString() : null;
+                      if (startDate && parsed) {
+                        const s = new Date(startDate).getTime();
+                        const d = new Date(parsed).getTime();
+                        if (d >= s) {
+                          const diff = Math.max(1, Math.round((d - s) / (24 * 60 * 60 * 1000)) + 1);
+                          setDurationDays(diff);
+                          saveNodeUpdates({ dueDate: parsed, customData: { ...customData, durationDays: diff } });
+                          return;
+                        }
+                      }
                       saveNodeUpdates({ dueDate: parsed });
                     }}
                     disabled={!permissions.canEditProject}
@@ -990,6 +1096,16 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                       countdown.isOverdue ? 'border-rose-400 text-rose-600' : 'border-slate-200 dark:border-slate-700'
                     } bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500`}
                   />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Calculated Finish Date
+                  </label>
+                  <div className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-between">
+                    <span>{calculatePlannedFinish(startDate, durationDays) || 'Set start date'}</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Inclusive</span>
+                  </div>
                 </div>
               </div>
 
@@ -1022,6 +1138,67 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   <span>On schedule</span>
                 </div>
               )}
+            </div>
+
+            {/* Workflow Dependencies: Predecessors & Successors */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <ArrowRight className="w-3.5 h-3.5 text-indigo-500" />
+                  Dependencies
+                </span>
+                <span className="text-[10px] text-slate-400">Finish-to-Start (FS)</span>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Predecessors (Must finish before this task)
+                </div>
+                {node.targetEdges && node.targetEdges.length > 0 ? (
+                  <div className="space-y-1">
+                    {node.targetEdges.map((e: any) => (
+                      <div
+                        key={e.id}
+                        className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"
+                      >
+                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {e.sourceNode?.title || 'Predecessor Task'}
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                          {e.kind || 'sequence'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic">No predecessor dependencies (independent start)</p>
+                )}
+              </div>
+
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Successors (Blocked until this task finishes)
+                </div>
+                {node.sourceEdges && node.sourceEdges.length > 0 ? (
+                  <div className="space-y-1">
+                    {node.sourceEdges.map((e: any) => (
+                      <div
+                        key={e.id}
+                        className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"
+                      >
+                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {e.targetNode?.title || 'Successor Task'}
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                          {e.kind || 'sequence'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic">No successor tasks connected</p>
+                )}
+              </div>
             </div>
 
             {/* Parent Stage / Hierarchy (if applicable) */}

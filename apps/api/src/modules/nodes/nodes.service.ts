@@ -212,9 +212,17 @@ export class NodesService {
           include: { status: true },
         },
         targetEdges: {
-          where: { deletedAt: null, kind: 'dependency' },
+          where: { deletedAt: null },
           include: {
             sourceNode: {
+              select: { id: true, title: true, status: true },
+            },
+          },
+        },
+        sourceEdges: {
+          where: { deletedAt: null },
+          include: {
+            targetNode: {
               select: { id: true, title: true, status: true },
             },
           },

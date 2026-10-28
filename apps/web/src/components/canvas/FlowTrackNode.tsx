@@ -24,6 +24,7 @@ import {
   Users,
   Eye,
   Calendar,
+  Zap,
 } from 'lucide-react';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
 import { useAuthStore } from '../../stores/authStore';
@@ -74,6 +75,13 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
     onToggleLock,
     onAssignNode,
   } = data as any;
+
+  const cpm = (data as any)?.cpm;
+  const isCritical = Boolean(cpm?.isCritical);
+  const totalFloat = cpm?.totalFloat;
+  const cpmDuration = cpm?.durationDays || customData?.durationDays;
+  const earlyStartDate = cpm?.earlyStartDate;
+  const earlyFinishDate = cpm?.earlyFinishDate;
 
   const { getActiveRole } = useAuthStore();
   const currentRole = getActiveRole();
@@ -142,6 +150,8 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
   // Node card border & background styling
   const borderColourClass = selected
     ? 'border-blue-500 ring-4 ring-blue-500/20 shadow-xl'
+    : isCritical
+    ? 'border-rose-500 ring-2 ring-rose-500/30 dark:border-rose-500 dark:ring-rose-500/20 shadow-lg shadow-rose-500/10'
     : isMilestoneNode
     ? 'border-amber-300 dark:border-amber-700/80 hover:border-amber-400'
     : isApprovalNode
@@ -347,6 +357,18 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
               <ArrowRight className="w-2.5 h-2.5" />
             </button>
           )}
+        </div>
+      ) : isCritical && !countdown.isDone ? (
+        <div className="bg-gradient-to-r from-rose-600 to-rose-700 text-white text-[10px] font-extrabold px-3 py-1 rounded-t-xl flex items-center justify-between uppercase tracking-wider shadow-sm">
+          <div className="flex items-center gap-1.5 truncate">
+            <Zap className="w-3.5 h-3.5 fill-white shrink-0" />
+            <span className="truncate">Critical Path (0d slack)</span>
+          </div>
+          {cpmDuration ? (
+            <span className="text-[9px] font-black opacity-95 shrink-0 ml-1">
+              {cpmDuration}d
+            </span>
+          ) : null}
         </div>
       ) : countdown.isTwoDaysAlert ? (
         <div className="bg-amber-500 text-white text-[10px] font-extrabold px-3 py-1 rounded-t-xl flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
@@ -586,7 +608,28 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
               </span>
             )}
 
-            {dueDate && (
+            {/* Schedule flexibility slack badge */}
+            {totalFloat !== undefined && totalFloat > 0 && !countdown.isDone && (
+              <span
+                className="flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded"
+                title={`Schedule flexibility: ${totalFloat} days total float`}
+              >
+                +{totalFloat}d slack
+              </span>
+            )}
+
+            {/* Calculated CPM Planned Dates */}
+            {earlyStartDate && earlyFinishDate && (
+              <span
+                className="flex items-center gap-0.5 text-slate-500 dark:text-slate-400 text-[10px]"
+                title={`CPM planned dates: ${earlyStartDate} to ${earlyFinishDate}`}
+              >
+                <Calendar className="w-3 h-3 text-rose-500 shrink-0" />
+                {earlyStartDate.slice(5)} &rarr; {earlyFinishDate.slice(5)}
+              </span>
+            )}
+
+            {dueDate && !earlyFinishDate && (
               <span
                 className="flex items-center gap-0.5 text-slate-500 text-[10px]"
                 title="Target Handover Date"

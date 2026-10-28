@@ -25,11 +25,12 @@ import { NodeViewDetailsModal } from './NodeViewDetailsModal';
 import { ProjectReportModal } from './ProjectReportModal';
 import { ProjectTeamModal } from './ProjectTeamModal';
 import { ProjectActivityModal } from './ProjectActivityModal';
+import { CriticalPathPanel } from './CriticalPathPanel';
 import { FieldConfigurationModal } from '../custom-fields/FieldConfigurationModal';
 import { ApiClient } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { getLayoutedElements } from '../../utils/layout';
-import { validateDependencyEdge } from '@flowtrack/shared';
+import { validateDependencyEdge, calculateCriticalPath, CpmResult } from '@flowtrack/shared';
 import {
   getSmartViewportPosition,
   getNonOverlappingPosition,
@@ -67,6 +68,7 @@ import {
   AlertTriangle,
   History,
   Loader2,
+  Zap,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
@@ -196,6 +198,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [isFieldConfigModalOpen, setIsFieldConfigModalOpen] = useState(false);
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+  // Critical Path Method (CPM) Analysis State
+  const [cpmData, setCpmData] = useState<CpmResult | null>(null);
+  const [cpmLoading, setCpmLoading] = useState(false);
+  const [cpmError, setCpmError] = useState<string | null>(null);
+  const [isCpmPanelOpen, setIsCpmPanelOpen] = useState(false);
 
   // Quick-Add Popup Menu State (n8n signature UX)
   const [quickAddMenu, setQuickAddMenu] = useState<{
@@ -697,6 +704,62 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           };
         });
 
+      // Calculate CPM schedule & criticality directly on loaded graph
+      try {
+        const cpmTasks = fetchedNodes.map((n: any) => {
+          const custom = n.customData || {};
+          let dur = typeof custom.durationDays === 'number' && custom.durationDays > 0 ? custom.durationDays : 1;
+          if (dur === 1 && n.startDate && n.dueDate) {
+            const s = new Date(n.startDate).getTime();
+            const d = new Date(n.dueDate).getTime();
+            if (d >= s) {
+              dur = Math.max(1, Math.round((d - s) / (24 * 60 * 60 * 1000)) + 1);
+            }
+          }
+          return {
+            id: n.id,
+            title: n.title,
+            durationDays: dur,
+            fixedStartDate: custom.fixedStartDate,
+            startDate: n.startDate ? new Date(n.startDate).toISOString().slice(0, 10) : undefined,
+            dueDate: n.dueDate ? new Date(n.dueDate).toISOString().slice(0, 10) : undefined,
+          };
+        });
+
+        const cpmEdges = fetchedEdges.map((e: any) => ({
+          sourceNodeId: e.sourceNodeId,
+          targetNodeId: e.targetNodeId,
+          kind: e.kind,
+        }));
+
+        const cpmRes = calculateCriticalPath({
+          tasks: cpmTasks,
+          edges: cpmEdges,
+          projectDeadline: project.targetDate,
+        });
+
+        if (!('code' in cpmRes)) {
+          setCpmData(cpmRes);
+          setCpmError(null);
+          const taskMap = new Map(cpmRes.tasks.map((t) => [t.id, t]));
+          const criticalEdgeSet = new Set(
+            cpmRes.edges.filter((e) => e.isCriticalEdge).map((e) => `${e.sourceNodeId}->${e.targetNodeId}`)
+          );
+
+          for (const node of rfNodes) {
+            node.data.cpm = taskMap.get(node.id);
+          }
+
+          for (const edge of rfEdges) {
+            (edge.data as any).isCriticalEdge = criticalEdgeSet.has(`${edge.source}->${edge.target}`);
+          }
+        } else {
+          setCpmError(cpmRes.message);
+        }
+      } catch (cpmErr: any) {
+        console.warn('CPM calculation error:', cpmErr);
+      }
+
       setNodes(rfNodes);
       setEdges(rfEdges);
     } catch (e: any) {
@@ -725,6 +788,45 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   useEffect(() => {
     loadGraph();
   }, [project.id, currentParent.id]);
+
+  // Authoritative CPM recalculation from backend API
+  const refreshCriticalPath = useCallback(async () => {
+    try {
+      setCpmLoading(true);
+      setCpmError(null);
+      const res: CpmResult = await ApiClient.getCriticalPath(project.id);
+      setCpmData(res);
+
+      const taskMap = new Map(res.tasks.map((t) => [t.id, t]));
+      const criticalEdgeSet = new Set(
+        res.edges.filter((e) => e.isCriticalEdge).map((e) => `${e.sourceNodeId}->${e.targetNodeId}`)
+      );
+
+      setNodes((prevNodes) =>
+        prevNodes.map((n) => ({
+          ...n,
+          data: {
+            ...n.data,
+            cpm: taskMap.get(n.id),
+          },
+        }))
+      );
+
+      setEdges((prevEdges) =>
+        prevEdges.map((e) => ({
+          ...e,
+          data: {
+            ...(e.data as any),
+            isCriticalEdge: criticalEdgeSet.has(`${e.source}->${e.target}`),
+          },
+        }))
+      );
+    } catch (e: any) {
+      setCpmError(e.message || 'Failed to recalculate critical path');
+    } finally {
+      setCpmLoading(false);
+    }
+  }, [project.id, setNodes, setEdges]);
 
   // Real-time collaborative canvas updates via Socket.io
   useEffect(() => {
@@ -1789,6 +1891,36 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
         {/* View helpers & Fit */}
         <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
+          {/* Critical Path Method (CPM) Button */}
+          <button
+            onClick={() => {
+              setIsCpmPanelOpen((prev) => !prev);
+              if (!cpmData) {
+                refreshCriticalPath();
+              }
+            }}
+            className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+              isCpmPanelOpen
+                ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
+                : 'bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+            }`}
+            title="Toggle Critical Path Method (CPM) analysis and schedule inspection"
+          >
+            <Zap className={`w-3.5 h-3.5 ${isCpmPanelOpen ? 'fill-white' : 'text-rose-500'}`} />
+            <span>Critical Path</span>
+            {cpmData && cpmData.criticalTaskCount > 0 && (
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                  isCpmPanelOpen
+                    ? 'bg-white/20 text-white'
+                    : 'bg-rose-200 dark:bg-rose-800 text-rose-900 dark:text-rose-100'
+                }`}
+              >
+                {cpmData.criticalTaskCount}
+              </span>
+            )}
+          </button>
+
           <span className="hidden lg:inline text-slate-400">
             {nodes.length > 0 && `${displayedNodes.filter((n) => n.style?.opacity !== 0.22).length} of ${nodes.length} visible`}
           </span>
@@ -2441,6 +2573,24 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         onClose={() => setIsActivityModalOpen(false)}
         projectId={project.id}
         projectName={project.name}
+      />
+
+      {/* Critical Path Analysis Summary Panel */}
+      <CriticalPathPanel
+        isOpen={isCpmPanelOpen}
+        onClose={() => setIsCpmPanelOpen(false)}
+        cpmResult={cpmData}
+        loading={cpmLoading}
+        error={cpmError}
+        onRefresh={refreshCriticalPath}
+        onFocusNode={(nodeId) => {
+          const target = nodes.find((n) => n.id === nodeId);
+          if (target && reactFlowInstance) {
+            reactFlowInstance.setCenter(target.position.x + 140, target.position.y + 80, { zoom: 1.2, duration: 800 });
+          }
+          setSelectedNodeId(nodeId);
+        }}
+        projectDeadline={project.targetDate}
       />
     </div>
   );

@@ -43,6 +43,7 @@ import {
   Wand2,
   Check,
   ChevronRight,
+  ChevronDown,
   Layers,
   Sparkles,
   Search,
@@ -69,6 +70,8 @@ import {
   History,
   Loader2,
   Zap,
+  Maximize2,
+  Calendar,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
@@ -252,11 +255,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
   // Status options for task creation modal
   const createStatusOptions = useMemo(() => {
-    const selectedType = nodeTypesList.find((t) => t.key === mobileTypeKey);
-    const statuses = selectedType?.statusSet?.statuses;
-    if (Array.isArray(statuses) && statuses.length > 0) {
-      return statuses;
-    }
     for (const t of nodeTypesList) {
       if (t.statusSet?.statuses?.length) {
         return t.statusSet.statuses;
@@ -268,7 +266,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       { id: 'blocked', name: 'Blocked', labelI18n: { en: 'Blocked' } },
       { id: 'done', name: 'Done', labelI18n: { en: 'Done' } },
     ];
-  }, [nodeTypesList, mobileTypeKey]);
+  }, [nodeTypesList]);
 
   // Safe node deletion confirmation handler
   const promptDeleteConfirmation = useCallback(
@@ -1713,20 +1711,20 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                 : 'border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
             }`}
             title={
-              cpmData?.criticalNodeIds?.length
-                ? `Critical Path: ${cpmData.criticalNodeIds.length} critical task(s)`
+              cpmData && cpmData.criticalTaskCount > 0
+                ? `Critical Path: ${cpmData.criticalTaskCount} critical task(s)`
                 : 'Toggle Critical Path analysis highlight'
             }
           >
             <Zap className={`w-3.5 h-3.5 ${highlightCriticalPath ? 'fill-rose-500 text-rose-500' : 'text-slate-400'}`} />
             <span className="hidden sm:inline">Critical Path</span>
-            {cpmData?.criticalNodeIds && cpmData.criticalNodeIds.length > 0 && (
+            {cpmData && cpmData.criticalTaskCount > 0 && (
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
                 highlightCriticalPath
                   ? 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200'
                   : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
               }`}>
-                {cpmData.criticalNodeIds.length}
+                {cpmData.criticalTaskCount}
               </span>
             )}
           </button>
@@ -2311,7 +2309,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         <div id="mobile-canvas-controls" className="sm:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl mb-safe">
           <button
             id="mobile-add-task-btn"
-            onClick={() => setMobileCreateOpen(true)}
+            onClick={() => setCreateTaskModalOpen(true)}
             className="px-3.5 py-2 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-500/25 active:scale-95 transition-all"
             title="Create Task on Mobile"
             aria-label="Add Task on Mobile"

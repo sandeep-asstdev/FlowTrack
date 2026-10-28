@@ -81,9 +81,11 @@ export interface CpmResult {
   totalDurationDays: number;
   /** Projected finish date as ISO string (projectStart + totalDurationDays - 1). */
   projectedFinishDate: string;
-  /** Ordered critical path: task IDs in FS order. */
+  /** Primary critical path: task IDs in FS order. */
   criticalPathIds: string[];
-  /** Human-readable critical path sequence (titles). */
+  /** All critical paths (when multiple parallel paths have equal duration). */
+  criticalPaths: string[][];
+  /** Human-readable primary critical path sequence (titles). */
   criticalPathTitles: string[];
   /** Full results per task. */
   tasks: CpmTaskResult[];
@@ -195,59 +197,77 @@ function topoSort(nodeIds: string[], edges: CpmEdge[]): string[] | null {
 // --------------------------------------------------------------------------
 
 /**
- * Walk backwards from the latest-finishing critical task to the earliest
- * source, collecting the longest critical chain.
+ * Find all critical paths (each path is an ordered array of task IDs from source to sink).
+ * Correctly identifies multiple equal-length critical paths.
  */
-function reconstructCriticalPath(
+function findAllCriticalPaths(
   tasks: CpmTaskResult[],
   edges: CpmEdge[]
-): string[] {
-  const criticalSet = new Set(tasks.filter((t) => t.isCritical).map((t) => t.id));
+): string[][] {
+  const criticalTasks = tasks.filter((t) => t.isCritical);
+  const criticalSet = new Set(criticalTasks.map((t) => t.id));
   if (criticalSet.size === 0) return [];
 
-  // Build predecessor map (only critical-to-critical edges)
-  const pred = new Map<string, string[]>();
-  for (const t of tasks) pred.set(t.id, []);
+  // Single-task project edge case
+  if (tasks.length === 1 && criticalTasks.length === 1) {
+    return [[criticalTasks[0].id]];
+  }
+
+  // Build adjacency for critical edges (only where tgt.earlyStart === src.earlyFinish + 1)
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+  const adj = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+
+  for (const id of criticalSet) {
+    adj.set(id, []);
+    inDegree.set(id, 0);
+  }
+
   for (const e of edges) {
     if (criticalSet.has(e.sourceNodeId) && criticalSet.has(e.targetNodeId)) {
-      const efSource = tasks.find((t) => t.id === e.sourceNodeId)!.earlyFinish;
-      const esTarget = tasks.find((t) => t.id === e.targetNodeId)!.earlyStart;
-      // Only include edges where EF(source) + 1 == ES(target)
-      if (esTarget === efSource + 1) {
-        pred.get(e.targetNodeId)!.push(e.sourceNodeId);
+      const src = taskMap.get(e.sourceNodeId)!;
+      const tgt = taskMap.get(e.targetNodeId)!;
+      if (tgt.earlyStart === src.earlyFinish + 1) {
+        adj.get(e.sourceNodeId)!.push(e.targetNodeId);
+        inDegree.set(e.targetNodeId, (inDegree.get(e.targetNodeId) || 0) + 1);
       }
     }
   }
 
-  // Find sink: critical task with max EF
-  const critTasks = tasks.filter((t) => t.isCritical);
-  const sink = critTasks.reduce((a, b) => (a.earlyFinish >= b.earlyFinish ? a : b));
+  // Critical sources: tasks in criticalSet with in-degree 0 in the critical subgraph
+  const sources = Array.from(criticalSet).filter((id) => inDegree.get(id) === 0);
+  // Critical sinks: tasks in criticalSet with out-degree 0 in the critical subgraph
+  const sinks = new Set(
+    Array.from(criticalSet).filter((id) => (adj.get(id) || []).length === 0)
+  );
 
-  // DFS backwards from sink
-  const path: string[] = [];
-  const visited = new Set<string>();
+  const paths: string[][] = [];
 
-  function dfs(nodeId: string): boolean {
-    if (visited.has(nodeId)) return false;
-    visited.add(nodeId);
-    const preds = pred.get(nodeId) || [];
-    if (preds.length === 0) {
-      path.unshift(nodeId);
-      return true;
+  function dfs(curr: string, currentPath: string[], visited: Set<string>) {
+    if (visited.has(curr)) return;
+    visited.add(curr);
+    const newPath = [...currentPath, curr];
+    const neighbors = adj.get(curr) || [];
+    if (neighbors.length === 0) {
+      if (sinks.has(curr)) {
+        paths.push(newPath);
+      }
+      return;
     }
-    // Choose predecessor with max EF
-    const best = preds.reduce((a, b) => {
-      const ta = tasks.find((t) => t.id === a)!;
-      const tb = tasks.find((t) => t.id === b)!;
-      return ta.earlyFinish >= tb.earlyFinish ? a : b;
-    });
-    dfs(best);
-    path.push(nodeId);
-    return true;
+    for (const next of neighbors) {
+      dfs(next, newPath, new Set(visited));
+    }
   }
 
-  dfs(sink.id);
-  return path;
+  for (const src of sources) {
+    dfs(src, [], new Set());
+  }
+
+  // If DFS produced distinct paths, return them; otherwise fallback to criticalSet topological slice
+  if (paths.length > 0) {
+    return paths;
+  }
+  return criticalTasks.length > 0 ? [criticalTasks.map((t) => t.id)] : [];
 }
 
 // --------------------------------------------------------------------------
@@ -269,13 +289,6 @@ export function calculateCriticalPath(
     return { code: 'EMPTY', message: 'No tasks provided for CPM analysis.' };
   }
 
-  for (const t of tasks) {
-    if (typeof t.durationDays !== 'number' || !Number.isFinite(t.durationDays) || t.durationDays <= 0) {
-      // We clamp to 1, but validate here for explicit error reporting
-      // (we don't return an error — we clamp and continue)
-    }
-  }
-
   // ---- Resolve project start date ----
   const projectStart = parseUTCDate(projectStartDate || new Date().toISOString());
 
@@ -283,10 +296,22 @@ export function calculateCriticalPath(
   const nodeIds = tasks.map((t) => t.id);
   const nodeIdSet = new Set(nodeIds);
 
-  // Filter edges: only those connecting known nodes (ignore orphaned edge refs)
-  const validEdges = edges.filter(
-    (e) => nodeIdSet.has(e.sourceNodeId) && nodeIdSet.has(e.targetNodeId)
-  );
+  // ---- Filter and deduplicate edges ----
+  // 1. Both source and target must exist in tasks
+  // 2. Reject self-dependencies (source !== target)
+  // 3. Exclude non-blocking informational links (kind === 'related')
+  // 4. Deduplicate multiple edges between same source and target
+  const seenEdgePairs = new Set<string>();
+  const validEdges: CpmEdge[] = [];
+  for (const e of edges || []) {
+    if (!nodeIdSet.has(e.sourceNodeId) || !nodeIdSet.has(e.targetNodeId)) continue;
+    if (e.sourceNodeId === e.targetNodeId) continue;
+    if (e.kind === 'related') continue;
+    const pairKey = `${e.sourceNodeId}->${e.targetNodeId}`;
+    if (seenEdgePairs.has(pairKey)) continue;
+    seenEdgePairs.add(pairKey);
+    validEdges.push(e);
+  }
 
   // ---- Topological sort / cycle detection ----
   const order = topoSort(nodeIds, validEdges);
@@ -344,6 +369,8 @@ export function calculateCriticalPath(
   const totalDurationDays = maxEF + 1; // +1 because offsets are 0-indexed inclusive
 
   // ---- LF / LS (backward pass) ----
+  // Terminal sink tasks are evaluated against the common project completion horizon (maxEF),
+  // ensuring shorter independent branches receive positive slack rather than zero slack.
   const lf = new Map<string, number>(); // lateFinish offset
   const ls = new Map<string, number>(); // lateStart offset
 
@@ -364,6 +391,11 @@ export function calculateCriticalPath(
     ls.set(id, lfVal - dur + 1);
   }
 
+  // ---- Connectedness in dependency network ----
+  const hasEdges = validEdges.length > 0;
+  const isConnected = (id: string) =>
+    (predecessors.get(id) || []).length > 0 || (successors.get(id) || []).length > 0;
+
   // ---- Build results ----
   const taskResults: CpmTaskResult[] = tasks.map((t) => {
     const id = t.id;
@@ -372,7 +404,10 @@ export function calculateCriticalPath(
     const lsVal = ls.get(id)!;
     const lfVal = lf.get(id)!;
     const float = lsVal - esVal;
+
+    // A task is critical when it has zero total float under the common project completion horizon.
     const isCritical = float <= FLOAT_TOLERANCE;
+
     const isConstrained =
       !!t.fixedStartDate &&
       daysDiff(projectStart, parseUTCDate(t.fixedStartDate)) > (esVal - (float > 0 ? float : 0));
@@ -386,7 +421,7 @@ export function calculateCriticalPath(
       lateFinish: lfVal,
       totalFloat: float,
       isCritical,
-      isConstrained: !!t.fixedStartDate,
+      isConstrained,
       earlyStartDate: addDaysUTC(projectStart, esVal).toISOString().slice(0, 10),
       earlyFinishDate: addDaysUTC(projectStart, efVal).toISOString().slice(0, 10),
       lateStartDate: addDaysUTC(projectStart, lsVal).toISOString().slice(0, 10),
@@ -409,9 +444,10 @@ export function calculateCriticalPath(
     return { ...e, isCriticalEdge };
   });
 
-  // ---- Critical path sequence ----
-  const criticalPathIds = reconstructCriticalPath(taskResults, validEdges);
-  const criticalPathTitles = criticalPathIds.map(
+  // ---- Critical paths (handles multiple equal-length critical paths) ----
+  const allCriticalPaths = findAllCriticalPaths(taskResults, validEdges);
+  const primaryPath = allCriticalPaths.length > 0 ? allCriticalPaths[0] : (tasks.length === 1 && taskResults[0].isCritical ? [taskResults[0].id] : []);
+  const primaryPathTitles = primaryPath.map(
     (id) => taskResultMap.get(id)?.title || id
   );
 
@@ -430,8 +466,9 @@ export function calculateCriticalPath(
     projectStartDate: projectStart.toISOString().slice(0, 10),
     totalDurationDays,
     projectedFinishDate,
-    criticalPathIds,
-    criticalPathTitles,
+    criticalPathIds: primaryPath,
+    criticalPaths: allCriticalPaths,
+    criticalPathTitles: primaryPathTitles,
     tasks: taskResults,
     edges: edgeResults,
     criticalTaskCount: taskResults.filter((t) => t.isCritical).length,

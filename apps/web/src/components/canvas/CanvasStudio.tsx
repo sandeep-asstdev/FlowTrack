@@ -203,6 +203,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [cpmLoading, setCpmLoading] = useState(false);
   const [cpmError, setCpmError] = useState<string | null>(null);
   const [isCpmPanelOpen, setIsCpmPanelOpen] = useState(false);
+  const [highlightCriticalPath, setHighlightCriticalPath] = useState(false);
 
   // Quick-Add Popup Menu State (n8n signature UX)
   const [quickAddMenu, setQuickAddMenu] = useState<{
@@ -1167,7 +1168,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       assignmentFilter !== 'all' ||
       logicalStatusFilter !== 'all' ||
       dueDateFilter !== 'all' ||
-      teamFilter !== 'all';
+      teamFilter !== 'all' ||
+      highlightCriticalPath;
 
     if (!hasFilter) return nodes;
 
@@ -1235,6 +1237,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         }
       }
 
+      // Highlight Critical Path mode: focus critical path, dim non-critical tasks
+      if (highlightCriticalPath) {
+        matches = matches && Boolean(data.cpm?.isCritical);
+      }
+
       return {
         ...node,
         style: {
@@ -1257,7 +1264,24 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     dueDateFilter,
     teamFilter,
     user?.id,
+    highlightCriticalPath,
   ]);
+
+  // Edges dimmed when focusing critical path to keep canvas calm
+  const displayedEdges = useMemo(() => {
+    if (!highlightCriticalPath) return edges;
+    return edges.map((e) => {
+      const isCrit = (e.data as any)?.isCriticalEdge;
+      return {
+        ...e,
+        style: {
+          ...e.style,
+          opacity: isCrit ? 1 : 0.2,
+          transition: 'opacity 0.2s ease',
+        },
+      };
+    });
+  }, [edges, highlightCriticalPath]);
 
   // Insert a node between two connected nodes (n8n signature feature)
   const handleInsertNodeBetween = async (edgeId: string) => {
@@ -2034,7 +2058,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         ) : (
           <ReactFlow
             nodes={displayedNodes as any}
-            edges={edges}
+            edges={displayedEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesStateChange}
             onConnect={onConnect}
@@ -2578,7 +2602,10 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       {/* Critical Path Analysis Summary Panel */}
       <CriticalPathPanel
         isOpen={isCpmPanelOpen}
-        onClose={() => setIsCpmPanelOpen(false)}
+        onClose={() => {
+          setIsCpmPanelOpen(false);
+          setHighlightCriticalPath(false);
+        }}
         cpmResult={cpmData}
         loading={cpmLoading}
         error={cpmError}
@@ -2591,6 +2618,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           setSelectedNodeId(nodeId);
         }}
         projectDeadline={project.targetDate}
+        isHighlightActive={highlightCriticalPath}
+        onToggleHighlight={() => setHighlightCriticalPath((prev) => !prev)}
       />
     </div>
   );

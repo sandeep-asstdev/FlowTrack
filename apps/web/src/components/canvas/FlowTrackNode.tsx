@@ -30,6 +30,17 @@ import { calculateTimeCountdown } from '../../utils/timeTracker';
 import { useAuthStore } from '../../stores/authStore';
 import { getRolePermissions } from '../../utils/permissions';
 
+const formatShortDate = (dateStr?: string) => {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
+
 export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
   const {
     title,
@@ -147,18 +158,22 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
     return <CheckSquare className="w-4 h-4 text-blue-600" />;
   };
 
-  // Node card border & background styling
+  // Node card border & background styling - clean, professional business card styling
   const borderColourClass = selected
-    ? 'border-blue-500 ring-4 ring-blue-500/20 shadow-xl'
-    : isCritical
-    ? 'border-rose-500 ring-2 ring-rose-500/30 dark:border-rose-500 dark:ring-rose-500/20 shadow-lg shadow-rose-500/10'
+    ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-lg'
+    : isOverdue && !countdown.isDone
+    ? 'border-amber-400 dark:border-amber-600/70 shadow-xs'
+    : (data.isBlocked || statusCategory === 'blocked') && !countdown.isDone
+    ? 'border-rose-400 dark:border-rose-600/70 shadow-xs'
+    : isCritical && !countdown.isDone
+    ? 'border-rose-300 dark:border-rose-600/60 shadow-xs'
     : isMilestoneNode
-    ? 'border-amber-300 dark:border-amber-700/80 hover:border-amber-400'
+    ? 'border-amber-200 dark:border-amber-800/80'
     : isApprovalNode
-    ? 'border-purple-300 dark:border-purple-700/80 hover:border-purple-400'
+    ? 'border-purple-200 dark:border-purple-800/80'
     : isStageNode
-    ? 'border-indigo-300 dark:border-indigo-800 hover:border-indigo-400'
-    : 'border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-slate-700';
+    ? 'border-indigo-200 dark:border-indigo-800'
+    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs';
 
   return (
     <div
@@ -168,7 +183,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         if (isConfidentialHidden) return;
         if (onSelectNode) onSelectNode(id);
       }}
-      className={`w-72 bg-white dark:bg-slate-900 rounded-2xl border-2 transition-all shadow-md relative ${
+      className={`w-72 bg-white dark:bg-slate-900 rounded-xl border transition-all relative ${
         isConfidentialHidden ? 'cursor-not-allowed opacity-95' : 'cursor-pointer'
       } ${borderColourClass}`}
     >
@@ -322,229 +337,183 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         </div>
       )}
 
-      {/* Blocker vs Overdue vs Progress Alerts */}
-      {(data.isBlocked || statusCategory === 'blocked' || waitingCount > 0) && !countdown.isDone ? (
-        <div className="bg-rose-600 text-white text-[10px] font-extrabold px-3 py-1.5 rounded-t-xl flex items-center justify-between uppercase tracking-wider shadow-sm">
-          <span className="flex items-center gap-1.5 min-w-0">
-            <span className="text-xs">🚫</span>
-            <span className="truncate">
-              {Array.isArray((data as any)?.blockingTaskNames) && (data as any).blockingTaskNames.length > 0
-                ? `Blocked by: ${(data as any).blockingTaskNames[0]}`
-                : 'Blocked by Prerequisite'}
-            </span>
+      {/* 1. Subtle Header: Task ID & Compact Status Indicator (left), State Badge / Float (right) */}
+      <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase shrink-0">
+            {customData?.code || `#${id.slice(-4).toUpperCase()}`}
           </span>
-          <span className="px-1.5 py-0.2 bg-white/20 text-white rounded text-[8px] font-black uppercase shrink-0">
-            Blocked
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-300 truncate">
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ backgroundColor: statusColour }}
+            />
+            <span className="truncate">{statusName}</span>
           </span>
         </div>
-      ) : countdown.isOverdue ? (
-        <div className="bg-amber-600 text-white text-[10px] font-extrabold px-3 py-1.5 rounded-t-xl flex items-center justify-between uppercase tracking-wider animate-pulse">
-          <span className="flex items-center gap-1.5 min-w-0">
-            <Clock className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">⚠️ DELAYED: {countdown.formattedText}</span>
+
+        {/* State Badge on the right */}
+        <div className="flex items-center gap-1 shrink-0">
+          {countdown.isDone ? (
+            <span className="inline-flex items-center text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
+              Done
+            </span>
+          ) : data.isBlocked || statusCategory === 'blocked' ? (
+            <span className="inline-flex items-center text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded">
+              Blocked
+            </span>
+          ) : countdown.isOverdue ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+              <Clock className="w-2.5 h-2.5" />
+              Overdue
+            </span>
+          ) : isCritical ? (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50/80 dark:bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-200/60 dark:border-rose-900/40"
+              title="Critical path task (0d float)"
+            >
+              <Zap className="w-2.5 h-2.5 fill-rose-500 text-rose-500" />
+              Critical
+            </span>
+          ) : totalFloat !== undefined && totalFloat > 0 ? (
+            <span
+              className="inline-flex items-center text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded"
+              title={`Schedule flexibility: ${totalFloat} days available float`}
+            >
+              {totalFloat}d float
+            </span>
+          ) : isMilestoneNode ? (
+            <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+              Milestone
+            </span>
+          ) : isStageNode ? (
+            <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded">
+              Phase
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* 2. Task Title as the Most Prominent Text */}
+      <div className="px-3.5 py-1">
+        {isChild && (
+          <div className="text-[10px] font-medium text-purple-600 dark:text-purple-400 flex items-center gap-1 mb-0.5">
+            <CornerDownRight className="w-2.5 h-2.5 shrink-0" />
+            <span className="truncate">Subtask {parentTitle ? `of ${parentTitle}` : ''}</span>
+          </div>
+        )}
+        <h4
+          className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-snug line-clamp-2"
+          title={title}
+        >
+          {title}
+        </h4>
+        {description && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
+            {description}
+          </p>
+        )}
+      </div>
+
+      {/* 3. Approval state only when relevant */}
+      {isApprovalNode && (
+        <div className="mx-3.5 my-1.5 px-2 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900/40 flex items-center justify-between text-[10px]">
+          <span className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+            {approvalStatus === 'approved' ? (
+              <ShieldCheck className="w-3 h-3 text-emerald-500 shrink-0" />
+            ) : approvalStatus === 'rejected' ? (
+              <ShieldX className="w-3 h-3 text-rose-500 shrink-0" />
+            ) : (
+              <ShieldAlert className="w-3 h-3 text-purple-500 shrink-0" />
+            )}
+            {approvalStatus === 'approved'
+              ? 'Sign-Off Granted'
+              : approvalStatus === 'rejected'
+              ? 'Rework Required'
+              : 'Awaiting Approval'}
           </span>
-          {canEdit && (
+          <span className="text-slate-400 dark:text-slate-500 font-mono text-[9px] uppercase">
+            {approvalStatus}
+          </span>
+        </div>
+      )}
+
+      {/* 4. Assignee Displayed Simply with an Avatar and Short Name */}
+      <div className="px-3.5 py-1.5 flex items-center justify-between">
+        {assignedName ? (
+          <div className="flex items-center gap-1.5 min-w-0">
+            {assignedAvatar ? (
+              <img
+                src={assignedAvatar}
+                alt={assignedName}
+                className="w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700"
+              />
+            ) : (
+              <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center text-[9px] font-bold uppercase shrink-0">
+                {assignedName[0]}
+              </div>
+            )}
+            <span
+              className="text-xs text-slate-700 dark:text-slate-300 truncate max-w-[130px]"
+              title={assignedName}
+            >
+              {assignedName}
+            </span>
+            {isLivePresence && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"
+                title="Active now"
+              />
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-slate-400 text-xs italic">
+            <Users className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600" />
+            <span>Unassigned</span>
+          </div>
+        )}
+
+        {/* Indicators on right of assignee row */}
+        <div className="flex items-center gap-1.5 text-slate-400 text-[10px]">
+          {isStageNode && onDrillDown && (
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (onExtendDeadline) onExtendDeadline(id);
-                else if (onViewDetails) onViewDetails(id);
+                onDrillDown({ id, title });
               }}
-              className="px-2 py-0.5 bg-white text-amber-900 hover:bg-amber-50 rounded text-[9px] font-extrabold shadow-sm flex items-center gap-1 transition-colors shrink-0 ml-1.5"
+              className="font-medium text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5"
+              title="Drill down into sub-canvas"
             >
-              <span>Extend</span>
+              <span>{childCount} steps</span>
               <ArrowRight className="w-2.5 h-2.5" />
             </button>
           )}
-        </div>
-      ) : isCritical && !countdown.isDone ? (
-        <div className="bg-gradient-to-r from-rose-600 to-rose-700 text-white text-[10px] font-extrabold px-3 py-1 rounded-t-xl flex items-center justify-between uppercase tracking-wider shadow-sm">
-          <div className="flex items-center gap-1.5 truncate">
-            <Zap className="w-3.5 h-3.5 fill-white shrink-0" />
-            <span className="truncate">Critical Path (0d slack)</span>
-          </div>
-          {cpmDuration ? (
-            <span className="text-[9px] font-black opacity-95 shrink-0 ml-1">
-              {cpmDuration}d
+          {msgCount > 0 && (
+            <span className="flex items-center gap-0.5" title={`${msgCount} comments`}>
+              <MessageSquare className="w-2.5 h-2.5" />
+              {msgCount}
             </span>
-          ) : null}
+          )}
+          {docCount > 0 && (
+            <span className="flex items-center gap-0.5" title={`${docCount} attachments`}>
+              <Paperclip className="w-2.5 h-2.5" />
+              {docCount}
+            </span>
+          )}
+          {likes?.count > 0 && (
+            <span className="flex items-center gap-0.5 text-blue-500" title={`${likes.count} likes`}>
+              <ThumbsUp className="w-2.5 h-2.5 fill-blue-500/20" />
+              {likes.count}
+            </span>
+          )}
         </div>
-      ) : countdown.isTwoDaysAlert ? (
-        <div className="bg-amber-500 text-white text-[10px] font-extrabold px-3 py-1 rounded-t-xl flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
-          <Clock className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">{countdown.formattedText}</span>
-        </div>
-      ) : countdown.isDone ? (
-        <div className="bg-emerald-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-t-xl flex items-center gap-1.5 uppercase tracking-wider">
-          <CheckCircle2 className="w-3 h-3" />
-          <span>✓ Completed</span>
-        </div>
-      ) : null}
-
-      {/* Top Header: Assignee & Type Tag */}
-      <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 bg-slate-50/70 dark:bg-slate-900/60 rounded-t-2xl">
-        {assignedName ? (
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="relative shrink-0">
-              {assignedAvatar ? (
-                <img
-                  src={assignedAvatar}
-                  alt={assignedName}
-                  className="w-6 h-6 rounded-full object-cover ring-2 ring-white dark:ring-slate-800 shadow-xs"
-                />
-              ) : (
-                <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center text-[10px] font-black uppercase ring-2 ring-white dark:ring-slate-800 shadow-xs">
-                  {assignedName[0]}
-                </div>
-              )}
-              <span
-                className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-900 ${
-                  isLivePresence ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
-                }`}
-                title={isLivePresence ? 'Working Live right now' : 'Offline'}
-              />
-            </div>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span
-                className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate max-w-[110px]"
-                title={assignedName}
-              >
-                {assignedName}
-              </span>
-              {isLivePresence ? (
-                <span className="px-1.5 py-0.2 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-0.5 shrink-0">
-                  <span className="w-1 h-1 rounded-full bg-emerald-500 animate-ping" />
-                  Live
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-medium">
-            <div className="w-5 h-5 rounded-full border border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center">
-              <Users className="w-3 h-3 text-slate-400" />
-            </div>
-            <span className="italic">Unassigned</span>
-          </div>
-        )}
-
-        {/* Node Type Pill */}
-        <span
-          className={`text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
-            isMilestoneNode
-              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-              : isApprovalNode
-              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-              : isStageNode
-              ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-          }`}
-        >
-          {typeLabel}
-        </span>
       </div>
 
-      {/* Card Content Body */}
-      <div className="p-3.5">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-              {renderIcon()}
-            </div>
-            <span
-              className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 uppercase tracking-wider truncate"
-              style={{
-                backgroundColor: `${statusColour}15`,
-                color: statusColour,
-              }}
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: statusColour }}
-              />
-              {statusName}
-            </span>
-          </div>
-
-          {/* Right Action buttons */}
-          <div className="flex items-center gap-1">
-            {isStageNode && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onDrillDown) onDrillDown({ id, title });
-                }}
-                className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 dark:bg-purple-950/60 hover:bg-purple-200 text-purple-700 dark:text-purple-300 rounded-md flex items-center gap-1 shadow-sm transition-colors"
-                title="Drill down into sub-canvas"
-              >
-                <Layers className="w-3 h-3" />
-                <span>{childCount} items</span>
-                <ArrowRight className="w-2.5 h-2.5 ml-0.5" />
-              </button>
-            )}
-
-            {/* Direct Delete Button */}
-            {canEdit && onDelete && !isConfidentialHidden && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(id);
-                }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors"
-                title="Delete this task"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Sub-task indicator */}
-        {isChild && (
-          <div className="mb-1 text-[10px] font-semibold text-purple-600 dark:text-purple-400 flex items-center gap-1 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 rounded-md w-fit">
-            <CornerDownRight className="w-3 h-3 shrink-0" />
-            <span className="truncate">Sub-task {parentTitle ? `of ${parentTitle}` : ''}</span>
-          </div>
-        )}
-
-        {/* Title */}
-        <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug line-clamp-2">
-          {title}
-        </h4>
-
-        {description && (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">
-            {description}
-          </p>
-        )}
-
-        {/* Approval Gate Status Banner if approval node */}
-        {isApprovalNode && (
-          <div className="mt-2 p-2 rounded-xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 flex items-center justify-between text-[10px]">
-            <span className="font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              {approvalStatus === 'approved'
-                ? 'Sign-Off Granted'
-                : approvalStatus === 'rejected'
-                ? 'Rework Required'
-                : 'Gate Approval Pending'}
-            </span>
-            <span className="text-slate-400 uppercase font-mono text-[9px]">
-              {approvalStatus}
-            </span>
-          </div>
-        )}
-
-        {/* Progress Bar (Stages & Tasks) */}
-        <div className="mt-2.5">
-          <div className="flex justify-between items-center text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-            <span>{isStageNode ? 'Phase Rollup' : 'Progress'}</span>
-            <span className="font-bold text-slate-800 dark:text-slate-200">{progressPct}%</span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+      {/* 5. One Clear Progress Indicator */}
+      <div className="px-3.5 py-1">
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
                 isMilestoneNode
@@ -553,108 +522,50 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
                   ? 'bg-purple-500'
                   : 'bg-blue-600'
               }`}
-              style={{ width: `${progressPct}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
             />
           </div>
+          <span className="text-[10px] font-mono font-medium text-slate-400 dark:text-slate-500 shrink-0">
+            {progressPct}%
+          </span>
+        </div>
+      </div>
+
+      {/* 6. Compact Footer Showing Duration and Planned Finish Date */}
+      <div className="px-3.5 py-2 mt-1 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {cpmDuration ? (
+            <span className="font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+              {cpmDuration}d
+            </span>
+          ) : null}
+          {cpmDuration && (earlyFinishDate || dueDate) && (
+            <span className="text-slate-300 dark:text-slate-600">&bull;</span>
+          )}
+          {earlyFinishDate ? (
+            <span className="truncate" title={`Planned Finish: ${earlyFinishDate}`}>
+              Fin: {formatShortDate(earlyFinishDate)}
+            </span>
+          ) : dueDate ? (
+            <span className="truncate" title={`Due Date: ${dueDate}`}>
+              Due: {formatShortDate(dueDate)}
+            </span>
+          ) : (
+            <span className="text-slate-400 italic">No target date</span>
+          )}
         </div>
 
-        {/* Latest Remark snippet */}
-        {lastRemark && (
-          <div className="mt-2 p-1.5 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 text-[10px] text-slate-600 dark:text-slate-300 line-clamp-1 flex items-center gap-1">
-            <MessageSquare className="w-2.5 h-2.5 text-blue-500 shrink-0" />
-            <span className="truncate italic">"{lastRemark}"</span>
-          </div>
-        )}
-
-        {/* Badges footer */}
-        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-          <div className="flex items-center gap-2">
-            {/* Kudos Button */}
-            {isManager && canEdit ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onLike) onLike(id);
-                }}
-                className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-600 transition-colors p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
-                title="Manager recognition"
-              >
-                <ThumbsUp
-                  className={`w-3 h-3 ${likes?.count > 0 ? 'text-blue-600 fill-blue-600' : 'text-slate-400'}`}
-                />
-                <span className="font-bold">{likes?.count || 0}</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-1 text-[10px] text-slate-400 p-1">
-                <ThumbsUp
-                  className={`w-3 h-3 ${likes?.count > 0 ? 'text-blue-600 fill-blue-600' : 'text-slate-400'}`}
-                />
-                <span className="font-bold">{likes?.count || 0}</span>
-              </div>
-            )}
-
-            {docCount > 0 && (
-              <span className="flex items-center gap-0.5 text-slate-600 dark:text-slate-300 text-[10px]">
-                <Paperclip className="w-3 h-3" />
-                {docCount}
-              </span>
-            )}
-
-            {msgCount > 0 && (
-              <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400 font-semibold text-[10px]">
-                <MessageSquare className="w-3 h-3" />
-                {msgCount}
-              </span>
-            )}
-
-            {/* Schedule flexibility slack badge */}
-            {totalFloat !== undefined && totalFloat > 0 && !countdown.isDone && (
-              <span
-                className="flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded"
-                title={`Schedule flexibility: ${totalFloat} days total float`}
-              >
-                +{totalFloat}d slack
-              </span>
-            )}
-
-            {/* Calculated CPM Planned Dates */}
-            {earlyStartDate && earlyFinishDate && (
-              <span
-                className="flex items-center gap-0.5 text-slate-500 dark:text-slate-400 text-[10px]"
-                title={`CPM planned dates: ${earlyStartDate} to ${earlyFinishDate}`}
-              >
-                <Calendar className="w-3 h-3 text-rose-500 shrink-0" />
-                {earlyStartDate.slice(5)} &rarr; {earlyFinishDate.slice(5)}
-              </span>
-            )}
-
-            {dueDate && !earlyFinishDate && (
-              <span
-                className="flex items-center gap-0.5 text-slate-500 text-[10px]"
-                title="Target Handover Date"
-              >
-                <Calendar className="w-3 h-3" />
-                {new Date(dueDate).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onViewDetails) onViewDetails(id);
-              else if (onSelectNode) onSelectNode(id);
-            }}
-            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer p-1.5 -mr-1.5 min-h-[36px] flex items-center"
-          >
-            Details &rarr;
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onViewDetails) onViewDetails(id);
+            else if (onSelectNode) onSelectNode(id);
+          }}
+          className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-2 shrink-0"
+        >
+          Details &rarr;
+        </button>
       </div>
     </div>
   );

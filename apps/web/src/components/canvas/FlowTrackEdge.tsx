@@ -36,39 +36,34 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
   const onInsertNode = (data as any)?.onInsert;
   const isCriticalEdge = Boolean((data as any)?.isCriticalEdge);
 
-  // Distinct visual styling based on workflow relationship type:
-  // - Critical path: bold rose-500 line
-  // - 'dependency': Enforced blocking relationship (amber-orange, dashed/solid with lock badge)
-  // - 'sequence': Standard operational progression (blue, solid)
-  // - 'related': Non-blocking informational association (slate, dotted)
+  // Distinct visual styling:
+  // - Default dependency edges: thin (1.5px), neutral (#94a3b8 / #64748b) and easy to follow
+  // - Critical path: restrained accent (#e11d48), slightly greater stroke width (2.5px)
+  // - Selection: bright blue (#2563eb, 3px)
   const isDependency = kind === 'dependency';
   const isRelated = kind === 'related';
 
   const defaultStroke = isCriticalEdge
-    ? '#f43f5e'
+    ? '#e11d48'
     : isDependency
-    ? '#f59e0b'
+    ? '#64748b'
     : isRelated
-    ? '#94a3b8'
-    : '#3b82f6';
+    ? '#cbd5e1'
+    : '#94a3b8';
 
   const strokeColor = selected
     ? '#2563eb'
     : defaultStroke;
 
-  const strokeDasharray = isDependency && !isCriticalEdge
-    ? '6 4'
-    : isRelated
+  const strokeDasharray = isRelated
     ? '3 3'
     : undefined;
 
   const strokeWidth = selected
-    ? 4
-    : isCriticalEdge
-    ? 3.5
-    : isDependency
     ? 3
-    : 2.5;
+    : isCriticalEdge
+    ? 2.5
+    : 1.5;
 
   return (
     <>
@@ -86,7 +81,7 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
           d={edgePath}
           fill="none"
           stroke="#93c5fd"
-          strokeWidth={8}
+          strokeWidth={6}
           strokeOpacity={0.6}
           className="pointer-events-none transition-all duration-150 animate-pulse"
         />
@@ -112,30 +107,9 @@ export const FlowTrackEdge: React.FC<EdgeProps> = ({
           }}
           className="nodrag nopan flex items-center gap-1 group z-10"
         >
-          {/* Critical Path Edge Badge */}
-          {isCriticalEdge && (
-            <span
-              className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-600 text-white flex items-center gap-1 shadow-md shadow-rose-500/30"
-              title="Critical Path: Delay on this dependency directly delays project completion"
-            >
-              <Zap className="w-2.5 h-2.5 fill-white" />
-              Critical
-            </span>
-          )}
-
-          {/* Edge Badge / Type Indicator */}
-          {isDependency && (
-            <span
-              className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 flex items-center gap-1 shadow-sm"
-              title="Enforced Workflow Dependency: Source must complete before target can begin"
-            >
-              <Lock className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
-              {label || 'Blocking Dependency'}
-            </span>
-          )}
-
-          {!isDependency && label && (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm">
+          {/* Custom Edge Label (when specified) */}
+          {label && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-xs">
               {label}
             </span>
           )}

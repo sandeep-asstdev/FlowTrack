@@ -58,6 +58,7 @@ export class CpmService {
         totalDurationDays: 0,
         projectedFinishDate: defaultDate,
         criticalPathIds: [],
+        criticalPaths: [],
         criticalPathTitles: [],
         tasks: [],
         edges: [],

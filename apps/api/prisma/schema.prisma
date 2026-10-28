@@ -33,6 +33,22 @@ enum ChatScope {
   project
 }
 
+enum ConfidentialityLevel {
+  PUBLIC_INTERNAL
+  INTERNAL
+  RESTRICTED
+  CONFIDENTIAL
+  HIGHLY_CONFIDENTIAL
+}
+
+enum RoleScopeType {
+  ORGANIZATION
+  DEPARTMENT
+  TEAM
+  PROJECT
+  TASK
+}
+
 model Workspace {
   id            String       @id @default(uuid())
   name          String
@@ -59,6 +75,10 @@ model Workspace {
   fields        FieldDefinition[]
   notifications Notification[]
   taskApprovals TaskApproval[]
+  departments   Department[]
+  positions     Position[]
+  scopedRoles   ScopedRoleAssignment[]
+  accessGrants  AccessGrant[]
 
   @@map("workspaces")
 }
@@ -73,9 +93,26 @@ model User {
   avatarUrl    String?      @map("avatar_url")
   locale       String       @default("en")
   isActive     Boolean      @default(true) @map("is_active")
+  jobTitle     String?      @map("job_title")
+  departmentId String?      @map("department_id")
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
   deletedAt    DateTime?    @map("deleted_at")
+
+  department         Department?             @relation("DepartmentUsers", fields: [departmentId], references: [id], onDelete: SetNull)
+  managedDepartments Department[]            @relation("DepartmentManager")
+  positions          Position[]              @relation("UserPositions")
+  scopedRoles        ScopedRoleAssignment[]  @relation("UserScopedRoles")
+  grantedRoles       ScopedRoleAssignment[]  @relation("GrantedScopedRoles")
+  accessGrants       AccessGrant[]           @relation("UserAccessGrants")
+  grantedAccess      AccessGrant[]           @relation("GrantedAccessGrants")
+  ownedProjects      Project[]               @relation("ProjectOwner")
+  managedProjects    Project[]               @relation("ProjectManager")
+  leadNodes          Node[]                  @relation("NodeLead")
+  backupForNodes     Node[]                  @relation("NodeBackupReviewer")
+  backupReviewerId   String?                 @map("backup_reviewer_id")
+  backupReviewer     User?                   @relation("BackupApprover", fields: [backupReviewerId], references: [id])
+  backupForUsers     User[]                  @relation("BackupApprover")
 
   memberships  Membership[]
   ownedNodes         Node[]          @relation("NodeOwner")
@@ -95,6 +132,7 @@ model User {
   taskApprovalsSubmitted TaskApproval[]  @relation("ApprovalSubmitter")
 
   @@index([isActive])
+  @@index([departmentId])
   @@map("users")
 }
 
@@ -114,29 +152,43 @@ model Membership {
 }
 
 model Project {
-  id          String       @id @default(uuid())
-  workspaceId String       @map("workspace_id")
-  name        String
-  description String?
-  templateId  String?      @map("template_id")
-  status      String       @default("ACTIVE")
-  settings    Json?        @default("{}")
-  customData  Json?        @default("{}") @map("custom_data")
-  startDate   DateTime?    @map("start_date")
-  targetDate  DateTime?    @map("target_date")
-  version     Int          @default(1)
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
-  deletedAt   DateTime?    @map("deleted_at")
+  id                   String               @id @default(uuid())
+  workspaceId          String               @map("workspace_id")
+  name                 String
+  key                  String?              @map("project_key")
+  description          String?
+  objectives           String?
+  scope                String?
+  deliverables         String?
+  ownerId              String?              @map("owner_id")
+  responsibleManagerId String?              @map("responsible_manager_id")
+  departmentId         String?              @map("department_id")
+  classification       ConfidentialityLevel @default(INTERNAL)
+  accessPolicy         Json?                @default("{}") @map("access_policy")
+  templateId           String?              @map("template_id")
+  status               String               @default("ACTIVE")
+  settings             Json?                @default("{}")
+  customData           Json?                @default("{}") @map("custom_data")
+  startDate            DateTime?            @map("start_date")
+  targetDate           DateTime?            @map("target_date")
+  version              Int                  @default(1)
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  deletedAt            DateTime?            @map("deleted_at")
 
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  nodes       Node[]
-  edges       Edge[]
-  chatThreads ChatThread[]
-  auditLogs   AuditLog[]
-  members     ProjectMember[]
+  workspace            Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner                User?                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  responsibleManager   User?                @relation("ProjectManager", fields: [responsibleManagerId], references: [id], onDelete: SetNull)
+  department           Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  nodes                Node[]
+  edges                Edge[]
+  chatThreads          ChatThread[]
+  auditLogs            AuditLog[]
+  members              ProjectMember[]
 
   @@index([workspaceId])
+  @@index([workspaceId, key])
+  @@index([workspaceId, classification])
   @@map("projects")
 }
 
@@ -255,6 +307,16 @@ model Node {
   allocatedHours Decimal?   @map("allocated_hours") @db.Decimal(8, 2)
   actualHours  Decimal?     @map("actual_hours") @db.Decimal(8, 2)
   currency     String?      @default("USD")
+  path         String?      @map("path")
+  depth        Int          @default(1) @map("depth")
+  isRequired   Boolean      @default(true) @map("is_required")
+  classification ConfidentialityLevel @default(INTERNAL)
+  responsibleLeadId String? @map("responsible_lead_id")
+  acceptanceCriteria String? @map("acceptance_criteria")
+  definitionOfDone String?  @map("definition_of_done")
+  collaboratorIds Json?     @default("[]") @map("collaborator_ids")
+  watcherIds   Json?        @default("[]") @map("watcher_ids")
+  backupReviewerId String?  @map("backup_reviewer_id")
   approvalStatus String?    @default("not_required") @map("approval_status")
   approvedAt   DateTime?    @map("approved_at")
   approvalFeedback String?  @map("approval_feedback")
@@ -276,6 +338,8 @@ model Node {
   team         Team?        @relation("NodeTeam", fields: [teamId], references: [id])
   assignedBy   User?        @relation("NodeAssignedBy", fields: [assignedById], references: [id])
   submitter    User?        @relation("NodeSubmitter", fields: [submitterId], references: [id])
+  responsibleLead User?     @relation("NodeLead", fields: [responsibleLeadId], references: [id], onDelete: SetNull)
+  backupReviewer User?      @relation("NodeBackupReviewer", fields: [backupReviewerId], references: [id], onDelete: SetNull)
 
   sourceEdges  Edge[]       @relation("SourceEdges")
   targetEdges  Edge[]       @relation("TargetEdges")
@@ -285,6 +349,8 @@ model Node {
   approvals    TaskApproval[]
 
   @@index([projectId, parentNodeId])
+  @@index([projectId, path])
+  @@index([workspaceId, classification])
   @@index([ownerId, statusId, dueDate])
   @@index([projectId, isMilestone])
   @@index([reviewerId])
@@ -567,5 +633,86 @@ model TaskApproval {
   @@index([reviewerId])
   @@index([workspaceId, decidedAt])
   @@map("task_approvals")
+}
+
+model Department {
+  id                 String       @id @default(uuid())
+  workspaceId        String       @map("workspace_id")
+  name               String
+  code               String?
+  parentDepartmentId String?      @map("parent_department_id")
+  managerId          String?      @map("manager_id")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  workspace          Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parentDepartment   Department?  @relation("DepartmentHierarchy", fields: [parentDepartmentId], references: [id], onDelete: SetNull)
+  subDepartments     Department[] @relation("DepartmentHierarchy")
+  manager            User?        @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  users              User[]       @relation("DepartmentUsers")
+  positions          Position[]
+  projects           Project[]
+
+  @@unique([workspaceId, name])
+  @@map("departments")
+}
+
+model Position {
+  id                   String       @id @default(uuid())
+  workspaceId          String       @map("workspace_id")
+  departmentId         String?      @map("department_id")
+  title                String
+  reportsToPositionId  String?      @map("reports_to_position_id")
+  userId               String?      @map("user_id")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department           Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  reportsTo            Position?    @relation("PositionReporting", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
+  subordinates         Position[]   @relation("PositionReporting")
+  user                 User?        @relation("UserPositions", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, departmentId])
+  @@map("positions")
+}
+
+model ScopedRoleAssignment {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        String
+  scope       RoleScopeType @default(ORGANIZATION)
+  resourceId  String?       @map("resource_id")
+  grantedById String?       @map("granted_by_id")
+  expiresAt   DateTime?     @map("expires_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation("UserScopedRoles", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy   User?         @relation("GrantedScopedRoles", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, userId, scope, resourceId])
+  @@map("scoped_role_assignments")
+}
+
+model AccessGrant {
+  id           String    @id @default(uuid())
+  workspaceId  String    @map("workspace_id")
+  userId       String    @map("user_id")
+  resourceType String    @map("resource_type") // project | task
+  resourceId   String    @map("resource_id")
+  accessLevel  String    @default("view") @map("access_level") // view | edit
+  validUntil   DateTime? @map("valid_until")
+  revokedAt    DateTime? @map("revoked_at")
+  grantedById  String?   @map("granted_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user         User      @relation("UserAccessGrants", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy    User?     @relation("GrantedAccessGrants", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, userId, resourceType, resourceId])
+  @@map("access_grants")
 }
 

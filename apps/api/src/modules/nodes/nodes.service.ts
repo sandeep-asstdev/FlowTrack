@@ -1,5 +1,7 @@
+import { randomUUID } from 'crypto';
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Optional, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuthorizationService } from '../auth/authorization.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CollaborationGateway } from '../collaboration/collaboration.gateway';
@@ -11,13 +13,17 @@ import {
   ReportBlockerDto,
   RequestDeadlineExtensionDto,
   calculateGroupRollup,
+  calculateGovernanceProgressRollup,
   validateParentAssignment,
+  validateTaskDepth,
+  isConfidentialityStricterOrEqual,
   validateStatusTransition,
   deriveTaskWorkflowState,
   validateCustomData,
   isFieldVisible,
   canApproveTask,
   canAssignTask,
+  GRANULAR_PERMISSIONS,
 } from '@flowtrack/shared';
 import { Priority, Role } from '@prisma/client';
 
@@ -30,6 +36,7 @@ export class NodesService {
     @Optional() private readonly auditService?: AuditService,
     @Optional() private readonly notificationsService?: NotificationsService,
     @Optional() private readonly gateway?: CollaborationGateway,
+    @Optional() private readonly authService?: AuthorizationService,
   ) {}
 
   private async safeNotify(dto: any) {
@@ -172,7 +179,7 @@ export class NodesService {
     });
   }
 
-  async getNode(id: string) {
+  async getNode(id: string, actorId?: string, userRole?: string) {
     const node = await this.prisma.node.findUnique({
       where: { id },
       include: {
@@ -249,6 +256,35 @@ export class NodesService {
 
     if (!node || node.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    // Confidentiality gate: unauthorized users receive 404 (not 403) to hide existence
+    if (this.authService && actorId) {
+      if (
+        node.classification === 'RESTRICTED' ||
+        node.classification === 'CONFIDENTIAL' ||
+        node.classification === 'HIGHLY_CONFIDENTIAL'
+      ) {
+        const isAssociated =
+          node.ownerId === actorId ||
+          node.reviewerId === actorId ||
+          node.responsibleLeadId === actorId ||
+          node.backupReviewerId === actorId ||
+          node.submitterId === actorId ||
+          (Array.isArray(node.collaboratorIds) && (node.collaboratorIds as any[]).includes(actorId)) ||
+          (Array.isArray(node.watcherIds) && (node.watcherIds as any[]).includes(actorId));
+
+        if (!isAssociated) {
+          const evalResult = await this.authService.evaluate(
+            { id: actorId, role: userRole, workspaceId: node.workspaceId },
+            GRANULAR_PERMISSIONS.PROJECT_VIEW,
+            { node, project: { id: node.projectId, classification: node.classification } }
+          );
+          if (!evalResult.allowed) {
+            throw new NotFoundException('Node not found');
+          }
+        }
+      }
     }
 
     // Ensure statusSet with statuses is available for the task controls
@@ -490,15 +526,65 @@ export class NodesService {
       });
     }
 
-    // Validate hierarchy nesting if parentNodeId is supplied
+    // Materialized Path, Max Depth (10), and Confidentiality Inheritance validation
+    const nodeId = randomUUID();
+    let depth = 0;
+    let path = `/${nodeId}`;
+    let nodeClassification = dto.classification;
+
     if (dto.parentNodeId) {
       const allNodes = await this.prisma.node.findMany({
         where: { projectId: dto.projectId, deletedAt: null },
-        select: { id: true, parentNodeId: true },
+        select: { id: true, parentNodeId: true, depth: true, path: true, classification: true },
       });
-      const hierCheck = validateParentAssignment('new_node', dto.parentNodeId, allNodes);
+      const parent = allNodes.find((n) => n.id === dto.parentNodeId);
+      if (!parent) {
+        throw new BadRequestException('Parent node does not exist in this project');
+      }
+
+      const hierCheck = validateParentAssignment(nodeId, dto.parentNodeId, allNodes);
       if (!hierCheck.isValid) {
         throw new BadRequestException(hierCheck.error);
+      }
+
+      const depthCheck = validateTaskDepth(allNodes, nodeId, dto.parentNodeId, 10);
+      if (!depthCheck.isValid) {
+        throw new BadRequestException(depthCheck.error);
+      }
+
+      depth = (parent.depth || 0) + 1;
+      const parentPath = parent.path || `/${parent.id}`;
+      path = `${parentPath}/${nodeId}`;
+
+      // Confidentiality inheritance: child may only become stricter (most restrictive wins)
+      const parentClass = (parent.classification || 'INTERNAL') as any;
+      if (dto.classification) {
+        if (!isConfidentialityStricterOrEqual(dto.classification as any, parentClass)) {
+          throw new BadRequestException(
+            `Child task confidentiality (${dto.classification}) cannot be less restrictive than parent task (${parentClass}).`
+          );
+        }
+        nodeClassification = dto.classification;
+      } else {
+        nodeClassification = parentClass;
+      }
+    } else {
+      depth = 0;
+      path = `/${nodeId}`;
+      if (!nodeClassification) {
+        let project: any = null;
+        if (this.prisma.project?.findUnique) {
+          project = await this.prisma.project.findUnique({
+            where: { id: dto.projectId },
+            select: { classification: true },
+          });
+        } else if (this.prisma.project?.findFirst) {
+          project = await this.prisma.project.findFirst({
+            where: { id: dto.projectId },
+            select: { classification: true },
+          });
+        }
+        nodeClassification = (project?.classification as any) || 'INTERNAL';
       }
     }
 
@@ -550,9 +636,14 @@ export class NodesService {
 
     const created = await this.prisma.node.create({
       data: {
+        id: nodeId,
         workspaceId,
         projectId: dto.projectId,
         parentNodeId: dto.parentNodeId || null,
+        path,
+        depth,
+        isRequired: dto.isRequired !== undefined ? dto.isRequired : true,
+        classification: (nodeClassification as any) || 'INTERNAL',
         nodeTypeId: dto.nodeTypeId,
         statusId,
         title: dto.title,
@@ -565,6 +656,12 @@ export class NodesService {
         assignedById: dto.ownerId && actorId ? actorId : null,
         assignedAt: dto.ownerId ? new Date() : null,
         reviewerId: dto.reviewerId || null,
+        responsibleLeadId: dto.responsibleLeadId || null,
+        backupReviewerId: dto.backupReviewerId || null,
+        collaboratorIds: dto.collaboratorIds || [],
+        watcherIds: dto.watcherIds || [],
+        acceptanceCriteria: dto.acceptanceCriteria || null,
+        definitionOfDone: dto.definitionOfDone || null,
         teamId: dto.teamId || null,
         priority: (dto.priority as Priority) || 'MEDIUM',
         weight: dto.weight || 1.0,
@@ -740,15 +837,77 @@ export class NodesService {
       }
     }
 
-    // Validate hierarchy nesting if parentNodeId is updated
+    // Validate hierarchy nesting, max depth limit (10), and cycles if parentNodeId is updated
+    let updatedPath: string | undefined = undefined;
+    let updatedDepth: number | undefined = undefined;
+
     if (dto.parentNodeId !== undefined && dto.parentNodeId !== existing.parentNodeId) {
       const allNodes = await this.prisma.node.findMany({
         where: { projectId: existing.projectId, deletedAt: null },
-        select: { id: true, parentNodeId: true },
+        select: { id: true, parentNodeId: true, depth: true, path: true, classification: true, title: true },
       });
       const hierCheck = validateParentAssignment(id, dto.parentNodeId, allNodes);
       if (!hierCheck.isValid) {
         throw new BadRequestException(hierCheck.error);
+      }
+
+      if (dto.parentNodeId) {
+        const parent = allNodes.find((n) => n.id === dto.parentNodeId);
+        if (!parent) {
+          throw new BadRequestException('Target parent node not found');
+        }
+
+        const depthCheck = validateTaskDepth(allNodes, id, dto.parentNodeId, 10);
+        if (!depthCheck.isValid) {
+          throw new BadRequestException(depthCheck.error);
+        }
+
+        updatedDepth = (parent.depth || 0) + 1;
+        const parentPath = parent.path || `/${parent.id}`;
+        updatedPath = `${parentPath}/${id}`;
+
+        // Confidentiality check with new parent (child may only be stricter or equal)
+        const parentClass = (parent.classification || 'INTERNAL') as any;
+        const taskClass = (dto.classification || existing.classification || 'INTERNAL') as any;
+        if (!isConfidentialityStricterOrEqual(taskClass, parentClass)) {
+          throw new BadRequestException(
+            `Task confidentiality (${taskClass}) cannot be less restrictive than parent task (${parentClass}).`
+          );
+        }
+      } else {
+        updatedDepth = 0;
+        updatedPath = `/${id}`;
+      }
+
+      // Check max depth of all descendants in subtree
+      const oldPath = existing.path || `/${existing.id}`;
+      const subtreeNodes = await this.prisma.node.findMany({
+        where: {
+          projectId: existing.projectId,
+          path: { startsWith: `${oldPath}/` },
+          deletedAt: null,
+        },
+      });
+
+      const depthDelta = updatedDepth - (existing.depth || 0);
+      for (const desc of subtreeNodes) {
+        if ((desc.depth || 0) + depthDelta > 10) {
+          throw new BadRequestException(
+            `Reparenting would cause descendant "${desc.title}" to exceed max depth 10.`
+          );
+        }
+      }
+
+      // Update descendant paths and depths
+      for (const desc of subtreeNodes) {
+        const updatedDescPath = desc.path.replace(oldPath, updatedPath);
+        await this.prisma.node.update({
+          where: { id: desc.id },
+          data: {
+            path: updatedDescPath,
+            depth: (desc.depth || 0) + depthDelta,
+          },
+        });
       }
     }
 
@@ -904,6 +1063,16 @@ export class NodesService {
         ...(dto.title !== undefined && { title: dto.title }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.parentNodeId !== undefined && { parentNodeId: dto.parentNodeId }),
+        ...(updatedPath !== undefined && { path: updatedPath }),
+        ...(updatedDepth !== undefined && { depth: updatedDepth }),
+        ...(dto.isRequired !== undefined && { isRequired: dto.isRequired }),
+        ...(dto.classification !== undefined && { classification: dto.classification as any }),
+        ...(dto.responsibleLeadId !== undefined && { responsibleLeadId: dto.responsibleLeadId }),
+        ...(dto.backupReviewerId !== undefined && { backupReviewerId: dto.backupReviewerId }),
+        ...(dto.collaboratorIds !== undefined && { collaboratorIds: dto.collaboratorIds }),
+        ...(dto.watcherIds !== undefined && { watcherIds: dto.watcherIds }),
+        ...(dto.acceptanceCriteria !== undefined && { acceptanceCriteria: dto.acceptanceCriteria }),
+        ...(dto.definitionOfDone !== undefined && { definitionOfDone: dto.definitionOfDone }),
         ...(dto.statusId !== undefined && { statusId: dto.statusId }),
         ...(dto.ownerId !== undefined && {
           ownerId: dto.ownerId,
@@ -1386,20 +1555,20 @@ export class NodesService {
 
     if (!parent || parent.deletedAt) return;
 
-    const rollup = calculateGroupRollup(
+    const rollup = calculateGovernanceProgressRollup(
       parent.children.map((c) => ({
         id: c.id,
-        progressPct: c.progressPct,
-        weight: c.weight,
+        progressPct: c.progressPct || 0,
+        weight: c.weight || 1.0,
+        isRequired: c.isRequired !== false,
         statusCategory: c.status?.category || 'active',
-        dueDate: c.dueDate,
       }))
     );
 
     await this.prisma.node.update({
       where: { id: parentId },
       data: {
-        progressPct: rollup.progressPct,
+        progressPct: rollup,
       },
     });
 

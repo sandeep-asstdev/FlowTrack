@@ -1,17 +1,44 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateProjectDto, UpdateProjectDto, validateCustomData } from '@flowtrack/shared';
+import { AuthorizationService } from '../auth/authorization.service';
+import { CreateProjectDto, UpdateProjectDto, validateCustomData, GRANULAR_PERMISSIONS } from '@flowtrack/shared';
 import { Role } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly authService?: AuthorizationService
+  ) {}
 
-  async listWorkspaceProjects(workspaceId: string) {
+  private async generateUniqueProjectKey(workspaceId: string, name: string): Promise<string> {
+    const base = (name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4) || 'PRJ').toUpperCase();
+    for (let i = 0; i < 10; i++) {
+      const suffix = Math.floor(100 + Math.random() * 900);
+      const candidate = `${base}-${suffix}`;
+      const exists = await this.prisma.project.findFirst({
+        where: { workspaceId, key: candidate, deletedAt: null },
+      });
+      if (!exists) return candidate;
+    }
+    return `${base}-${Date.now().toString().slice(-4)}`;
+  }
+
+  async listWorkspaceProjects(workspaceId: string, user?: { id?: string; role?: string }) {
+    let visibilityFilter: any = {};
+    if (this.authService && user?.id) {
+      visibilityFilter = await this.authService.getProjectVisibilityFilter({
+        id: user.id,
+        role: user.role,
+        workspaceId,
+      });
+    }
+
     const projects = await this.prisma.project.findMany({
       where: {
         workspaceId,
         deletedAt: null,
+        ...visibilityFilter,
       },
       include: {
         _count: {
@@ -77,17 +104,37 @@ export class ProjectsService {
     return results;
   }
 
-  async getProject(projectId: string, workspaceId: string) {
+  async getProject(projectId: string, workspaceId: string, user?: { id?: string; role?: string }) {
     const project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
         workspaceId,
         deletedAt: null,
       },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+        responsibleManager: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+        department: { select: { id: true, name: true, code: true } },
+      },
     });
 
     if (!project) {
       throw new NotFoundException('Project not found');
+    }
+
+    // Shared visibility filter / confidential authorization: return 404 if unauthorized
+    if (this.authService && user?.id) {
+      const evalResult = await this.authService.evaluate(
+        { id: user.id, role: user.role, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_VIEW,
+        { project }
+      );
+      if (!evalResult.allowed) {
+        if (evalResult.statusCode === 404) {
+          throw new NotFoundException('Project not found');
+        }
+        throw new ForbiddenException(evalResult.reason);
+      }
     }
 
     const customFields = await this.prisma.fieldDefinition.findMany({
@@ -105,7 +152,33 @@ export class ProjectsService {
     };
   }
 
-  async createProject(workspaceId: string, dto: CreateProjectDto, actorId?: string) {
+  async createProject(
+    workspaceId: string,
+    dto: CreateProjectDto,
+    actorId?: string,
+    userRole?: string
+  ) {
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, role: userRole, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_CREATE,
+        { workspaceId }
+      );
+    }
+
+    // Validate or auto-generate unique project key
+    let projectKey = dto.key?.toUpperCase();
+    if (projectKey) {
+      const existingKey = await this.prisma.project.findFirst({
+        where: { workspaceId, key: projectKey, deletedAt: null },
+      });
+      if (existingKey) {
+        throw new ConflictException(`Project key "${projectKey}" is already in use in this organization.`);
+      }
+    } else {
+      projectKey = await this.generateUniqueProjectKey(workspaceId, dto.name);
+    }
+
     let customData = dto.customData || {};
     const projectFields = await this.prisma.fieldDefinition.findMany({
       where: { workspaceId, targetType: 'project', isActive: true },
@@ -126,7 +199,16 @@ export class ProjectsService {
       data: {
         workspaceId,
         name: dto.name,
+        key: projectKey,
         description: dto.description,
+        objectives: dto.objectives || null,
+        scope: dto.scope || null,
+        deliverables: dto.deliverables || null,
+        ownerId: dto.ownerId || actorId || null,
+        responsibleManagerId: dto.responsibleManagerId || null,
+        departmentId: dto.departmentId || null,
+        classification: (dto.classification as any) || 'INTERNAL',
+        accessPolicy: (dto.accessPolicy || {}) as any,
         templateId: dto.templateId,
         startDate: dto.startDate ? new Date(dto.startDate) : null,
         targetDate: dto.targetDate ? new Date(dto.targetDate) : null,
@@ -136,22 +218,56 @@ export class ProjectsService {
     });
   }
 
-  async updateProject(projectId: string, workspaceId: string, dto: UpdateProjectDto, actorId?: string) {
-    const existing = await this.getProject(projectId, workspaceId);
+  async updateProject(
+    projectId: string,
+    workspaceId: string,
+    dto: UpdateProjectDto,
+    actorId?: string,
+    userRole?: string
+  ) {
+    const existing = await this.getProject(
+      projectId,
+      workspaceId,
+      actorId ? { id: actorId, role: userRole } : undefined
+    );
+
+    if (this.authService && actorId) {
+      const requiredPerm =
+        dto.classification !== undefined && dto.classification !== existing.classification
+          ? GRANULAR_PERMISSIONS.CONFIDENTIALITY_CHANGE
+          : GRANULAR_PERMISSIONS.PROJECT_EDIT;
+
+      await this.authService.enforce(
+        { id: actorId, role: userRole, workspaceId },
+        requiredPerm,
+        { project: existing }
+      );
+    }
 
     // Optimistic locking check if version was sent
     if (dto.version !== undefined && existing.version !== dto.version) {
       throw new ConflictException('Project was modified by another user. Please refresh and retry.');
     }
 
+    // Key uniqueness check if key is being updated
+    if (dto.key && dto.key.toUpperCase() !== existing.key) {
+      const newKey = dto.key.toUpperCase();
+      const duplicate = await this.prisma.project.findFirst({
+        where: { workspaceId, key: newKey, id: { not: projectId }, deletedAt: null },
+      });
+      if (duplicate) {
+        throw new ConflictException(`Project key "${newKey}" is already in use in this organization.`);
+      }
+    }
+
     let sanitizedCustomData: any = undefined;
     if (dto.customData !== undefined) {
-      let userRole: string | undefined = undefined;
-      if (actorId) {
+      let roleToCheck = userRole;
+      if (!roleToCheck && actorId) {
         const membership = await this.prisma.membership.findUnique({
           where: { workspaceId_userId: { workspaceId, userId: actorId } },
         });
-        userRole = membership?.role;
+        roleToCheck = membership?.role;
       }
 
       const projectFields = await this.prisma.fieldDefinition.findMany({
@@ -160,7 +276,7 @@ export class ProjectsService {
 
       const merged = { ...((existing.customData as any) || {}), ...dto.customData };
       const valResult = validateCustomData(projectFields as any, merged, {
-        userRole,
+        userRole: roleToCheck,
         existingData: (existing.customData as any) || {},
       });
 
@@ -177,7 +293,16 @@ export class ProjectsService {
       where: { id: projectId },
       data: {
         ...(dto.name && { name: dto.name }),
+        ...(dto.key && { key: dto.key.toUpperCase() }),
         ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.objectives !== undefined && { objectives: dto.objectives }),
+        ...(dto.scope !== undefined && { scope: dto.scope }),
+        ...(dto.deliverables !== undefined && { deliverables: dto.deliverables }),
+        ...(dto.ownerId !== undefined && { ownerId: dto.ownerId }),
+        ...(dto.responsibleManagerId !== undefined && { responsibleManagerId: dto.responsibleManagerId }),
+        ...(dto.departmentId !== undefined && { departmentId: dto.departmentId }),
+        ...(dto.classification !== undefined && { classification: dto.classification as any }),
+        ...(dto.accessPolicy !== undefined && { accessPolicy: dto.accessPolicy as any }),
         ...(dto.startDate !== undefined && { startDate: dto.startDate ? new Date(dto.startDate) : null }),
         ...(dto.targetDate !== undefined && { targetDate: dto.targetDate ? new Date(dto.targetDate) : null }),
         ...(dto.settings && { settings: dto.settings as any }),
@@ -187,8 +312,21 @@ export class ProjectsService {
     });
   }
 
-  async deleteProject(projectId: string, workspaceId: string) {
-    await this.getProject(projectId, workspaceId);
+  async deleteProject(projectId: string, workspaceId: string, actorId?: string, userRole?: string) {
+    const existing = await this.getProject(
+      projectId,
+      workspaceId,
+      actorId ? { id: actorId, role: userRole } : undefined
+    );
+
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, role: userRole, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_DELETE,
+        { project: existing }
+      );
+    }
+
     return this.prisma.project.update({
       where: { id: projectId },
       data: { deletedAt: new Date() },

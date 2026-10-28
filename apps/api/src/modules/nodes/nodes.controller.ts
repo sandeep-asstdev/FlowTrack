@@ -75,8 +75,8 @@ export class NodesController {
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.nodesService.getNode(id);
+  get(@Req() req: any, @Param('id') id: string) {
+    return this.nodesService.getNode(id, req.user?.id, req.user?.role);
   }
 
   @Post()

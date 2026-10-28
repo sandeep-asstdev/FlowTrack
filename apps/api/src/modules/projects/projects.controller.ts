@@ -35,7 +35,7 @@ export class ProjectsController {
   @Get()
   list(@Req() req: any, @Headers('x-workspace-id') headerWsId?: string) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.projectsService.listWorkspaceProjects(wsId);
+    return this.projectsService.listWorkspaceProjects(wsId, req.user);
   }
 
   @Post()
@@ -46,7 +46,7 @@ export class ProjectsController {
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
     const actorId = req.user?.id || req.user?.sub;
-    return this.projectsService.createProject(wsId, dto, actorId);
+    return this.projectsService.createProject(wsId, dto, actorId, req.user?.role);
   }
 
   @Get(':id')
@@ -56,7 +56,7 @@ export class ProjectsController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.projectsService.getProject(id, wsId);
+    return this.projectsService.getProject(id, wsId, req.user);
   }
 
   @Get(':id/critical-path')
@@ -78,7 +78,7 @@ export class ProjectsController {
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
     const actorId = req.user?.id || req.user?.sub;
-    return this.projectsService.updateProject(id, wsId, dto, actorId);
+    return this.projectsService.updateProject(id, wsId, dto, actorId, req.user?.role);
   }
 
   @Delete(':id')
@@ -88,7 +88,8 @@ export class ProjectsController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.projectsService.deleteProject(id, wsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.deleteProject(id, wsId, actorId, req.user?.role);
   }
 
   @Post(':id/clone')

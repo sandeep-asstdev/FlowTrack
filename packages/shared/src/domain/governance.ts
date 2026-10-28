@@ -71,6 +71,14 @@ export const CONFIDENTIALITY_LEVELS = {
 
 export type ConfidentialityLevel = (typeof CONFIDENTIALITY_LEVELS)[keyof typeof CONFIDENTIALITY_LEVELS];
 
+export const confidentialityLevelSchema = z.enum([
+  'PUBLIC_INTERNAL',
+  'INTERNAL',
+  'RESTRICTED',
+  'CONFIDENTIAL',
+  'HIGHLY_CONFIDENTIAL',
+]);
+
 export const CONFIDENTIALITY_RANK: Record<ConfidentialityLevel, number> = {
   PUBLIC_INTERNAL: 1,
   INTERNAL: 2,
@@ -108,8 +116,11 @@ export interface OrgHierarchyValidationResult {
  */
 export function validateHierarchyCycle(
   existingNodes: HierarchyNode[],
-  proposed: { id: string; parentId: string | null }
+  arg2: { id: string; parentId: string | null } | string,
+  arg3?: string | null
 ): OrgHierarchyValidationResult {
+  const proposed = typeof arg2 === 'string' ? { id: arg2, parentId: arg3 ?? null } : arg2;
+
   // Self-parenting is immediately invalid
   if (proposed.parentId && proposed.id === proposed.parentId) {
     return {
@@ -168,11 +179,40 @@ export interface TaskDepthValidationResult {
 }
 
 export function validateTaskDepth(
-  taskId: string,
-  parent: { id: string; depth: number; path: string } | null,
-  maxDepth: number = DEFAULT_MAX_TASK_DEPTH
+  arg1: string | any[],
+  arg2: any,
+  arg3?: any,
+  arg4?: number
 ): TaskDepthValidationResult {
-  if (!parent) {
+  let taskId: string;
+  let parentObj: { id: string; depth?: number; path?: string } | null = null;
+  let maxDepth: number = DEFAULT_MAX_TASK_DEPTH;
+
+  if (Array.isArray(arg1)) {
+    // Called as: validateTaskDepth(allNodes, taskId, parentId, maxDepth)
+    const allNodes = arg1;
+    taskId = arg2 as string;
+    const parentId = (arg3 as string | null) || null;
+    maxDepth = typeof arg4 === 'number' ? arg4 : DEFAULT_MAX_TASK_DEPTH;
+
+    if (parentId) {
+      const p = allNodes.find((n: any) => n.id === parentId);
+      if (p) {
+        parentObj = {
+          id: p.id,
+          depth: typeof p.depth === 'number' ? p.depth : 0,
+          path: p.path || `/${p.id}`,
+        };
+      }
+    }
+  } else {
+    // Called as: validateTaskDepth(taskId, parentObj, maxDepth)
+    taskId = arg1;
+    parentObj = arg2;
+    maxDepth = typeof arg3 === 'number' ? arg3 : DEFAULT_MAX_TASK_DEPTH;
+  }
+
+  if (!parentObj) {
     return {
       isValid: true,
       depth: 1,
@@ -180,12 +220,16 @@ export function validateTaskDepth(
     };
   }
 
-  const newDepth = parent.depth + 1;
+  const parentDepth = typeof parentObj.depth === 'number' ? parentObj.depth : 0;
+  const newDepth = parentDepth + 1;
+  const parentPath = parentObj.path || `/${parentObj.id}`;
+  const computedPath = `${parentPath}/${taskId}`;
+
   if (newDepth > maxDepth) {
     return {
       isValid: false,
       depth: newDepth,
-      path: `${parent.path}/${taskId}`,
+      path: computedPath,
       error: `Maximum task nesting depth exceeded. Current depth: ${newDepth}, allowed limit: ${maxDepth}.`,
     };
   }
@@ -193,7 +237,7 @@ export function validateTaskDepth(
   return {
     isValid: true,
     depth: newDepth,
-    path: `${parent.path}/${taskId}`,
+    path: computedPath,
   };
 }
 

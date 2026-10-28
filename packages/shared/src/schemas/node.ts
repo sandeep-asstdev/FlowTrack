@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { confidentialityLevelSchema } from '../domain/governance.js';
 
 // Robust ISO datetime schema accepting Date objects, valid date strings, empty strings, and null
 const isoDateTimeSchema = z.preprocess((val) => {
@@ -23,6 +24,16 @@ export const createNodeSchema = z.object({
   height: z.number().optional().default(160),
   ownerId: z.string().uuid().nullable().optional(),
   reviewerId: z.string().uuid().nullable().optional(),
+  responsibleLeadId: z.string().uuid().nullable().optional(),
+  backupReviewerId: z.string().uuid().nullable().optional(),
+  collaboratorIds: z.array(z.string().uuid()).default([]),
+  watcherIds: z.array(z.string().uuid()).default([]),
+  isRequired: z.boolean().default(true),
+  classification: confidentialityLevelSchema.optional(),
+  acceptanceCriteria: z.string().optional(),
+  definitionOfDone: z.string().optional(),
+  path: z.string().optional(),
+  depth: z.number().int().default(0),
   teamId: z.string().uuid().nullable().optional(),
   assignedById: z.string().uuid().nullable().optional(),
   assignedAt: isoDateTimeSchema,

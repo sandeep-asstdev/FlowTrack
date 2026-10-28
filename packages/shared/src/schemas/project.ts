@@ -4,6 +4,7 @@ import {
   PROJECT_METHODOLOGIES,
   DATE_FORMATS,
 } from '../constants/industry.js';
+import { confidentialityLevelSchema } from '../domain/governance.js';
 
 export const projectSettingsSchema = z.object({
   industry: z.enum(UNIVERSAL_INDUSTRIES).default('general'),
@@ -56,7 +57,16 @@ export type ProjectSettingsDto = z.infer<typeof projectSettingsSchema>;
 
 export const createProjectSchema = z.object({
   name: z.string().min(2, 'Project name must be at least 2 characters'),
+  key: z.string().min(2).max(16).regex(/^[A-Z0-9_-]+$/i, 'Key must be alphanumeric').optional(),
   description: z.string().optional(),
+  objectives: z.string().optional(),
+  scope: z.string().optional(),
+  deliverables: z.string().optional(),
+  ownerId: z.string().uuid().nullable().optional(),
+  responsibleManagerId: z.string().uuid().nullable().optional(),
+  departmentId: z.string().uuid().nullable().optional(),
+  classification: confidentialityLevelSchema.default('INTERNAL'),
+  accessPolicy: z.record(z.any()).optional(),
   templateId: z.string().uuid().optional(),
   startDate: z.string().datetime().optional(),
   targetDate: z.string().datetime().optional(),

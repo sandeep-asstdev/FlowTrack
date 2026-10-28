@@ -17,12 +17,14 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { HealthModule } from './modules/health/health.module';
 import { TeamsModule } from './modules/teams/teams.module';
+import { OrganizationModule } from './modules/organization/organization.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuthModule,
+    OrganizationModule,
     WorkspacesModule,
     ProjectsModule,
     TeamsModule,

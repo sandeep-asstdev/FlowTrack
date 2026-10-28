@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { getRolePermissions } from '../../utils/permissions';
-import { FieldConfigurationModal } from '../custom-fields/FieldConfigurationModal';
 
 interface ProjectListProps {
   projects: any[];
@@ -36,7 +35,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   const userRole = useAuthStore((s) => s.getActiveRole());
   const permissions = getRolePermissions(userRole);
-  const [isFieldConfigOpen, setIsFieldConfigOpen] = useState(false);
 
   const totalOverdue = projects.reduce((acc, p) => acc + (p.metrics?.overdueNodes || 0), 0);
   const totalWaiting = projects.reduce((acc, p) => acc + (p.metrics?.waitingNodes || 0), 0);
@@ -65,18 +63,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(userRole) && (
-            <button
-              id="dashboard-custom-fields-btn"
-              onClick={() => setIsFieldConfigOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all border border-slate-200 dark:border-slate-700"
-              title="Configure custom fields and domain properties"
-            >
-              <Sliders className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Custom Fields</span>
-            </button>
-          )}
-
           {permissions.canCreateProject && (
             <button
               id="dashboard-new-project-btn"
@@ -235,13 +221,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           })}
         </div>
       )}
-
-      {/* Field Configuration Modal */}
-      <FieldConfigurationModal
-        isOpen={isFieldConfigOpen}
-        onClose={() => setIsFieldConfigOpen(false)}
-        userRole={userRole}
-      />
     </div>
   );
 };

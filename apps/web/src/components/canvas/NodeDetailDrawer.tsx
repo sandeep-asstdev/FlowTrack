@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
-import { DynamicCustomFieldsForm } from '../custom-fields/DynamicCustomFieldsForm';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
 import { canApproveTask } from '@flowtrack/shared';
 import {
@@ -1348,32 +1347,6 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                       className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                     />
                   </div>
-
-                  {/* Dynamic Custom Fields */}
-                  {((node.applicableFields && node.applicableFields.length > 0) ||
-                    (node.nodeType?.fields && node.nodeType.fields.length > 0)) && (
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                        Custom Properties
-                      </span>
-                      <DynamicCustomFieldsForm
-                        fields={node.applicableFields || node.nodeType?.fields || []}
-                        values={customData}
-                        onChange={(newCustom) => {
-                          setCustomData(newCustom);
-                          saveNodeUpdates({ customData: newCustom });
-                        }}
-                        currentUserRole={currentRole}
-                        isReadOnly={!permissions.canEditProject}
-                        members={workspaceMembers.map((m: any) => ({
-                          id: m.userId || m.user?.id || m.id,
-                          name: m.user?.fullName || m.user?.email || 'Member',
-                          email: m.user?.email,
-                          role: m.role,
-                        }))}
-                      />
-                    </div>
-                  )}
 
                   {/* Danger Zone: Delete Task */}
                   {onDeleteNode && permissions.canEditProject && (

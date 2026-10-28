@@ -26,7 +26,6 @@ import { ProjectReportModal } from './ProjectReportModal';
 import { ProjectTeamModal } from './ProjectTeamModal';
 import { ProjectActivityModal } from './ProjectActivityModal';
 import { CriticalPathPanel } from './CriticalPathPanel';
-import { FieldConfigurationModal } from '../custom-fields/FieldConfigurationModal';
 import { ApiClient } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { getLayoutedElements } from '../../utils/layout';
@@ -199,7 +198,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   // Project Report & Team Modals
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
-  const [isFieldConfigModalOpen, setIsFieldConfigModalOpen] = useState(false);
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
   // Critical Path Method (CPM) Analysis State
   const [cpmData, setCpmData] = useState<CpmResult | null>(null);
@@ -2661,14 +2659,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         onClose={() => setIsTeamModalOpen(false)}
         workspaceId={project.workspaceId}
         projectName={project.name}
-      />
-
-      {/* Field Configuration & Dynamic Form Schema Builder Modal */}
-      <FieldConfigurationModal
-        isOpen={isFieldConfigModalOpen}
-        onClose={() => setIsFieldConfigModalOpen(false)}
-        onFieldsChanged={loadGraph}
-        userRole={currentRole}
       />
 
       {/* Project Activity Stream & Audit Trail Modal */}

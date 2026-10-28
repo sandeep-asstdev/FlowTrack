@@ -310,6 +310,49 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  // Plain English Status & Options (Must be declared before any early return)
+  const statusOptions = useMemo(() => {
+    // 1. Direct from node's own nodeType if populated
+    const direct = node?.nodeType?.statusSet?.statuses;
+    if (Array.isArray(direct) && direct.length > 0) {
+      return direct;
+    }
+
+    // 2. From activeNodeTypesList matching this node's nodeTypeId or key
+    const matchedType = activeNodeTypesList.find(
+      (t) => t.id === node?.nodeTypeId || t.key === node?.nodeType?.key
+    );
+    const fromMatched = matchedType?.statusSet?.statuses;
+    if (Array.isArray(fromMatched) && fromMatched.length > 0) {
+      return fromMatched;
+    }
+
+    // 3. From any available NodeType that has statuses (they usually share the default status set)
+    for (const t of activeNodeTypesList) {
+      if (t.statusSet?.statuses?.length) {
+        return t.statusSet.statuses;
+      }
+    }
+
+    // 4. Current status fallback if present
+    if (node?.status && node.status.id) {
+      return [
+        node.status,
+        { id: 'not_started', name: 'Not Started', labelI18n: { en: 'Not Started' }, category: 'not_started', colour: '#94a3b8' },
+        { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' }, category: 'active', colour: '#3b82f6' },
+        { id: 'waiting', name: 'Waiting', labelI18n: { en: 'Waiting' }, category: 'blocked', colour: '#f59e0b' },
+        { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
+      ].filter((v, i, a) => a.findIndex((t) => t.id === v.id) === i);
+    }
+
+    return [
+      { id: 'not_started', name: 'Not Started', labelI18n: { en: 'Not Started' }, category: 'not_started', colour: '#94a3b8' },
+      { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' }, category: 'active', colour: '#3b82f6' },
+      { id: 'waiting', name: 'Waiting', labelI18n: { en: 'Waiting' }, category: 'blocked', colour: '#f59e0b' },
+      { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
+    ];
+  }, [node, activeNodeTypesList]);
+
   if (!nodeId || !node) return null;
 
   // Confidential Security Guard
@@ -362,47 +405,6 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   // Plain English Status & Countdown
   const countdown = calculateTimeCountdown(dueDate, node.status?.category);
-  const statusOptions = useMemo(() => {
-    // 1. Direct from node's own nodeType if populated
-    const direct = node?.nodeType?.statusSet?.statuses;
-    if (Array.isArray(direct) && direct.length > 0) {
-      return direct;
-    }
-
-    // 2. From activeNodeTypesList matching this node's nodeTypeId or key
-    const matchedType = activeNodeTypesList.find(
-      (t) => t.id === node?.nodeTypeId || t.key === node?.nodeType?.key
-    );
-    const fromMatched = matchedType?.statusSet?.statuses;
-    if (Array.isArray(fromMatched) && fromMatched.length > 0) {
-      return fromMatched;
-    }
-
-    // 3. From any available NodeType that has statuses (they usually share the default status set)
-    for (const t of activeNodeTypesList) {
-      if (t.statusSet?.statuses?.length) {
-        return t.statusSet.statuses;
-      }
-    }
-
-    // 4. Current status fallback if present
-    if (node?.status && node.status.id) {
-      return [
-        node.status,
-        { id: 'not_started', name: 'Not Started', labelI18n: { en: 'Not Started' }, category: 'not_started', colour: '#94a3b8' },
-        { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' }, category: 'active', colour: '#3b82f6' },
-        { id: 'waiting', name: 'Waiting', labelI18n: { en: 'Waiting' }, category: 'blocked', colour: '#f59e0b' },
-        { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
-      ].filter((v, i, a) => a.findIndex((t) => t.id === v.id) === i);
-    }
-
-    return [
-      { id: 'not_started', name: 'Not Started', labelI18n: { en: 'Not Started' }, category: 'not_started', colour: '#94a3b8' },
-      { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' }, category: 'active', colour: '#3b82f6' },
-      { id: 'waiting', name: 'Waiting', labelI18n: { en: 'Waiting' }, category: 'blocked', colour: '#f59e0b' },
-      { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
-    ];
-  }, [node, activeNodeTypesList]);
 
   // Approval authorization verification (Platform Admin cannot approve, self-approval forbidden)
   const approvalAuth = canApproveTask({

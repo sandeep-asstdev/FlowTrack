@@ -32,7 +32,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [gisReady, setGisReady] = useState(false);
-  const hiddenButtonRef = useRef<HTMLDivElement>(null);
+  const googleButtonContainerRef = useRef<HTMLDivElement>(null);
   const clientId =
     (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID ||
     '954853707879-khbiv8su3of67ih08vfflpj2vanqbj2j.apps.googleusercontent.com';
@@ -70,17 +70,41 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     [onSuccess, onError]
   );
 
-  useEffect(() => {
-    let isMounted = true;
-
-    // Only initialize Google Identity Services if a real, non-placeholder Client ID is configured.
-    // Suppresses Google's 403 "The given client ID is not found" network error in development.
-    if (isPlaceholderClientId(clientId)) {
-      setGisReady(true);
+  const renderGoogleButton = useCallback(() => {
+    if (!googleButtonContainerRef.current || !window.google?.accounts?.id || !clientId) {
       return;
     }
 
-    const checkGis = () => {
+    try {
+      const isDark = document.documentElement.classList.contains('dark');
+      const containerWidth = googleButtonContainerRef.current.parentElement?.clientWidth || 360;
+      const targetWidth = Math.min(380, Math.max(240, containerWidth - 4));
+
+      googleButtonContainerRef.current.innerHTML = '';
+      window.google.accounts.id.renderButton(googleButtonContainerRef.current, {
+        type: 'standard',
+        theme: isDark ? 'filled_black' : 'outline',
+        size: 'large',
+        text: mode === 'register' ? 'signup_with' : 'continue_with',
+        shape: 'rectangular',
+        logo_alignment: 'left',
+        width: targetWidth,
+      });
+      setGisReady(true);
+    } catch (err) {
+      console.warn('Failed to render Google Identity Services button:', err);
+    }
+  }, [clientId, mode]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (isPlaceholderClientId(clientId)) {
+      setGisReady(false);
+      return;
+    }
+
+    const initGis = () => {
       if (window.google?.accounts?.id && clientId) {
         if (!isMounted) return;
         try {
@@ -89,20 +113,10 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
             callback: handleCredentialResponse,
             auto_select: false,
             cancel_on_tap_outside: true,
+            use_fedcm_for_prompt: true, // FedCM opt-in to eliminate migration warning
           });
 
-          // Render hidden Google button for programmatic click trigger
-          if (hiddenButtonRef.current) {
-            hiddenButtonRef.current.innerHTML = '';
-            window.google.accounts.id.renderButton(hiddenButtonRef.current, {
-              type: 'standard',
-              theme: 'outline',
-              size: 'large',
-              width: 380,
-            });
-          }
-
-          setGisReady(true);
+          renderGoogleButton();
         } catch (e) {
           console.warn('Failed to initialize Google Identity Services:', e);
         }
@@ -110,14 +124,14 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     };
 
     if (window.google?.accounts?.id) {
-      checkGis();
+      initGis();
     } else {
       const interval = setInterval(() => {
         if (window.google?.accounts?.id) {
           clearInterval(interval);
-          checkGis();
+          initGis();
         }
-      }, 200);
+      }, 150);
 
       const timeout = setTimeout(() => {
         clearInterval(interval);
@@ -133,67 +147,56 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, isPlaceholderClientId, handleCredentialResponse]);
+  }, [clientId, isPlaceholderClientId, handleCredentialResponse, renderGoogleButton]);
+
+  const handleDevMockLogin = async () => {
+    if (loading || disabled) return;
+    setLoading(true);
+    try {
+      const devToken = `dev-mock-google-token:alex.rivera@flowtrack.dev:Alex Rivera`;
+      const authData = await ApiClient.loginWithGoogle(devToken);
+      onSuccess(authData);
+    } catch (err: any) {
+      onError(err.message || 'Dev mock Google sign-in failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCustomButtonClick = async () => {
     if (loading || disabled) return;
 
-    // In development mode with placeholder Client ID, provide smooth local mock Google Sign In
     if (isPlaceholderClientId(clientId)) {
       if (isDev) {
-        setLoading(true);
-        try {
-          const devToken = `dev-mock-google-token:alex.rivera@flowtrack.dev:Alex Rivera`;
-          const authData = await ApiClient.loginWithGoogle(devToken);
-          onSuccess(authData);
-        } catch (err: any) {
-          onError(err.message || 'Dev mock Google sign-in failed');
-        } finally {
-          setLoading(false);
-        }
-        return;
+        return handleDevMockLogin();
       }
-
       onError('Google Client ID is not configured. Please set a valid VITE_GOOGLE_CLIENT_ID in .env.');
       return;
     }
 
-    setLoading(true);
-
-    // Try finding the native rendered button inside hidden container to trigger Google popup
-    if (hiddenButtonRef.current) {
-      const nativeBtn = hiddenButtonRef.current.querySelector('div[role=button], button') as HTMLElement;
-      if (nativeBtn) {
-        nativeBtn.click();
-        // Reset loading state if user cancels or closes the popup without authenticating
-        setTimeout(() => {
-          setLoading(false);
-        }, 12000);
-        return;
-      }
+    if (!window.google?.accounts?.id) {
+      onError('Google Identity Services is still loading or was blocked by a browser extension. Please check your network or ad-blocker.');
+      return;
     }
 
-    // Fallback to Google prompt
-    if (window.google?.accounts?.id) {
-      try {
-        window.google.accounts.id.prompt((notification: any) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            setLoading(false);
-            if (notification.getNotDisplayedReason() === 'suppressed_by_user') {
-              onError('Google sign-in was dismissed.');
-            }
+    // Trigger FedCM-compliant prompt fallback
+    setLoading(true);
+    try {
+      window.google.accounts.id.prompt((notification: any) => {
+        // FedCM compliant notification handling without deprecated isNotDisplayed() / isSkippedMoment()
+        if (notification.isDismissedMoment && notification.isDismissedMoment()) {
+          setLoading(false);
+          const reason = notification.getDismissedReason?.();
+          if (reason === 'suppressed_by_user' || reason === 'tap_outside') {
+            onError('Google sign-in was dismissed.');
           }
-        });
-      } catch (err: any) {
-        setLoading(false);
-        onError(err.message || 'Could not launch Google sign-in prompt.');
-      }
-    } else {
+        }
+      });
+    } catch (err: any) {
       setLoading(false);
-      onError('Google Identity Services is still loading. Please check your internet connection.');
+      onError(err.message || 'Could not launch Google sign-in prompt.');
     }
   };
-
 
   const buttonText = loading
     ? 'Connecting to Google...'
@@ -201,46 +204,64 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
     ? 'Sign up with Google'
     : 'Continue with Google';
 
+  const showCustomButton = !gisReady || isPlaceholderClientId(clientId);
+
   return (
-    <div className="w-full">
-      {/* Hidden container for Google Identity Services native button */}
+    <div className="w-full flex flex-col items-center gap-2">
+      {/* Container for Google Identity Services official rendered button */}
       <div
-        ref={hiddenButtonRef}
-        aria-hidden="true"
-        style={{ position: 'absolute', top: -9999, left: -9999, opacity: 0, pointerEvents: 'none' }}
+        ref={googleButtonContainerRef}
+        className={`w-full flex justify-center items-center min-h-[44px] ${
+          showCustomButton ? 'hidden' : 'block'
+        }`}
       />
 
-      <button
-        id={`google-${mode}-btn`}
-        type="button"
-        onClick={handleCustomButtonClick}
-        disabled={loading || disabled}
-        className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold shadow-xs hover:shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group"
-      >
-        {loading ? (
-          <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
-        ) : (
-          <svg className="w-4 h-4 shrink-0 transition-transform group-hover:scale-105" viewBox="0 0 24 24">
-            <path
-              fill="#4285F4"
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-            />
-          </svg>
-        )}
-        <span>{buttonText}</span>
-      </button>
+      {/* Fallback custom button when GIS is loading, blocked, or in mock dev mode */}
+      {showCustomButton && (
+        <button
+          id={`google-${mode}-btn`}
+          type="button"
+          onClick={handleCustomButtonClick}
+          disabled={loading || disabled}
+          className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold shadow-xs hover:shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group"
+        >
+          {loading ? (
+            <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
+          ) : (
+            <svg className="w-4 h-4 shrink-0 transition-transform group-hover:scale-105" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
+            </svg>
+          )}
+          <span>{buttonText}</span>
+        </button>
+      )}
+
+      {/* Dev mode instant mock login shortcut */}
+      {isDev && (
+        <button
+          type="button"
+          onClick={handleDevMockLogin}
+          disabled={loading || disabled}
+          className="text-[11px] text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors underline cursor-pointer"
+        >
+          Dev Quick Sign-In (Alex Rivera)
+        </button>
+      )}
     </div>
   );
 };

@@ -24,44 +24,55 @@ export class ProjectsService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    // Calculate aggregated metrics for each project
-    const results = await Promise.all(
-      projects.map(async (project) => {
-        const nodes = await this.prisma.node.findMany({
-          where: { projectId: project.id, deletedAt: null },
-          select: {
-            id: true,
-            progressPct: true,
-            dueDate: true,
-            status: { select: { category: true } },
-          },
-        });
+    // Calculate aggregated metrics for each project in a single batched query (eliminates N+1)
+    const projectIds = projects.map((p) => p.id);
+    const allNodes =
+      projectIds.length > 0
+        ? await this.prisma.node.findMany({
+            where: { projectId: { in: projectIds }, deletedAt: null },
+            select: {
+              projectId: true,
+              id: true,
+              progressPct: true,
+              dueDate: true,
+              status: { select: { category: true } },
+            },
+          })
+        : [];
 
-        const totalNodes = nodes.length;
-        const completedNodes = nodes.filter((n) => n.status?.category === 'done').length;
-        const waitingNodes = nodes.filter((n) => n.status?.category === 'blocked').length;
-        const now = new Date();
-        const overdueNodes = nodes.filter(
-          (n) => n.dueDate && new Date(n.dueDate) < now && n.status?.category !== 'done' && n.status?.category !== 'cancelled'
-        ).length;
+    const nodesByProject = new Map<string, typeof allNodes>();
+    for (const node of allNodes) {
+      const list = nodesByProject.get(node.projectId) || [];
+      list.push(node);
+      nodesByProject.set(node.projectId, list);
+    }
 
-        const avgProgress =
-          totalNodes > 0
-            ? Math.round(nodes.reduce((acc, n) => acc + (n.progressPct || 0), 0) / totalNodes)
-            : 0;
+    const now = new Date();
+    const results = projects.map((project) => {
+      const nodes = nodesByProject.get(project.id) || [];
+      const totalNodes = nodes.length;
+      const completedNodes = nodes.filter((n) => n.status?.category === 'done').length;
+      const waitingNodes = nodes.filter((n) => n.status?.category === 'blocked').length;
+      const overdueNodes = nodes.filter(
+        (n) => n.dueDate && new Date(n.dueDate) < now && n.status?.category !== 'done' && n.status?.category !== 'cancelled'
+      ).length;
 
-        return {
-          ...project,
-          metrics: {
-            totalNodes,
-            completedNodes,
-            waitingNodes,
-            overdueNodes,
-            avgProgress,
-          },
-        };
-      })
-    );
+      const avgProgress =
+        totalNodes > 0
+          ? Math.round(nodes.reduce((acc, n) => acc + (n.progressPct || 0), 0) / totalNodes)
+          : 0;
+
+      return {
+        ...project,
+        metrics: {
+          totalNodes,
+          completedNodes,
+          waitingNodes,
+          overdueNodes,
+          avgProgress,
+        },
+      };
+    });
 
     return results;
   }

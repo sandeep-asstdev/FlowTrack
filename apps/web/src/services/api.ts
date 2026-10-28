@@ -1,7 +1,21 @@
+function isLocalHostname(host: string): boolean {
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host.endsWith('.local') ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+  );
+}
+
 const API_BASE =
   (import.meta as any).env?.VITE_API_URL ||
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+  (typeof window !== 'undefined' && !isLocalHostname(window.location.hostname)
     ? 'https://flowtrack-api-rss4.onrender.com/api/v1'
+    : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? `http://${window.location.hostname}:3001/api/v1`
     : 'http://localhost:3001/api/v1');
 
 export class ApiClient {

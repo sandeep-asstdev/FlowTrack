@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
@@ -53,6 +53,7 @@ interface NodeDetailDrawerProps {
   onDrillDown: (node: { id: string; title: string }) => void;
   onDeleteNode?: (nodeId: string) => void;
   onOpenViewDetails?: (nodeId: string) => void;
+  availableNodeTypes?: any[];
 }
 
 type TabKey = 'overview' | 'work' | 'activity';
@@ -63,7 +64,23 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   onNodeUpdated,
   onDrillDown,
   onDeleteNode,
+  availableNodeTypes = [],
 }) => {
+  const [internalNodeTypes, setInternalNodeTypes] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!availableNodeTypes || availableNodeTypes.length === 0) {
+      ApiClient.getNodeTypes()
+        .then((types: any[]) => {
+          if (Array.isArray(types)) setInternalNodeTypes(types);
+        })
+        .catch(() => null);
+    }
+  }, [availableNodeTypes]);
+
+  const activeNodeTypesList = (availableNodeTypes && availableNodeTypes.length > 0)
+    ? availableNodeTypes
+    : internalNodeTypes;
   const [node, setNode] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
@@ -345,7 +362,47 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   // Plain English Status & Countdown
   const countdown = calculateTimeCountdown(dueDate, node.status?.category);
-  const statusOptions = node.nodeType?.statusSet?.statuses || [];
+  const statusOptions = useMemo(() => {
+    // 1. Direct from node's own nodeType if populated
+    const direct = node?.nodeType?.statusSet?.statuses;
+    if (Array.isArray(direct) && direct.length > 0) {
+      return direct;
+    }
+
+    // 2. From activeNodeTypesList matching this node's nodeTypeId or key
+    const matchedType = activeNodeTypesList.find(
+      (t) => t.id === node?.nodeTypeId || t.key === node?.nodeType?.key
+    );
+    const fromMatched = matchedType?.statusSet?.statuses;
+    if (Array.isArray(fromMatched) && fromMatched.length > 0) {
+      return fromMatched;
+    }
+
+    // 3. From any available NodeType that has statuses (they usually share the default status set)
+    for (const t of activeNodeTypesList) {
+      if (t.statusSet?.statuses?.length) {
+        return t.statusSet.statuses;
+      }
+    }
+
+    // 4. Current status fallback if present
+    if (node?.status && node.status.id) {
+      return [
+        node.status,
+        { id: 'not_started', name: 'Not Started', labelI18n: { en: 'Not Started' }, category: 'not_started', colour: '#94a3b8' },
+        { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' }, category: 'active', colour: '#3b82f6' },
+        { id: 'waiting', name: 'Waiting', labelI18n: { en: 'Waiting' }, category: 'blocked', colour: '#f59e0b' },
+        { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
+      ].filter((v, i, a) => a.findIndex((t) => t.id === v.id) === i);
+    }
+
+    return [
+      { id: 'not_started', name: 'Not Started', labelI18n: { en: 'Not Started' }, category: 'not_started', colour: '#94a3b8' },
+      { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' }, category: 'active', colour: '#3b82f6' },
+      { id: 'waiting', name: 'Waiting', labelI18n: { en: 'Waiting' }, category: 'blocked', colour: '#f59e0b' },
+      { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
+    ];
+  }, [node, activeNodeTypesList]);
 
   // Approval authorization verification (Platform Admin cannot approve, self-approval forbidden)
   const approvalAuth = canApproveTask({
@@ -794,8 +851,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     saveNodeUpdates({ statusId: nextStatusId });
                   }}
                   disabled={!permissions.canEditProject}
-                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
+                  {statusId && !statusOptions.some((s: any) => s.id === statusId) && (
+                    <option value={statusId}>
+                      {node.status?.labelI18n?.en || node.status?.name || node.status?.key || 'Current Status'}
+                    </option>
+                  )}
                   {statusOptions.map((s: any) => (
                     <option key={s.id} value={s.id}>
                       {s.labelI18n?.en || s.name || s.key}

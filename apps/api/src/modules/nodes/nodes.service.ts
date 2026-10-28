@@ -182,6 +182,13 @@ export class NodesService {
               where: { isActive: true },
               orderBy: { displayOrder: 'asc' },
             },
+            statusSet: {
+              include: {
+                statuses: {
+                  orderBy: { displayOrder: 'asc' },
+                },
+              },
+            },
           },
         },
         status: true,
@@ -242,6 +249,24 @@ export class NodesService {
 
     if (!node || node.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    // Ensure statusSet with statuses is available for the task controls
+    if (!node.nodeType?.statusSet || !node.nodeType.statusSet.statuses?.length) {
+      const defaultStatusSet = await this.prisma.statusSet.findFirst({
+        where: { workspaceId: node.workspaceId },
+        orderBy: [{ isDefault: 'desc' }],
+        include: { statuses: { orderBy: { displayOrder: 'asc' } } },
+      });
+      if (defaultStatusSet && node.nodeType) {
+        (node.nodeType as any).statusSet = defaultStatusSet;
+      }
+    }
+
+    if (!node.statusId && node.nodeType?.statusSet?.statuses?.[0]) {
+      const defaultStatus = node.nodeType.statusSet.statuses[0];
+      node.statusId = defaultStatus.id;
+      node.status = defaultStatus;
     }
 
     // Safely serialize BigInt fileSize on documents
@@ -484,6 +509,14 @@ export class NodesService {
         include: { statusSet: { include: { statuses: { orderBy: { displayOrder: 'asc' } } } } },
       });
       statusId = nodeType?.statusSet?.statuses[0]?.id;
+      if (!statusId) {
+        const defaultStatusSet = await this.prisma.statusSet.findFirst({
+          where: { workspaceId },
+          orderBy: [{ isDefault: 'desc' }],
+          include: { statuses: { orderBy: { displayOrder: 'asc' } } },
+        });
+        statusId = defaultStatusSet?.statuses[0]?.id;
+      }
     }
 
     // Validate customData against applicable field definitions if customData provided

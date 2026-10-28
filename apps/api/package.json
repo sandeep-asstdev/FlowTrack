@@ -14,6 +14,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:team": "ts-node prisma/seed-dummy-team.ts",
     "test": "vitest run"
   },
   "dependencies": {

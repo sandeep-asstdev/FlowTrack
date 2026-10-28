@@ -177,13 +177,11 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
 
   return (
     <div
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       onClick={() => {
         if (isConfidentialHidden) return;
         if (onSelectNode) onSelectNode(id);
       }}
-      className={`w-72 bg-white dark:bg-slate-900 rounded-xl border transition-all relative ${
+      className={`w-72 bg-white dark:bg-slate-900 rounded-xl border transition-colors relative ${
         isConfidentialHidden ? 'cursor-not-allowed opacity-95' : 'cursor-pointer'
       } ${borderColourClass}`}
     >
@@ -193,7 +191,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-4 !h-4 !-left-2 !bg-white dark:!bg-slate-800 !border-2 !border-blue-500 dark:!border-blue-400 hover:!scale-130 active:!scale-130 hover:!bg-blue-500 hover:!border-white transition-all shadow-md cursor-crosshair z-20 group/handle after:content-[''] after:absolute after:-inset-3 after:rounded-full after:z-30"
+        className="!w-3.5 !h-3.5 !-left-1.5 !bg-white dark:!bg-slate-800 !border-2 !border-blue-500 dark:!border-blue-400 hover:!bg-blue-500 hover:!border-white transition-colors shadow-xs cursor-crosshair z-20"
         title="Input: Prerequisite step"
       />
 
@@ -202,7 +200,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-4 !h-4 !-right-2 !bg-blue-600 hover:!bg-blue-500 active:!scale-130 !border-2 !border-white dark:!border-slate-900 hover:!scale-130 transition-all shadow-md shadow-blue-500/30 cursor-crosshair z-20 group/handle after:content-[''] after:absolute after:-inset-3 after:rounded-full after:z-30"
+        className="!w-3.5 !h-3.5 !-right-1.5 !bg-blue-600 hover:!bg-blue-500 !border-2 !border-white dark:!border-slate-900 transition-colors shadow-xs cursor-crosshair z-20"
         title="Output: Drag to connect next step"
       />
 
@@ -211,7 +209,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-3 !h-3 !-top-1.5 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 hover:!scale-125 active:!scale-125 transition-all cursor-crosshair z-10 after:content-[''] after:absolute after:-inset-2.5 after:rounded-full after:z-30"
+        className="!w-2.5 !h-2.5 !-top-1 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 transition-colors cursor-crosshair z-10"
         title="Top: Parent step input"
       />
 
@@ -220,14 +218,14 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-3 !h-3 !-bottom-1.5 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 hover:!scale-125 active:!scale-125 transition-all cursor-crosshair z-10 after:content-[''] after:absolute after:-inset-2.5 after:rounded-full after:z-30"
+        className="!w-2.5 !h-2.5 !-bottom-1 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 transition-colors cursor-crosshair z-10"
         title="Bottom: Subtask output"
       />
 
-      {/* Floating Action Bar on hover/selection (Authorized users only) */}
-      {(selected || isHovered) && !isConfidentialHidden && (
+      {/* Floating Action Bar on selection (Authorized users only) */}
+      {selected && !isConfidentialHidden && (
         <div
-          className="absolute -top-12 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl rounded-xl px-1.5 py-1 flex items-center gap-1 z-30 animate-in fade-in zoom-in-95 duration-150 touch-manipulation max-w-[95vw]"
+          className="absolute -top-11 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-lg rounded-xl px-1.5 py-1 flex items-center gap-1 z-30 transition-opacity max-w-[95vw]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Quick Remarks Drawer */}

@@ -226,6 +226,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [mobileTitle, setMobileTitle] = useState('');
   const [mobileTypeKey, setMobileTypeKey] = useState('task');
   const [mobilePriority, setMobilePriority] = useState('MEDIUM');
+  const [mobileStatusId, setMobileStatusId] = useState('');
   const [creatingMobileNode, setCreatingMobileNode] = useState(false);
 
   // Role & Permissions
@@ -243,6 +244,26 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   // Register custom node and edge components
   const nodeTypes = useMemo(() => ({ flowNode: FlowTrackNode }), []);
   const edgeTypes = useMemo(() => ({ customEdge: FlowTrackEdge }), []);
+
+  // Status options for task creation modal
+  const createStatusOptions = useMemo(() => {
+    const selectedType = nodeTypesList.find((t) => t.key === mobileTypeKey);
+    const statuses = selectedType?.statusSet?.statuses;
+    if (Array.isArray(statuses) && statuses.length > 0) {
+      return statuses;
+    }
+    for (const t of nodeTypesList) {
+      if (t.statusSet?.statuses?.length) {
+        return t.statusSet.statuses;
+      }
+    }
+    return [
+      { id: 'not_started', name: 'To Do', labelI18n: { en: 'To Do' } },
+      { id: 'in_progress', name: 'In Progress', labelI18n: { en: 'In Progress' } },
+      { id: 'blocked', name: 'Blocked', labelI18n: { en: 'Blocked' } },
+      { id: 'done', name: 'Done', labelI18n: { en: 'Done' } },
+    ];
+  }, [nodeTypesList, mobileTypeKey]);
 
   // Safe node deletion confirmation handler
   const promptDeleteConfirmation = useCallback(
@@ -498,7 +519,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       };
       const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
 
-      await ApiClient.createNode({
+      const created = await ApiClient.createNode({
         projectId: project.id,
         parentNodeId: currentParent.id,
         nodeTypeId: typeObj.id,
@@ -506,12 +527,17 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         positionX: smartPos.x,
         positionY: smartPos.y,
         priority: mobilePriority as any,
+        statusId: mobileStatusId || undefined,
         progressPct: 0,
       });
 
       setMobileTitle('');
+      setMobileStatusId('');
       setMobileCreateOpen(false);
       await loadGraph();
+      if (created?.id) {
+        setSelectedNodeId(created.id);
+      }
       showToast(`Task "${mobileTitle.trim()}" created on canvas`);
     } catch (err) {
       console.error('Failed to create mobile node', err);
@@ -581,7 +607,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           data: {
             title: n.title,
             description: n.description,
-            statusName: n.status?.labelI18n?.en || 'In Progress',
+            statusName: n.status?.labelI18n?.en || n.status?.name || n.status?.key || 'To Do',
             statusCategory: n.status?.category || 'active',
             statusColour: n.status?.colour || '#3b82f6',
             progressPct: n.progressPct,
@@ -1402,6 +1428,9 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       }
 
       await loadGraph();
+      if (created?.id) {
+        setSelectedNodeId(created.id);
+      }
 
       // Ensure newly created node is framed in view if partially off-screen
       const currentViewport = reactFlowInstance.getViewport();
@@ -2458,6 +2487,24 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                 </div>
               </div>
 
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Status
+                </label>
+                <select
+                  value={mobileStatusId}
+                  onChange={(e) => setMobileStatusId(e.target.value)}
+                  className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
+                >
+                  <option value="">Default (First step)</option>
+                  {createStatusOptions.map((s: any) => (
+                    <option key={s.id} value={s.id}>
+                      {s.labelI18n?.en || s.name || s.key}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="pt-2 flex flex-col-reverse sm:flex-row gap-2">
                 <button
                   type="button"
@@ -2556,6 +2603,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           setBreadcrumbTrail((prev) => [...prev, { id: nodeToDrill.id, title: nodeToDrill.title }]);
         }}
         onOpenViewDetails={(id) => setViewDetailsNodeId(id)}
+        availableNodeTypes={nodeTypesList}
       />
 
       {/* Comprehensive View Details Modal (Task Dossier, Approvals, Docs, Timelines) */}

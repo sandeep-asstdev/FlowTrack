@@ -218,7 +218,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         )}
 
-        {/* View Switcher: Projects / Tasks / Reports / Team (Desktop >= lg screens) */}
+        {/* View Switcher: Projects / My Tasks / Team / Reports (Desktop >= lg screens) */}
         {user && (
           <nav
             aria-label="Desktop Primary Navigation"
@@ -246,17 +246,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               My Tasks
             </button>
-            <button
-              id="desktop-nav-reports-btn"
-              onClick={() => onViewChange('reports')}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
-                currentView === 'reports'
-                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Intelligence & Reports
-            </button>
             {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
               <button
                 id="desktop-nav-users-btn"
@@ -267,33 +256,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Team & Users
+                Team
               </button>
             )}
-            {(currentRole === 'MANAGER' || currentRole === 'TEAM_LEAD' || currentRole === 'ADMIN') && (
+            {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
               <button
-                id="desktop-nav-approvals-btn"
-                onClick={() => onViewChange('approvals')}
+                id="desktop-nav-reports-btn"
+                onClick={() => onViewChange('reports')}
                 className={`px-3 py-1.5 rounded-lg transition-all ${
-                  currentView === 'approvals'
+                  currentView === 'reports'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Review Queue
-              </button>
-            )}
-            {projectName && (
-              <button
-                id="desktop-nav-canvas-btn"
-                onClick={() => onViewChange('canvas')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  currentView === 'canvas'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Canvas: {projectName}
+                Reports
               </button>
             )}
           </nav>
@@ -693,7 +669,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     }`}
                   >
                     <FolderKanban className="w-4 h-4 shrink-0" />
-                    <span>Projects Canvas List</span>
+                    <span>Projects</span>
                   </button>
 
                   <button
@@ -706,20 +682,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     }`}
                   >
                     <CheckSquare className="w-4 h-4 shrink-0" />
-                    <span>My Tasks & Assignments</span>
-                  </button>
-
-                  <button
-                    id="mobile-nav-reports-btn"
-                    onClick={() => handleMobileNav('reports')}
-                    className={`w-full p-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold flex items-center gap-3 transition-colors ${
-                      currentView === 'reports'
-                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <BarChart3 className="w-4 h-4 shrink-0" />
-                    <span>Intelligence & Reports</span>
+                    <span>My Tasks</span>
                   </button>
 
                   {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
@@ -733,37 +696,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                       }`}
                     >
                       <Users className="w-4 h-4 shrink-0" />
-                      <span>Team & Users</span>
+                      <span>Team</span>
                     </button>
                   )}
 
-                  {(currentRole === 'MANAGER' || currentRole === 'TEAM_LEAD' || currentRole === 'ADMIN') && (
+                  {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
                     <button
-                      id="mobile-nav-approvals-btn"
-                      onClick={() => handleMobileNav('approvals')}
+                      id="mobile-nav-reports-btn"
+                      onClick={() => handleMobileNav('reports')}
                       className={`w-full p-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold flex items-center gap-3 transition-colors ${
-                        currentView === 'approvals'
+                        currentView === 'reports'
                           ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                           : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                       }`}
                     >
-                      <ShieldCheck className="w-4 h-4 shrink-0" />
-                      <span>Review Queue</span>
-                    </button>
-                  )}
-
-                  {projectName && (
-                    <button
-                      id="mobile-nav-canvas-btn"
-                      onClick={() => handleMobileNav('canvas')}
-                      className={`w-full p-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold flex items-center gap-3 transition-colors ${
-                        currentView === 'canvas'
-                          ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      <Layers className="w-4 h-4 shrink-0 text-blue-500" />
-                      <span className="truncate">Canvas: {projectName}</span>
+                      <BarChart3 className="w-4 h-4 shrink-0" />
+                      <span>Reports</span>
                     </button>
                   )}
                 </div>

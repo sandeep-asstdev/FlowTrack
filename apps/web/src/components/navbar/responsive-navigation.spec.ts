@@ -78,57 +78,53 @@ describe('Responsive Foundation & Mobile Navigation (Chunk 1)', () => {
 
   describe('3. Role-Based Navigation in Mobile Drawer', () => {
     const allViews = [
-      { id: 'dashboard', label: 'Projects Canvas List' },
-      { id: 'my-work', label: 'My Tasks & Assignments' },
-      { id: 'reports', label: 'Intelligence & Reports' },
-      { id: 'users', label: 'Team & Users', requiresRoles: ['ADMIN', 'MANAGER'] },
-      { id: 'approvals', label: 'Review Queue', requiresRoles: ['ADMIN', 'MANAGER', 'TEAM_LEAD'] },
-      { id: 'canvas', label: 'Canvas View', requiresProject: true },
+      { id: 'dashboard', label: 'Projects' },
+      { id: 'my-work', label: 'My Tasks' },
+      { id: 'users', label: 'Team', requiresRoles: ['ADMIN', 'MANAGER'] },
+      { id: 'reports', label: 'Reports', requiresRoles: ['ADMIN', 'MANAGER'] },
     ];
 
-    const getVisibleNavViews = (role: string, hasProject: boolean) => {
+    const getVisibleNavViews = (role: string) => {
       return allViews.filter((view) => {
         if (view.requiresRoles && !view.requiresRoles.includes(role)) {
-          return false;
-        }
-        if (view.requiresProject && !hasProject) {
           return false;
         }
         return true;
       });
     };
 
-    it('exposes Team & Users and Review Queue to Platform Admins', () => {
-      const adminViews = getVisibleNavViews('ADMIN', true).map((v) => v.id);
-      expect(adminViews).toEqual(['dashboard', 'my-work', 'reports', 'users', 'approvals', 'canvas']);
+    it('exposes Projects, My Tasks, Team, and Reports to Platform Admins', () => {
+      const adminViews = getVisibleNavViews('ADMIN').map((v) => v.id);
+      expect(adminViews).toEqual(['dashboard', 'my-work', 'users', 'reports']);
       expect(adminViews).toContain('users');
-      expect(adminViews).toContain('approvals');
+      expect(adminViews).toContain('reports');
     });
 
-    it('exposes Team & Users and Review Queue to Managers', () => {
-      const managerViews = getVisibleNavViews('MANAGER', true).map((v) => v.id);
-      expect(managerViews).toEqual(['dashboard', 'my-work', 'reports', 'users', 'approvals', 'canvas']);
+    it('exposes Projects, My Tasks, Team, and Reports to Managers', () => {
+      const managerViews = getVisibleNavViews('MANAGER').map((v) => v.id);
+      expect(managerViews).toEqual(['dashboard', 'my-work', 'users', 'reports']);
       expect(managerViews).toContain('users');
-      expect(managerViews).toContain('approvals');
+      expect(managerViews).toContain('reports');
     });
 
-    it('exposes Review Queue to Team Leads but hides Team & Users management', () => {
-      const leadViews = getVisibleNavViews('TEAM_LEAD', true).map((v) => v.id);
-      expect(leadViews).toContain('approvals');
+    it('shows only Projects and My Tasks to Team Leads (hiding admin Team and Reports management)', () => {
+      const leadViews = getVisibleNavViews('TEAM_LEAD').map((v) => v.id);
+      expect(leadViews).toEqual(['dashboard', 'my-work']);
       expect(leadViews).not.toContain('users');
+      expect(leadViews).not.toContain('reports');
     });
 
-    it('restricts standard Members and Viewers from administrative routes', () => {
-      const memberViews = getVisibleNavViews('MEMBER', false).map((v) => v.id);
-      expect(memberViews).toEqual(['dashboard', 'my-work', 'reports']);
+    it('restricts standard Members and Viewers to core work destinations: Projects and My Tasks', () => {
+      const memberViews = getVisibleNavViews('MEMBER').map((v) => v.id);
+      expect(memberViews).toEqual(['dashboard', 'my-work']);
       expect(memberViews).not.toContain('users');
-      expect(memberViews).not.toContain('approvals');
-      expect(memberViews).not.toContain('canvas');
+      expect(memberViews).not.toContain('reports');
     });
 
-    it('exposes Canvas button when a project is currently open', () => {
-      const viewsWithProject = getVisibleNavViews('MEMBER', true).map((v) => v.id);
-      expect(viewsWithProject).toContain('canvas');
+    it('ensures clean top navigation without redundant review queues or duplicated canvas headers', () => {
+      const allIds = allViews.map((v) => v.id);
+      expect(allIds).not.toContain('approvals');
+      expect(allIds).not.toContain('canvas');
     });
   });
 

@@ -423,6 +423,14 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const isPendingApproval = node.approvalStatus === 'pending' || node.status?.category === 'pending';
   const isApproved = node.approvalStatus === 'approved' || node.status?.category === 'done';
   const isRejected = node.approvalStatus === 'rejected';
+  const isApprovalRequired = Boolean(
+    node.approvalStatus === 'pending' ||
+    node.approvalStatus === 'approved' ||
+    node.approvalStatus === 'rejected' ||
+    node.customData?.approvalStatus === 'pending' ||
+    node.nodeType?.key === 'approval' ||
+    node.reviewerId
+  );
 
   // Handlers
   const handleApproveWork = async () => {
@@ -737,7 +745,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           }`}
         >
           <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">Activity &amp; Approvals</span>
+          <span className="truncate">Approvals &amp; History</span>
           {isPendingApproval ? (
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
           ) : isApproved ? (
@@ -1801,81 +1809,99 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         {/* ============================================================== */}
         {activeTab === 'activity' && (
           <div className="space-y-5">
-            {/* Approval Decision Card (For Authorized Reviewers) */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-purple-600" />
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                    Approval &amp; Quality Review
-                  </h4>
-                  <span className="text-[11px] text-slate-400">
-                    Sign off on deliverables or request changes
-                  </span>
-                </div>
-              </div>
-
-              {/* Status Banner */}
-              <div
-                className={`p-3 rounded-xl border text-xs font-semibold ${
-                  isApproved
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
-                    : isRejected
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
-                    : isPendingApproval
-                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-amber-800 dark:text-amber-300'
-                    : 'bg-slate-100 dark:bg-slate-800 border-slate-200 text-slate-700 dark:text-slate-300'
-                }`}
-              >
-                {isApproved
-                  ? `✓ Approved by ${node.reviewer?.fullName || 'Manager'}`
-                  : isRejected
-                  ? `⚠️ Changes Requested: ${node.approvalFeedback || 'Rework required'}`
-                  : isPendingApproval
-                  ? '⏳ Pending Manager Review'
-                  : 'No approval requested yet'}
-              </div>
-
-              {/* Reviewer Actions */}
-              {approvalAuth.allowed ? (
-                <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Review Assessment / Feedback Note
-                  </label>
-                  <textarea
-                    value={approvalNote}
-                    onChange={(e) => setApprovalNote(e.target.value)}
-                    placeholder="Enter approval note or specific rework requirements..."
-                    rows={2}
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={approving}
-                      onClick={handleApproveWork}
-                      className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <ThumbsUp className="w-3.5 h-3.5" />
-                      <span>{approving ? 'Saving...' : 'Approve Work'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={approving}
-                      onClick={handleRejectWork}
-                      className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <ThumbsDown className="w-3.5 h-3.5" />
-                      <span>{approving ? 'Saving...' : 'Request Changes'}</span>
-                    </button>
+            {/* Approval Decision Card (Only shown when approval is required or requested) */}
+            {isApprovalRequired || isPendingApproval || isApproved || isRejected ? (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-purple-600" />
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                      Approval &amp; Quality Review
+                    </h4>
+                    <span className="text-[11px] text-slate-400">
+                      Sign off on deliverables or request changes
+                    </span>
                   </div>
                 </div>
-              ) : (
-                <div className="text-[11px] text-slate-400 italic bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  ℹ️ {approvalAuth.reason}
+
+                {/* Status Banner */}
+                <div
+                  className={`p-3 rounded-xl border text-xs font-semibold ${
+                    isApproved
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 text-emerald-800 dark:text-emerald-300'
+                      : isRejected
+                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 text-rose-800 dark:text-rose-300'
+                      : isPendingApproval
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 text-amber-800 dark:text-amber-300'
+                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  {isApproved
+                    ? `✓ Approved by ${node.reviewer?.fullName || 'Manager'}`
+                    : isRejected
+                    ? `⚠️ Changes Requested: ${node.approvalFeedback || 'Rework required'}`
+                    : isPendingApproval
+                    ? '⏳ Pending Manager Review'
+                    : 'No approval requested yet'}
                 </div>
-              )}
-            </div>
+
+                {/* Reviewer Actions */}
+                {approvalAuth.allowed ? (
+                  <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Review Assessment / Feedback Note
+                    </label>
+                    <textarea
+                      value={approvalNote}
+                      onChange={(e) => setApprovalNote(e.target.value)}
+                      placeholder="Enter approval note or specific rework requirements..."
+                      rows={2}
+                      className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={approving}
+                        onClick={handleApproveWork}
+                        className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <ThumbsUp className="w-3.5 h-3.5" />
+                        <span>{approving ? 'Saving...' : 'Approve Work'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={approving}
+                        onClick={handleRejectWork}
+                        className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <ThumbsDown className="w-3.5 h-3.5" />
+                        <span>{approving ? 'Saving...' : 'Request Changes'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 italic bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                    ℹ️ {approvalAuth.reason}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-300">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ShieldCheck className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="truncate">Approval is not required for this standard task.</span>
+                </div>
+                {permissions.canApproveTasks && (
+                  <button
+                    type="button"
+                    onClick={() => saveNodeUpdates({ approvalStatus: 'pending' })}
+                    className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+                  >
+                    Enable Approval
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Timeline Extension Requests */}
             {customData?.deadlineExtension && (

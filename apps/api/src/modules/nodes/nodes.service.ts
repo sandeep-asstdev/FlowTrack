@@ -509,7 +509,7 @@ export class NodesService {
         include: { statusSet: { include: { statuses: { orderBy: { displayOrder: 'asc' } } } } },
       });
       statusId = nodeType?.statusSet?.statuses[0]?.id;
-      if (!statusId) {
+      if (!statusId && this.prisma.statusSet?.findFirst) {
         const defaultStatusSet = await this.prisma.statusSet.findFirst({
           where: { workspaceId },
           orderBy: [{ isDefault: 'desc' }],

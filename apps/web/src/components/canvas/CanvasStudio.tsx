@@ -221,13 +221,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     node: Node;
   } | null>(null);
 
-  // Mobile Easy Node Creation State
-  const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
-  const [mobileTitle, setMobileTitle] = useState('');
-  const [mobileTypeKey, setMobileTypeKey] = useState('task');
-  const [mobilePriority, setMobilePriority] = useState('MEDIUM');
-  const [mobileStatusId, setMobileStatusId] = useState('');
-  const [creatingMobileNode, setCreatingMobileNode] = useState(false);
+  // Simplified Task Creation Modal State (Section 5)
+  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [taskName, setTaskName] = useState('');
+  const [taskAssigneeId, setTaskAssigneeId] = useState('');
+  const [taskDueDate, setTaskDueDate] = useState('');
+  const [taskDescription, setTaskDescription] = useState('');
+  const [taskPriority, setTaskPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
+  const [showAdvancedTaskSettings, setShowAdvancedTaskSettings] = useState(false);
+  const [taskDurationDays, setTaskDurationDays] = useState<number>(1);
+  const [taskRequiresApproval, setTaskRequiresApproval] = useState(false);
+  const [workspaceMembersList, setWorkspaceMembersList] = useState<any[]>([]);
+  const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
   // Role & Permissions
   const { user, getActiveRole } = useAuthStore();
@@ -500,49 +505,65 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     [user]
   );
 
-  // Easy Mobile Node Creation Handler
-  const handleMobileCreateNode = async (e: React.FormEvent) => {
+  // Simplified Task Creation Handler (Section 5)
+  const handleCreateTaskSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mobileTitle.trim()) return;
+    if (!taskName.trim()) return;
     try {
-      setCreatingMobileNode(true);
-      const typeObj =
-        nodeTypesListRef.current.find((t: any) => t.key === mobileTypeKey) ||
+      setIsSubmittingTask(true);
+      const defaultTaskType =
+        nodeTypesListRef.current.find((t: any) => t.key === 'task' && !t.isGroup) ||
+        nodeTypesListRef.current.find((t: any) => !t.isGroup) ||
         nodeTypesListRef.current[0];
-      if (!typeObj) return;
 
-      // Position in center of current mobile viewport with collision avoidance
+      if (!defaultTaskType) return;
+
+      // Smart viewport position with collision avoidance
       const viewport = reactFlowInstance.getViewport();
       const container = {
         width: window.innerWidth,
-        height: window.innerHeight,
+        height: Math.max(400, window.innerHeight - 112),
       };
       const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
 
       const created = await ApiClient.createNode({
         projectId: project.id,
         parentNodeId: currentParent.id,
-        nodeTypeId: typeObj.id,
-        title: mobileTitle.trim(),
+        nodeTypeId: defaultTaskType.id,
+        title: taskName.trim(),
+        description: taskDescription.trim() || undefined,
+        ownerId: taskAssigneeId || undefined,
+        dueDate: taskDueDate ? new Date(taskDueDate).toISOString() : undefined,
+        priority: taskPriority as any,
         positionX: smartPos.x,
         positionY: smartPos.y,
-        priority: mobilePriority as any,
-        statusId: mobileStatusId || undefined,
         progressPct: 0,
+        customData: {
+          durationDays: taskDurationDays > 0 ? Number(taskDurationDays) : 1,
+          approvalStatus: taskRequiresApproval ? 'pending' : 'not_required',
+        },
       });
 
-      setMobileTitle('');
-      setMobileStatusId('');
-      setMobileCreateOpen(false);
+      setTaskName('');
+      setTaskDescription('');
+      setTaskAssigneeId('');
+      setTaskDueDate('');
+      setTaskPriority('MEDIUM');
+      setTaskDurationDays(1);
+      setTaskRequiresApproval(false);
+      setShowAdvancedTaskSettings(false);
+      setCreateTaskModalOpen(false);
+
       await loadGraph();
       if (created?.id) {
         setSelectedNodeId(created.id);
       }
-      showToast(`Task "${mobileTitle.trim()}" created on canvas`);
-    } catch (err) {
-      console.error('Failed to create mobile node', err);
+      showToast(`Task "${taskName.trim()}" created successfully`);
+    } catch (err: any) {
+      console.error('Failed to create task:', err);
+      showToast(err.message || 'Failed to create task');
     } finally {
-      setCreatingMobileNode(false);
+      setIsSubmittingTask(false);
     }
   };
 
@@ -568,15 +589,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       setLoading(true);
       setLoadError(null);
       const parentId = currentParent.id;
-      const [fetchedNodes, fetchedEdges, types, fetchedTeams] = await Promise.all([
+      const wsId = project.workspaceId || ApiClient.getActiveWorkspaceId();
+      const [fetchedNodes, fetchedEdges, types, fetchedTeams, fetchedMembers] = await Promise.all([
         ApiClient.getNodes(project.id, parentId),
         ApiClient.getEdges(project.id),
         ApiClient.getNodeTypes(),
         ApiClient.getTeams().catch(() => []),
+        wsId ? ApiClient.getWorkspaceMembers(wsId).catch(() => []) : Promise.resolve([]),
       ]);
 
       setNodeTypesList(types);
       setTeamsList(fetchedTeams || []);
+      setWorkspaceMembersList(Array.isArray(fetchedMembers) ? fetchedMembers : []);
 
       // Pre-calculate incoming blocking dependencies for each node
       const blockedNodeMap = new Map<string, number>();
@@ -1661,99 +1685,66 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Quick Node Type Buttons */}
-          <div className="hidden sm:flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-            <button
-              id="toolbar-add-task-btn"
-              onClick={() => handleAddNode('task')}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
-            >
-              <Plus className="w-3 h-3 text-blue-500" />
-              + Task
-            </button>
-            <button
-              onClick={() => handleAddNode('stage')}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
-            >
-              <Layers className="w-3 h-3 text-purple-500" />
-              + Stage Group
-            </button>
-            <button
-              onClick={() => setIsTeamModalOpen(true)}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
-              title="Manage Team & Multi-User Collaboration"
-            >
-              <Users className="w-3.5 h-3.5 text-blue-500" />
-              Team
-            </button>
-            <button
-              onClick={() => setIsReportModalOpen(true)}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
-              title="Full Project Dossier & Status Extraction Report"
-            >
-              <BarChart3 className="w-3.5 h-3.5 text-indigo-500" />
-              Report
-            </button>
-            {['SUPER_ADMIN', 'ADMIN', 'MANAGER'].includes(currentRole) && (
-              <button
-                id="canvas-custom-fields-btn"
-                onClick={() => setIsFieldConfigModalOpen(true)}
-                className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
-                title="Configure Custom Fields & Dynamic Form Schemas"
-              >
-                <Sliders className="w-3.5 h-3.5 text-emerald-500" />
-                Fields
-              </button>
+          {/* 1. + Add Task (Primary Action) */}
+          <button
+            id="toolbar-add-task-btn"
+            onClick={() => {
+              setTaskName('');
+              setTaskDescription('');
+              setTaskAssigneeId('');
+              setTaskDueDate('');
+              setTaskPriority('MEDIUM');
+              setCreateTaskModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all hover:scale-[1.02]"
+            title="Create a new task on canvas"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add Task</span>
+          </button>
+
+          {/* 2. Critical Path (Compact Toggle Indicator) */}
+          <button
+            id="toolbar-critical-path-toggle-btn"
+            onClick={() => setHighlightCriticalPath((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] rounded-xl text-xs font-semibold border transition-all ${
+              highlightCriticalPath
+                ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-400 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
+                : 'border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+            }`}
+            title={
+              cpmData?.criticalNodeIds?.length
+                ? `Critical Path: ${cpmData.criticalNodeIds.length} critical task(s)`
+                : 'Toggle Critical Path analysis highlight'
+            }
+          >
+            <Zap className={`w-3.5 h-3.5 ${highlightCriticalPath ? 'fill-rose-500 text-rose-500' : 'text-slate-400'}`} />
+            <span className="hidden sm:inline">Critical Path</span>
+            {cpmData?.criticalNodeIds && cpmData.criticalNodeIds.length > 0 && (
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                highlightCriticalPath
+                  ? 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200'
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+              }`}>
+                {cpmData.criticalNodeIds.length}
+              </span>
             )}
-            <button
-              id="canvas-activity-history-btn"
-              onClick={() => setIsActivityModalOpen(true)}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 rounded-lg shadow-sm transition-all flex items-center gap-1"
-              title="Project Activity Stream & Audit Trail"
-            >
-              <History className="w-3.5 h-3.5 text-purple-500" />
-              Activity
-            </button>
-          </div>
+          </button>
 
-          {/* Tidy Up Auto Layout Buttons (Super Admin Exclusive Layout Editor) */}
-          {permissions.canEditLayout ? (
-            <div className="flex items-center rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800/60 p-0.5">
-              <button
-                id="canvas-tidy-up-btn"
-                onClick={() => handleTidyUp('LR')}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors"
-                title="Auto-organize: Horizontal Workflow (Super Admin)"
-              >
-                <Wand2 className="w-3.5 h-3.5 text-blue-500" />
-                <span>Tidy Flow</span>
-                <ArrowRightIcon className="w-3 h-3 text-slate-400" />
-              </button>
+          {/* 3. Fit View (Keep canvas visible) */}
+          <button
+            id="toolbar-fit-view-btn"
+            onClick={() => reactFlowInstance.fitView({ padding: 0.2, duration: 400 })}
+            className="flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-colors"
+            title="Fit all workflow tasks in view"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-slate-400" />
+            <span className="hidden sm:inline">Fit View</span>
+          </button>
 
-              <button
-                id="canvas-tidy-up-tree-btn"
-                onClick={() => handleTidyUp('TB')}
-                className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors border-l border-slate-200 dark:border-slate-700"
-                title="Auto-organize: Tree Hierarchy (Super Admin)"
-              >
-                <GitFork className="w-3.5 h-3.5 text-purple-500" />
-                <span>Tree</span>
-                <ArrowDown className="w-3 h-3 text-slate-400" />
-              </button>
-            </div>
-          ) : (
-            <div
-              className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-xl border border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-400"
-              title="Layout design alteration is restricted to Super Admin"
-            >
-              <Lock className="w-3 h-3 text-slate-400" />
-              <span>Layout Locked</span>
-            </div>
-          )}
-
-          {/* Auto-save & persistence badge */}
+          {/* 4. Saved Status Indicator */}
           <div
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] rounded-xl text-[11px] font-bold border transition-colors ${
               savedStatus === 'saving'
                 ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900 text-amber-600 dark:text-amber-400'
                 : savedStatus === 'error'
@@ -1768,7 +1759,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             ) : (
               <Check className="w-3.5 h-3.5 text-emerald-500" />
             )}
-            <span>
+            <span className="hidden xs:inline">
               {savedStatus === 'saving'
                 ? 'Saving...'
                 : savedStatus === 'error'
@@ -2358,26 +2349,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           >
             <Sparkles className="w-4 h-4 text-blue-500" />
           </button>
-
-          <button
-            id="mobile-team-modal-btn"
-            onClick={() => setIsTeamModalOpen(true)}
-            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors"
-            title="Team & Collaborators"
-            aria-label="Team & Collaborators"
-          >
-            <Users className="w-4 h-4 text-indigo-500" />
-          </button>
-
-          <button
-            id="mobile-report-modal-btn"
-            onClick={() => setIsReportModalOpen(true)}
-            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition-colors"
-            title="Project Report"
-            aria-label="Project Report"
-          >
-            <BarChart3 className="w-4 h-4 text-emerald-500" />
-          </button>
         </div>
 
         {/* Floating Action / Feedback Toast */}
@@ -2389,136 +2360,199 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         )}
       </div>
 
-      {/* Mobile Easy Node Creation Modal / Bottom Sheet */}
-      {mobileCreateOpen && (
+      {/* ============================================================== */}
+      {/* SIMPLIFIED TASK CREATION MODAL (Section 5)                     */}
+      {/* ============================================================== */}
+      {createTaskModalOpen && (
         <div
-          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[90] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150 overflow-y-auto"
-          onClick={() => setMobileCreateOpen(false)}
+          id="create-task-modal-backdrop"
+          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[95] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150 overflow-y-auto"
+          onClick={() => setCreateTaskModalOpen(false)}
         >
           <div
-            className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain pb-safe my-auto sm:my-auto animate-in slide-in-from-bottom duration-200"
+            id="create-task-modal"
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-task-title"
           >
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-950/60 flex items-center justify-center text-blue-600">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                    Create New Task Node
+                  <h3 id="create-task-title" className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight">
+                    Add Task
                   </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Instantly add task to your mobile canvas view
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Create a task on the project canvas
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setMobileCreateOpen(false)}
+                id="create-task-close-btn"
+                onClick={() => setCreateTaskModalOpen(false)}
                 aria-label="Close"
-                className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-xl"
+                className="w-10 h-10 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleMobileCreateNode} className="space-y-3.5">
+            <form onSubmit={handleCreateTaskSubmit} className="space-y-3.5">
+              {/* 1. Task Name (Required) */}
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Task Title *
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                  Task Name <span className="text-rose-500">*</span>
                 </label>
                 <input
+                  id="task-title-input"
                   type="text"
                   required
                   autoFocus
-                  value={mobileTitle}
-                  onChange={(e) => setMobileTitle(e.target.value)}
-                  placeholder="e.g. Foundation excavation survey"
-                  className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  value={taskName}
+                  onChange={(e) => setTaskName(e.target.value)}
+                  placeholder="e.g. Inspect showroom flooring & glass facade"
+                  className="w-full px-3 py-2.5 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 />
               </div>
 
+              {/* 2. Assignee (Optional) */}
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Node Type
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { key: 'task', label: 'Task Step' },
-                    { key: 'stage', label: 'Stage Group' },
-                    { key: 'approval', label: 'Approval Sign-off' },
-                    { key: 'doc_request', label: 'Document Check' },
-                  ].map((t) => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => setMobileTypeKey(t.key)}
-                      className={`p-2.5 min-h-[44px] rounded-xl border text-left text-xs font-bold transition-all flex items-center ${
-                        mobileTypeKey === t.key
-                          ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/20'
-                          : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      <span>{t.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Priority
-                </label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {['LOW', 'MEDIUM', 'HIGH', 'URGENT'].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setMobilePriority(p)}
-                      className={`py-2 min-h-[38px] text-[10px] font-extrabold rounded-lg border transition-all flex items-center justify-center ${
-                        mobilePriority === p
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Status
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                  Assignee <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <select
-                  value={mobileStatusId}
-                  onChange={(e) => setMobileStatusId(e.target.value)}
-                  className="w-full p-2.5 min-h-[44px] text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
+                  id="task-assignee-select"
+                  value={taskAssigneeId}
+                  onChange={(e) => setTaskAssigneeId(e.target.value)}
+                  className="w-full px-3 py-2.5 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
                 >
-                  <option value="">Default (First step)</option>
-                  {createStatusOptions.map((s: any) => (
-                    <option key={s.id} value={s.id}>
-                      {s.labelI18n?.en || s.name || s.key}
-                    </option>
-                  ))}
+                  <option value="">Unassigned</option>
+                  {workspaceMembersList.map((m: any) => {
+                    const u = m.user || m;
+                    return (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName ? `${u.fullName} (${m.role || 'MEMBER'})` : u.email}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
-              <div className="pt-2 flex flex-col-reverse sm:flex-row gap-2">
+              {/* 3. Due Date & Priority Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Due Date (Optional) */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                    Due Date <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <div className="relative">
+                    <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="task-due-date-input"
+                      type="date"
+                      value={taskDueDate ? taskDueDate.slice(0, 10) : ''}
+                      onChange={(e) => setTaskDueDate(e.target.value ? new Date(e.target.value).toISOString() : '')}
+                      className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Priority (Optional) */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                    Priority <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <select
+                    id="task-priority-select"
+                    value={taskPriority}
+                    onChange={(e: any) => setTaskPriority(e.target.value)}
+                    className="w-full px-3 py-2.5 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
+                  >
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                    <option value="URGENT">Urgent</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* 4. Description (Optional) */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                  Description <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <textarea
+                  id="task-description-input"
+                  rows={2}
+                  value={taskDescription}
+                  onChange={(e) => setTaskDescription(e.target.value)}
+                  placeholder="Task instructions, deliverables or acceptance criteria..."
+                  className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium resize-none"
+                />
+              </div>
+
+              {/* 5. Collapsible Advanced Settings (Scheduling & Approvals) */}
+              <div className="pt-1">
                 <button
                   type="button"
-                  onClick={() => setMobileCreateOpen(false)}
-                  className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 transition-colors"
+                  onClick={() => setShowAdvancedTaskSettings(!showAdvancedTaskSettings)}
+                  className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                >
+                  {showAdvancedTaskSettings ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  <span>{showAdvancedTaskSettings ? 'Hide Advanced Settings' : 'Advanced Settings (Duration, Approvals)'}</span>
+                </button>
+
+                {showAdvancedTaskSettings && (
+                  <div className="mt-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in duration-100">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1">
+                        Duration (Days for Critical Path Analysis)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={taskDurationDays}
+                        onChange={(e) => setTaskDurationDays(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full px-3 py-2 min-h-[38px] text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={taskRequiresApproval}
+                        onChange={(e) => setTaskRequiresApproval(e.target.checked)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                        Require Team Lead or Manager Approval before completion
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCreateTaskModalOpen(false)}
+                  className="px-4 py-2.5 min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
+                  id="create-task-submit-btn"
                   type="submit"
-                  disabled={creatingMobileNode || !mobileTitle.trim()}
-                  className="flex-1 min-h-[44px] py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-colors"
+                  disabled={isSubmittingTask || !taskName.trim()}
+                  className="px-5 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5"
                 >
-                  {creatingMobileNode ? 'Creating...' : 'Create Task'}
+                  {isSubmittingTask && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSubmittingTask ? 'Creating...' : 'Create Task'}</span>
                 </button>
               </div>
             </form>

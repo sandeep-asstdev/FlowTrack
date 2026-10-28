@@ -282,17 +282,8 @@ export function App() {
               if (!user) {
                 setAuthModalOpen(true);
               } else {
-                setCreateProjModalMode('template');
+                setCreateProjModalMode('blank');
                 setCloneSourceId(undefined);
-                setCreateProjModalOpen(true);
-              }
-            }}
-            onCloneProject={(project) => {
-              if (!user) {
-                setAuthModalOpen(true);
-              } else {
-                setCreateProjModalMode('clone');
-                setCloneSourceId(project.id);
                 setCreateProjModalOpen(true);
               }
             }}

@@ -17,5 +17,6 @@ export * from './domain/dependencies.js';
 export * from './domain/custom-fields-validator.js';
 export * from './domain/workflow.js';
 export * from './domain/formatters.js';
+export * from './domain/governance.js';
 export * from './permissions/index.js';
 export * from './schemas/role-dashboard.js';

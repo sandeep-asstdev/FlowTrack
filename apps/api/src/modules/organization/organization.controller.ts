@@ -22,7 +22,7 @@ export class OrganizationController {
   constructor(private readonly orgService: OrganizationService) {}
 
   private getWorkspaceId(req: any, headerWorkspaceId?: string): string {
-    const wsId = headerWorkspaceId || req.user.activeWorkspaceId;
+    const wsId = headerWorkspaceId || req.user?.activeWorkspaceId || req.user?.workspaceId;
     if (!wsId) {
       throw new BadRequestException('Workspace ID is required in X-Workspace-Id header');
     }
@@ -176,7 +176,7 @@ export class OrganizationController {
     dto: {
       resourceType: string;
       resourceId: string;
-      granteeType: string;
+      granteeType?: string;
       granteeId: string;
       expiresAt?: string;
     },

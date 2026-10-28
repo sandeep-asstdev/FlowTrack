@@ -622,7 +622,15 @@ export class ProjectsService {
     actorId: string,
     dto: { userId: string; role?: Role }
   ) {
-    await this.getProject(projectId, workspaceId);
+    await this.getProject(projectId, workspaceId, actorId ? { id: actorId } : undefined);
+
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, workspaceId },
+        GRANULAR_PERMISSIONS.MEMBERS_MANAGE,
+        { project: { id: projectId, workspaceId } }
+      );
+    }
 
     // Verify actor is Admin or Project Manager
     const wsMembership = await this.prisma.membership.findUnique({
@@ -689,7 +697,15 @@ export class ProjectsService {
     actorId: string,
     userId: string
   ) {
-    await this.getProject(projectId, workspaceId);
+    await this.getProject(projectId, workspaceId, actorId ? { id: actorId } : undefined);
+
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, workspaceId },
+        GRANULAR_PERMISSIONS.MEMBERS_MANAGE,
+        { project: { id: projectId, workspaceId } }
+      );
+    }
 
     const wsMembership = await this.prisma.membership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: actorId } },

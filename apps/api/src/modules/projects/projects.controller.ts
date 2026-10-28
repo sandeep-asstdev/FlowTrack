@@ -25,7 +25,7 @@ export class ProjectsController {
   ) {}
 
   private getWorkspaceId(req: any, headerWorkspaceId?: string): string {
-    const wsId = headerWorkspaceId || req.user.activeWorkspaceId;
+    const wsId = headerWorkspaceId || req.user?.activeWorkspaceId || req.user?.workspaceId;
     if (!wsId) {
       throw new BadRequestException('Workspace ID is required in X-Workspace-Id header');
     }

@@ -303,8 +303,11 @@ export class AuthorizationService {
       const grants = await (this.prisma as any).accessGrant?.findMany({
         where: {
           workspaceId: user.workspaceId,
-          granteeId: user.id,
           resourceId: resourceId,
+          OR: [
+            { userId: user.id },
+            { granteeId: user.id },
+          ],
         },
       });
 

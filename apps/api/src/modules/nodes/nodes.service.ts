@@ -552,9 +552,8 @@ export class NodesService {
         throw new BadRequestException(depthCheck.error);
       }
 
-      depth = (parent.depth || 0) + 1;
-      const parentPath = parent.path || `/${parent.id}`;
-      path = `${parentPath}/${nodeId}`;
+      depth = depthCheck.depth;
+      path = depthCheck.path;
 
       // Confidentiality inheritance: child may only become stricter (most restrictive wins)
       const parentClass = (parent.classification || 'INTERNAL') as any;
@@ -569,7 +568,7 @@ export class NodesService {
         nodeClassification = parentClass;
       }
     } else {
-      depth = 0;
+      depth = 1;
       path = `/${nodeId}`;
       if (!nodeClassification) {
         let project: any = null;
@@ -862,9 +861,8 @@ export class NodesService {
           throw new BadRequestException(depthCheck.error);
         }
 
-        updatedDepth = (parent.depth || 0) + 1;
-        const parentPath = parent.path || `/${parent.id}`;
-        updatedPath = `${parentPath}/${id}`;
+        updatedDepth = depthCheck.depth;
+        updatedPath = depthCheck.path;
 
         // Confidentiality check with new parent (child may only be stricter or equal)
         const parentClass = (parent.classification || 'INTERNAL') as any;
@@ -875,7 +873,7 @@ export class NodesService {
           );
         }
       } else {
-        updatedDepth = 0;
+        updatedDepth = 1;
         updatedPath = `/${id}`;
       }
 

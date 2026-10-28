@@ -65,7 +65,7 @@ export const createProjectSchema = z.object({
   ownerId: z.string().uuid().nullable().optional(),
   responsibleManagerId: z.string().uuid().nullable().optional(),
   departmentId: z.string().uuid().nullable().optional(),
-  classification: confidentialityLevelSchema.default('INTERNAL'),
+  classification: confidentialityLevelSchema.optional(),
   accessPolicy: z.record(z.any()).optional(),
   templateId: z.string().uuid().optional(),
   startDate: z.string().datetime().optional(),

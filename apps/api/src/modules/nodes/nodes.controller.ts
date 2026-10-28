@@ -85,7 +85,7 @@ export class NodesController {
     @Body() dto: CreateNodeDto,
     @Headers('x-workspace-id') headerWsId?: string
   ) {
-    const wsId = headerWsId || req.user.activeWorkspaceId;
+    const wsId = headerWsId || req.user?.activeWorkspaceId || req.user?.workspaceId;
     return this.nodesService.createNode(wsId, dto, req.user?.id);
   }
 

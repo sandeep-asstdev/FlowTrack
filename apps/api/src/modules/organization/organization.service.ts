@@ -352,7 +352,7 @@ export class OrganizationService {
     dto: {
       resourceType: string;
       resourceId: string;
-      granteeType: string;
+      granteeType?: string;
       granteeId: string;
       expiresAt?: string;
     }

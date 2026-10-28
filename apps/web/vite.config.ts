@@ -1,8 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Production API URL — live Render backend URL fallback if explicitly set
+// Production API URL — live Render backend URL
 const PRODUCTION_API_URL = 'https://flowtrack-api-rss4.onrender.com/api/v1';
+const PRODUCTION_SOCKET_URL = 'https://flowtrack-api-rss4.onrender.com';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -13,16 +14,17 @@ export default defineConfig(({ mode }) => {
     process.env.VITE_GOOGLE_CLIENT_ID ||
     '954853707879-khbiv8su3of67ih08vfflpj2vanqbj2j.apps.googleusercontent.com';
 
-  // Use .env value if set, otherwise use local 3001 port by default to prevent sleeping Render cold-start latency
+  // In development, default to local port 3001.
+  // In production (Cloudflare deployment), default to live Render backend.
   const apiUrl =
     env.VITE_API_URL ||
     process.env.VITE_API_URL ||
-    (process.env.BUILD_FOR_RENDER ? PRODUCTION_API_URL : 'http://localhost:3001/api/v1');
+    (isDev ? 'http://localhost:3001/api/v1' : PRODUCTION_API_URL);
 
   const socketUrl =
     env.VITE_SOCKET_URL ||
     process.env.VITE_SOCKET_URL ||
-    (process.env.BUILD_FOR_RENDER ? 'https://flowtrack-api-rss4.onrender.com' : 'http://localhost:3001');
+    (isDev ? 'http://localhost:3001' : PRODUCTION_SOCKET_URL);
 
   return {
     plugins: [react()],

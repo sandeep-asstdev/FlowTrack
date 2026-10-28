@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "postinstall": "pnpm --filter @flowtrack/api prisma:generate",
-    "dev": "npm run dev:web",
+    "dev": "pnpm dev:all",
     "dev:all": "pnpm --parallel --filter @flowtrack/api --filter @flowtrack/web dev",
     "dev:api": "pnpm --filter @flowtrack/api dev",
     "dev:web": "pnpm --filter @flowtrack/web dev",

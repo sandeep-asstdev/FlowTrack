@@ -10,13 +10,20 @@ function isLocalHostname(host: string): boolean {
   );
 }
 
-const API_BASE =
-  (import.meta as any).env?.VITE_API_URL ||
-  (typeof window !== 'undefined' && !isLocalHostname(window.location.hostname)
-    ? 'https://flowtrack-api-rss4.onrender.com/api/v1'
-    : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-    ? `http://${window.location.hostname}:3001/api/v1`
-    : 'http://localhost:3001/api/v1');
+const getApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    // If accessed on Cloudflare or any remote deployment, ALWAYS target live Render backend
+    if (!isLocalHostname(window.location.hostname)) {
+      return 'https://flowtrack-api-rss4.onrender.com/api/v1';
+    }
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return `http://${window.location.hostname}:3001/api/v1`;
+    }
+  }
+  return (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api/v1';
+};
+
+const API_BASE = getApiBaseUrl();
 
 export class ApiClient {
   private static token: string | null =
@@ -71,10 +78,18 @@ export class ApiClient {
       headers['X-Workspace-Id'] = this.activeWorkspaceId;
     }
 
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        headers,
+      });
+    } catch (networkErr: any) {
+      console.error(`[ApiClient] Network request failed to ${API_BASE}${path}:`, networkErr);
+      throw new Error(
+        `Cannot connect to backend server at ${API_BASE}. Please ensure the FlowTrack API server is running on port 3001.`
+      );
+    }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({ message: 'Network request failed' }));

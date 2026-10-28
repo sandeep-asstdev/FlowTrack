@@ -12,15 +12,20 @@ function isLocalHostname(host: string): boolean {
   );
 }
 
-const SOCKET_URL =
-  (import.meta as any).env?.VITE_SOCKET_URL ||
-  ((import.meta as any).env?.VITE_API_URL
-    ? new URL((import.meta as any).env.VITE_API_URL).origin
-    : typeof window !== 'undefined' && !isLocalHostname(window.location.hostname)
-    ? 'https://flowtrack-api-rss4.onrender.com'
-    : typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-    ? `http://${window.location.hostname}:3001`
-    : 'http://localhost:3001');
+const getSocketUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    // If accessed on Cloudflare or any remote deployment, ALWAYS target live Render backend
+    if (!isLocalHostname(window.location.hostname)) {
+      return 'https://flowtrack-api-rss4.onrender.com';
+    }
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return `http://${window.location.hostname}:3001`;
+    }
+  }
+  return (import.meta as any).env?.VITE_SOCKET_URL || 'http://localhost:3001';
+};
+
+const SOCKET_URL = getSocketUrl();
 
 class SocketService {
   private socket: Socket | null = null;

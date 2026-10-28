@@ -11,12 +11,23 @@ async function bootstrap() {
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-    : ['http://localhost:5173', 'http://127.0.0.1:5173'];
-
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isAllowed =
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1') ||
+        origin.includes('0.0.0.0') ||
+        /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(origin) ||
+        (process.env.CORS_ORIGIN &&
+          process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).includes(origin));
+
+      if (isAllowed || process.env.NODE_ENV !== 'production') {
+        callback(null, true);
+      } else {
+        callback(new Error('Blocked by CORS'));
+      }
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });

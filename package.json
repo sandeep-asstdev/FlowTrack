@@ -12,7 +12,9 @@
     "build": "pnpm --filter @flowtrack/shared build && pnpm --filter @flowtrack/api prisma:generate && pnpm --filter @flowtrack/api build && pnpm --filter @flowtrack/web build",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @flowtrack/web test:e2e",
-    "lint": "pnpm -r --if-present run lint"
+    "lint": "pnpm -r --if-present run lint",
+    "seed:demo": "pnpm --filter @flowtrack/api seed:demo",
+    "teardown:demo": "pnpm --filter @flowtrack/api teardown:demo"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

@@ -15,7 +15,9 @@
     "prisma:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:seed:team": "ts-node prisma/seed-dummy-team.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "seed:demo": "ts-node prisma/seed-demo.ts",
+    "teardown:demo": "ts-node prisma/teardown-demo.ts"
   },
   "dependencies": {
     "@flowtrack/shared": "workspace:*",

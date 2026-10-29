@@ -133,7 +133,7 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: dto.email ? dto.email.trim().toLowerCase() : String() },
       include: {
         memberships: {
           include: {
@@ -151,7 +151,10 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated. Please contact your platform administrator.');
     }
 
-    const valid = await bcrypt.compare(dto.password, user.passwordHash);
+    let valid = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!valid && dto.password && dto.password.trim() !== dto.password) {
+      valid = await bcrypt.compare(dto.password.trim(), user.passwordHash);
+    }
     if (!valid) {
       throw new UnauthorizedException('Invalid email or password');
     }

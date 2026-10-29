@@ -1,3 +1,5 @@
+import { getTaskStateMetadata } from '@flowtrack/shared';
+import { ApiClient } from '../../services/api';
 import React, { useState, useMemo } from 'react';
 import {
   List,
@@ -37,25 +39,63 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
   onSelectNode,
   onAddNode,
 }) => {
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    e.dataTransfer.setData('text/plain', taskId);
+    setDraggingTaskId(taskId);
+  };
+
+  const handleColumnDrop = async (e: React.DragEvent, colTargetState: string) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
+    if (!taskId) return;
+    setDraggingTaskId(null);
+
+    let targetState = colTargetState;
+    if (colTargetState === 'Draft') targetState = 'Draft';
+    else if (colTargetState === 'In Progress') targetState = 'In Progress';
+    else if (colTargetState === 'Blocked') targetState = 'Blocked';
+    else if (colTargetState === 'In Review') targetState = 'Ready for Review';
+    else if (colTargetState === 'Approved') targetState = 'Approved';
+    else if (colTargetState === 'Completed') targetState = 'Completed';
+
+    try {
+      setToastMessage(null);
+      await ApiClient.transitionNode(taskId, targetState);
+      if (onSelectNode) {
+        onSelectNode(taskId);
+      }
+    } catch (err: any) {
+      const msg = err.message || `Cannot transition task to ${targetState}`;
+      setToastMessage(msg);
+      setTimeout(() => setToastMessage(null), 6000);
+    }
+  };
+
   // Helper to extract clean data from nodes
   const parsedNodes = useMemo(() => {
     return nodes.map((n) => {
       const d = n.data || n;
+      const taskState = d.state || n.state || 'Draft';
+      const meta = getTaskStateMetadata(taskState);
       return {
         id: n.id,
         title: d.title || d.label || 'Untitled Task',
         description: d.description || '',
-        state: d.state || 'Draft',
-        statusKey: d.status?.key || d.statusKey || 'todo',
-        statusName: d.status?.name || d.statusName || d.state || 'To Do',
-        statusCategory: d.status?.category || d.statusCategory || 'todo',
-        statusColour: d.status?.colour || d.statusColour || '#3b82f6',
+        state: taskState,
+        statusKey: meta.category,
+        statusName: meta.label,
+        statusCategory: meta.category,
+        statusColour: meta.colour,
         priority: d.priority || 'MEDIUM',
         progressPct: d.progressPct || 0,
         dueDate: d.dueDate || null,
         startDate: d.startDate || null,
         owner: d.owner || null,
         ownerId: d.ownerId || null,
+        assignedBy: d.assignedBy || null,
         reviewer: d.reviewer || null,
         parentNodeId: d.parentNodeId || null,
         isMilestone: d.isMilestone || false,
@@ -261,9 +301,16 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
               <Kanban className="w-4 h-4 text-indigo-600" />
               <span>Project Board</span>
             </h2>
-            <p className="text-xs text-slate-500">Visual state progression across governance lifecycle</p>
+            <p className="text-xs text-slate-500">Drag and drop cards between columns to progress task lifecycle</p>
           </div>
         </div>
+
+        {toastMessage && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-200 font-semibold flex items-center justify-between">
+            <span>⚠️ {toastMessage}</span>
+            <button onClick={() => setToastMessage(null)} className="text-rose-600 hover:text-rose-800 font-bold ml-2">✕</button>
+          </div>
+        )}
 
         <div className="flex gap-4 min-h-[500px] items-start">
           {columns.map((col) => {
@@ -274,7 +321,9 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
             return (
               <div
                 key={col.key}
-                className="w-72 shrink-0 bg-slate-100/70 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 flex flex-col max-h-[calc(100vh-200px)]"
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                onDrop={(e) => handleColumnDrop(e, col.key)}
+                className="w-72 shrink-0 bg-slate-100/70 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 flex flex-col max-h-[calc(100vh-200px)] transition-colors hover:border-blue-400"
               >
                 <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 dark:border-slate-700">
                   <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -294,8 +343,10 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                     colTasks.map((task) => (
                       <div
                         key={task.id}
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, task.id)}
                         onClick={() => onSelectNode(task.id)}
-                        className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs hover:border-blue-500 cursor-pointer transition-all space-y-2"
+                        className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs hover:border-blue-500 cursor-grab active:cursor-grabbing transition-all space-y-2"
                       >
                         <div className="flex items-center justify-between">
                           <span

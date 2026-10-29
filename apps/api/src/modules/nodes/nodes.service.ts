@@ -760,6 +760,61 @@ export class NodesService {
       userRole = membership?.role;
     }
 
+    // Security Guard (Bug 3): Regular Members can ONLY edit tasks they are the assignee or collaborator on
+    if (userRole === Role.MEMBER) {
+      const isOwner = existing.ownerId === actorId;
+      const isCollaborator = Array.isArray(existing.collaboratorIds) && (existing.collaboratorIds as string[]).includes(actorId || '');
+      if (!isOwner && !isCollaborator) {
+        if (this.auditService) {
+          await this.auditService.recordAuditEvent({
+            workspaceId: existing.workspaceId,
+            actorId: actorId || 'UNKNOWN',
+            action: 'SECURITY_VIOLATION',
+            targetType: 'task',
+            targetId: id,
+            reason: `Unauthorized edit attempt: Member ${actorId} is neither the assignee nor a collaborator on task "${existing.title}" (${id}).`,
+            outcome: 'BLOCKED',
+          });
+        }
+        throw new ForbiddenException('Unauthorized: Members can only edit tasks they are assigned to or collaborating on.');
+      }
+
+      // Members cannot reassign tasks to other users
+      if (dto.ownerId !== undefined && dto.ownerId !== existing.ownerId) {
+        throw new ForbiddenException('Unauthorized: Members cannot reassign tasks.');
+      }
+    }
+
+    // Date & Duration Recalculation (Bug 9): rule: start + duration = due
+    if (dto.startDate !== undefined || dto.dueDate !== undefined || (dto as any).durationDays !== undefined) {
+      let start = dto.startDate !== undefined ? (dto.startDate ? new Date(dto.startDate) : null) : (existing.startDate ? new Date(existing.startDate) : null);
+      let due = dto.dueDate !== undefined ? (dto.dueDate ? new Date(dto.dueDate) : null) : (existing.dueDate ? new Date(existing.dueDate) : null);
+      let durationDays = (dto as any).durationDays !== undefined ? Number((dto as any).durationDays) : null;
+
+      if (start && durationDays !== null && durationDays > 0 && dto.dueDate === undefined) {
+        // start + duration = due
+        due = new Date(start.getTime() + durationDays * 24 * 60 * 60 * 1000);
+        dto.dueDate = due.toISOString();
+      } else if (start && due) {
+        if (due.getTime() < start.getTime()) {
+          throw new BadRequestException('Due date cannot be before start date.');
+        }
+        durationDays = Math.max(1, Math.round((due.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+      } else if (due && !start && durationDays !== null && durationDays > 0) {
+        start = new Date(due.getTime() - durationDays * 24 * 60 * 60 * 1000);
+        dto.startDate = start.toISOString();
+      }
+
+      if (durationDays !== null) {
+        dto.customData = {
+          ...((existing.customData as any) || {}),
+          ...((dto.customData as any) || {}),
+          durationDays,
+        };
+        (dto as any).allocatedHours = durationDays * 8;
+      }
+    }
+
     // Security Guard: Enforce non-negotiable approval authorization rules
     if (
       (dto.approvalStatus === 'approved' || dto.approvalStatus === 'rejected') &&
@@ -2188,6 +2243,61 @@ export class NodesService {
     this.gateway?.broadcastToProject(node.projectId, 'node:blocked', { nodeId: node.id, reason: dto.reason });
     this.gateway?.broadcastToNode(node.id, 'node:updated', updated);
 
+    return updated;
+  }
+
+  async updateChecklist(nodeId: string, actorId: string, checklist: Array<{ id: string; text: string; completed: boolean }>) {
+    const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
+    if (!node || node.deletedAt) throw new NotFoundException('Task not found');
+
+    const membership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
+    });
+    if (membership?.role === Role.MEMBER) {
+      const isOwner = node.ownerId === actorId;
+      const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
+      if (!isOwner && !isCollaborator) {
+        if (this.auditService) {
+          await this.auditService.recordAuditEvent({
+            workspaceId: node.workspaceId,
+            actorId,
+            action: 'SECURITY_VIOLATION',
+            targetType: 'task',
+            targetId: nodeId,
+            reason: `Unauthorized checklist edit attempt on task ${nodeId}`,
+            outcome: 'BLOCKED',
+          });
+        }
+        throw new ForbiddenException('Unauthorized: Members can only update checklists on their own tasks.');
+      }
+    }
+
+    const updated = await this.prisma.node.update({
+      where: { id: nodeId },
+      data: {
+        checklist: checklist as any,
+        version: { increment: 1 },
+      },
+      include: {
+        owner: { select: { id: true, fullName: true, avatarUrl: true } },
+        assignedBy: { select: { id: true, fullName: true, avatarUrl: true } },
+      },
+    });
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId: node.workspaceId,
+        actorId,
+        action: 'TASK_CHECKLIST_UPDATE',
+        targetType: 'task',
+        targetId: nodeId,
+        beforeValues: { checklist: node.checklist },
+        afterValues: { checklist },
+        outcome: 'SUCCESS',
+      });
+    }
+
+    this.gateway?.broadcastToProject(node.projectId, 'node:updated', updated);
     return updated;
   }
 

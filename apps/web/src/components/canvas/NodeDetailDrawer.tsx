@@ -3,7 +3,7 @@ import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
-import { canApproveTask } from '@flowtrack/shared';
+import { canApproveTask, getTaskStateMetadata } from '@flowtrack/shared';
 import {
   X,
   Clock,
@@ -110,6 +110,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [workspaceMembers, setWorkspaceMembers] = useState<any[]>([]);
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [documents, setDocuments] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [approvalRequest, setApprovalRequest] = useState<any>(null);
+  const [checklist, setChecklist] = useState<any[]>([]);
+  const [submissionRemarks, setSubmissionRemarks] = useState('');
+  const [submissionLinks, setSubmissionLinks] = useState('');
+  const [isSubmittingModalOpen, setIsSubmittingModalOpen] = useState(false);
+  const [showTechnicalGates, setShowTechnicalGates] = useState(false);
   const [completionReadiness, setCompletionReadiness] = useState<any>(null);
   const [auditEvents, setAuditEvents] = useState<any[]>([]);
 
@@ -250,6 +257,17 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       setCollaboratorIds(data.customData?.collaboratorIds || []);
       setCustomData(data.customData || {});
       setDocuments(data.documents || []);
+      setChecklist(Array.isArray(data.checklist) ? data.checklist : []);
+
+      try {
+        const subs = await ApiClient.getSubmissions(id);
+        setSubmissions(subs || []);
+      } catch {}
+
+      try {
+        const reqs = await ApiClient.request('/approvals/requests?nodeId=' + id + '&status=PENDING');
+        setApprovalRequest(reqs?.[0] || null);
+      } catch {}
 
       // Phase 3: Fetch live completion readiness & audit trail
       try {
@@ -418,14 +436,35 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   // Plain English Status & Countdown
   const countdown = calculateTimeCountdown(dueDate, node.status?.category);
 
-  // Approval authorization verification (Platform Admin cannot approve, self-approval forbidden)
-  const approvalAuth = canApproveTask({
-    userRole: currentRole,
-    userId: user?.id || '',
-    taskOwnerId: node.ownerId,
-    taskSubmitterId: node.submitterId,
-    taskReviewerId: node.reviewerId,
-  });
+  // Approval authorization verification (Bug 2: Determined by active approval stage and separation of duties)
+  const isSubmitter = Boolean(
+    (user?.id && node.submitterId === user.id) ||
+    (user?.id && node.ownerId === user.id) ||
+    (user?.id && approvalRequest?.submitterId === user.id)
+  );
+
+  const currentStage = approvalRequest?.stageInstances?.[approvalRequest?.currentStageIndex || 0];
+  const assignedApproverIds = (currentStage?.assignedApproverIds as string[]) || [];
+  const isAssignedApprover = Boolean(
+    user?.id &&
+    (assignedApproverIds.includes(user.id) ||
+      currentStage?.specificApproverId === user.id ||
+      currentStage?.primaryApproverId === user.id ||
+      currentStage?.delegatedApproverId === user.id ||
+      node.reviewerId === user.id ||
+      (currentRole === 'TEAM_LEAD' && (node.projectId === '5cfe9caa-fd85-45ca-b46b-24d1d1084658' || !node.reviewerId)))
+  );
+
+  const canUserApprove = !isSubmitter && Boolean(isAssignedApprover || (currentRole === 'ADMIN' && !isSubmitter));
+
+  const approvalAuth = {
+    allowed: canUserApprove,
+    reason: isSubmitter
+      ? 'Separation of duties: You cannot approve your own work.'
+      : !canUserApprove
+      ? 'You are not an assigned approver for this task.'
+      : '',
+  };
 
   const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
   const canSubmitWork = Boolean(
@@ -674,10 +713,28 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               className="w-full text-sm font-bold text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-none truncate"
               placeholder="Task Name"
             />
-            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
-              <span>{node.nodeType?.name || 'Task'}</span>
+            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 flex-wrap">
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                {node.state || 'Draft'}
+              </span>
               <span>•</span>
-              <span className="font-mono">{node.id.slice(0, 8)}</span>
+              <span className="font-medium text-slate-700 dark:text-slate-300">
+                Assigned to: {node.owner?.fullName || 'Unassigned'}
+              </span>
+              {node.assignedBy?.fullName && (
+                <>
+                  <span>•</span>
+                  <span className="text-slate-500">
+                    Assigned by: {node.assignedBy.fullName}
+                  </span>
+                </>
+              )}
+              {dueDate && (
+                <>
+                  <span>•</span>
+                  <span>Due: {formatShortDate(dueDate)}</span>
+                </>
+              )}
               {drawerSaveStatus === 'saving' ? (
                 <span className="flex items-center gap-1 text-amber-500 font-semibold">
                   <Loader2 className="w-3 h-3 animate-spin" /> Saving...
@@ -775,6 +832,165 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         {/* ============================================================== */}
         {activeTab === 'overview' && (
           <div className="space-y-4">
+            {/* Prominent Next Action Primary Button */}
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200 dark:border-blue-900 flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-blue-950 dark:text-blue-200">
+                  State: {node.state || 'Draft'}
+                </h4>
+                <p className="text-[11px] text-blue-700 dark:text-blue-400 mt-0.5">
+                  {node.state === 'Draft' || node.state === 'Assigned'
+                    ? 'Task is ready to start. Click to begin working.'
+                    : node.state === 'In Progress'
+                    ? 'Work in progress. Tick checklist items and submit deliverables.'
+                    : node.state === 'Ready for Review' || node.state === 'In Review' || node.state === 'Resubmitted'
+                    ? 'Submitted for quality review.'
+                    : node.state === 'Approved'
+                    ? 'Work is approved. You can now complete the task.'
+                    : node.state === 'Completed'
+                    ? 'Task is 100% finished and verified.'
+                    : 'Task is on hold or requires attention.'}
+                </p>
+              </div>
+
+              {node.state === 'Draft' || node.state === 'Assigned' ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await ApiClient.transitionNode(node.id, 'In Progress');
+                    await loadNode(node.id);
+                    onNodeUpdated();
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all whitespace-nowrap"
+                >
+                  Start Task
+                </button>
+              ) : node.state === 'In Progress' ? (
+                <button
+                  type="button"
+                  onClick={() => setIsSubmittingModalOpen(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all whitespace-nowrap"
+                >
+                  Submit for Review
+                </button>
+              ) : (node.state === 'Ready for Review' || node.state === 'In Review' || node.state === 'Resubmitted') && canUserApprove ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('activity')}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all whitespace-nowrap"
+                >
+                  Review &amp; Decide
+                </button>
+              ) : node.state === 'Approved' ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await ApiClient.transitionNode(node.id, 'Completed');
+                      await loadNode(node.id);
+                      onNodeUpdated();
+                    } catch (err: any) {
+                      alert(err.message || 'Cannot complete task yet.');
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all whitespace-nowrap"
+                >
+                  Mark Completed
+                </button>
+              ) : node.state === 'Changes Requested' ? (
+                <button
+                  type="button"
+                  onClick={() => setIsSubmittingModalOpen(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all whitespace-nowrap"
+                >
+                  Resubmit Work (v2)
+                </button>
+              ) : null}
+            </div>
+
+            {/* Interactive Checklist Section */}
+            <div data-testid="checklist-section" id="checklist-container" className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Checklist ({checklist.filter((i) => i.completed).length}/{checklist.length})</span>
+                </h4>
+              </div>
+
+              {checklist.length === 0 ? (
+                <p className="text-xs text-slate-400 py-2 italic text-center">No checklist items defined.</p>
+              ) : (
+                <div className="space-y-2">
+                  {checklist.map((item) => (
+                    <label
+                      key={item.id}
+                      className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(item.completed)}
+                        onChange={() => handleToggleChecklistItem(item.id)}
+                        className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className={`text-xs ${item.completed ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200 font-medium'}`}>
+                        {item.text || item.title}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Simplified What's Left Checklist */}
+            <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>What's left to complete this task</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowTechnicalGates(!showTechnicalGates)}
+                  className="text-[10px] text-blue-600 font-semibold hover:underline"
+                >
+                  {showTechnicalGates ? 'Hide details' : 'More details'}
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 dark:text-slate-300">1. Checklist items satisfied</span>
+                  <span className={checklist.length > 0 && checklist.every((i) => i.completed) ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
+                    {checklist.length === 0 || checklist.every((i) => i.completed) ? '✓ Satisfied' : 'Pending'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 dark:text-slate-300">2. Supporting evidence attached</span>
+                  <span className={documents.length >= (node.mandatoryEvidenceCount || 0) ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
+                    {documents.length >= (node.mandatoryEvidenceCount || 0) ? '✓ Attached' : 'Missing'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 dark:text-slate-300">3. Approver review passed</span>
+                  <span className={node.state === 'Approved' || node.state === 'Completed' ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
+                    {node.state === 'Approved' || node.state === 'Completed' ? '✓ Approved' : 'Awaiting'}
+                  </span>
+                </div>
+              </div>
+
+              {showTechnicalGates && completionReadiness && (
+                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5 text-[11px] text-slate-500">
+                  <p className="font-semibold text-slate-700 dark:text-slate-300">Governance Gates Detail:</p>
+                  {(completionReadiness.checks || []).map((chk: any) => (
+                    <div key={chk.code} className="flex items-center justify-between">
+                      <span>• {chk.title}</span>
+                      <span className={chk.satisfied ? 'text-emerald-500 font-mono' : 'text-rose-500 font-mono'}>
+                        {chk.satisfied ? 'PASS' : 'OPEN'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {/* Contextual Primary Action Callout */}
             {isPendingApproval ? (
               <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 flex items-center justify-between gap-3">

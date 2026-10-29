@@ -626,3 +626,124 @@ export function evaluateTaskStateTransition(
     postActions: targetRule.postActions,
   };
 }
+
+export interface TaskLifecycleMetadata {
+  state: TaskLifecycleState | string;
+  label: string;
+  category: string;
+  colour: string;
+  isTerminal: boolean;
+}
+
+export const TASK_LIFECYCLE_METADATA: Record<string, TaskLifecycleMetadata> = {
+  [TASK_LIFECYCLE_STATES.DRAFT]: {
+    state: TASK_LIFECYCLE_STATES.DRAFT,
+    label: 'Draft',
+    category: 'draft',
+    colour: '#64748b',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.ASSIGNED]: {
+    state: TASK_LIFECYCLE_STATES.ASSIGNED,
+    label: 'Assigned',
+    category: 'assigned',
+    colour: '#0284c7',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.ACCEPTED]: {
+    state: TASK_LIFECYCLE_STATES.ACCEPTED,
+    label: 'Accepted',
+    category: 'active',
+    colour: '#0891b2',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.IN_PROGRESS]: {
+    state: TASK_LIFECYCLE_STATES.IN_PROGRESS,
+    label: 'In Progress',
+    category: 'active',
+    colour: '#2563eb',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.BLOCKED]: {
+    state: TASK_LIFECYCLE_STATES.BLOCKED,
+    label: 'Blocked',
+    category: 'blocked',
+    colour: '#e11d48',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.READY_FOR_REVIEW]: {
+    state: TASK_LIFECYCLE_STATES.READY_FOR_REVIEW,
+    label: 'Ready for Review',
+    category: 'review',
+    colour: '#7c3aed',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.IN_REVIEW]: {
+    state: TASK_LIFECYCLE_STATES.IN_REVIEW,
+    label: 'In Review',
+    category: 'review',
+    colour: '#9333ea',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.CHANGES_REQUESTED]: {
+    state: TASK_LIFECYCLE_STATES.CHANGES_REQUESTED,
+    label: 'Changes Requested',
+    category: 'changes_requested',
+    colour: '#d97706',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.RESUBMITTED]: {
+    state: TASK_LIFECYCLE_STATES.RESUBMITTED,
+    label: 'Resubmitted',
+    category: 'review',
+    colour: '#4f46e5',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.APPROVED]: {
+    state: TASK_LIFECYCLE_STATES.APPROVED,
+    label: 'Approved',
+    category: 'approved',
+    colour: '#0d9488',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.COMPLETED]: {
+    state: TASK_LIFECYCLE_STATES.COMPLETED,
+    label: 'Completed',
+    category: 'done',
+    colour: '#16a34a',
+    isTerminal: true,
+  },
+  [TASK_LIFECYCLE_STATES.ON_HOLD]: {
+    state: TASK_LIFECYCLE_STATES.ON_HOLD,
+    label: 'On Hold',
+    category: 'hold',
+    colour: '#71717a',
+    isTerminal: false,
+  },
+  [TASK_LIFECYCLE_STATES.CANCELLED]: {
+    state: TASK_LIFECYCLE_STATES.CANCELLED,
+    label: 'Cancelled',
+    category: 'cancelled',
+    colour: '#78716c',
+    isTerminal: true,
+  },
+  [TASK_LIFECYCLE_STATES.ARCHIVED]: {
+    state: TASK_LIFECYCLE_STATES.ARCHIVED,
+    label: 'Archived',
+    category: 'archived',
+    colour: '#52525b',
+    isTerminal: true,
+  },
+};
+
+export function getTaskStateMetadata(state?: string | null): TaskLifecycleMetadata {
+  if (!state) return TASK_LIFECYCLE_METADATA[TASK_LIFECYCLE_STATES.DRAFT];
+  return TASK_LIFECYCLE_METADATA[state] || {
+    state,
+    label: state,
+    category: 'active',
+    colour: '#3b82f6',
+    isTerminal: false,
+  };
+}
+

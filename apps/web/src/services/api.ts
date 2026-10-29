@@ -343,6 +343,59 @@ export class ApiClient {
     return this.request(`/nodes/${id}`, { method: 'DELETE' });
   }
 
+  static transitionNode(
+    nodeId: string,
+    toState: string,
+    options?: { version?: number; reason?: string; feedback?: string; bypassGuards?: boolean }
+  ) {
+    return this.request(`/nodes/${nodeId}/transition`, {
+      method: 'POST',
+      body: JSON.stringify({ toState, ...options }),
+    });
+  }
+
+  static updateChecklist(
+    nodeId: string,
+    checklist: Array<{ id: string; text: string; completed: boolean }>
+  ) {
+    return this.request(`/nodes/${nodeId}/checklist`, {
+      method: 'PATCH',
+      body: JSON.stringify({ checklist }),
+    });
+  }
+
+  static submitWork(
+    nodeId: string,
+    data: { remarks?: string; summary?: string; links?: string[]; deliverables?: string }
+  ) {
+    return this.request(`/nodes/${nodeId}/submit-work`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  static getSubmissions(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/submissions`);
+  }
+
+  static decideApproval(data: {
+    taskId?: string;
+    requestId?: string;
+    decision: string;
+    reason?: string;
+    comment?: string;
+    feedback?: string;
+  }) {
+    return this.request('/approvals/decide', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  static getCompletionReadiness(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/completion-readiness`);
+  }
+
   static approveTask(nodeId: string, body: { decision: 'approved' | 'rejected'; feedback?: string }) {
     return this.request(`/nodes/${nodeId}/approve`, { method: 'POST', body: JSON.stringify(body) });
   }

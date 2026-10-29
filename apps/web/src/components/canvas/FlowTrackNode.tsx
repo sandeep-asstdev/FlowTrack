@@ -45,7 +45,8 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
   const {
     title,
     description,
-    statusName = 'In Progress',
+    state = 'Draft',
+    statusName = 'Draft',
     statusCategory = 'active',
     statusColour = '#3b82f6',
     progressPct = 0,
@@ -346,7 +347,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
               className="w-1.5 h-1.5 rounded-full shrink-0"
               style={{ backgroundColor: statusColour }}
             />
-            <span className="truncate">{statusName}</span>
+            <span className="truncate">{state || statusName}</span>
           </span>
         </div>
 
@@ -439,27 +440,36 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
       {/* 4. Assignee Displayed Simply with an Avatar and Short Name */}
       <div className="px-3.5 py-1.5 flex items-center justify-between">
         {assignedName ? (
-          <div className="flex items-center gap-1.5 min-w-0">
-            {assignedAvatar ? (
-              <img
-                src={assignedAvatar}
-                alt={assignedName}
-                className="w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center text-[9px] font-bold uppercase shrink-0">
-                {assignedName[0]}
+          <div className="flex items-center justify-between min-w-0 flex-1">
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                {assignedAvatar ? (
+                  <img
+                    src={assignedAvatar}
+                    alt={assignedName}
+                    className="w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-slate-200 dark:ring-slate-700"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center text-[9px] font-bold uppercase shrink-0">
+                    {assignedName[0]}
+                  </div>
+                )}
+                <span
+                  className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[130px]"
+                  title={`Assigned to: ${assignedName}`}
+                >
+                  {assignedName}
+                </span>
               </div>
-            )}
-            <span
-              className="text-xs text-slate-700 dark:text-slate-300 truncate max-w-[130px]"
-              title={assignedName}
-            >
-              {assignedName}
-            </span>
+              {data.assignedBy?.fullName && (
+                <span className="text-[10px] text-slate-400 pl-6.5 truncate" title={`Assigned by: ${data.assignedBy.fullName}`}>
+                  by {data.assignedBy.fullName}
+                </span>
+              )}
+            </div>
             {isLivePresence && (
               <span
-                className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"
+                className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 ml-2"
                 title="Active now"
               />
             )}

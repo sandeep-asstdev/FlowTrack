@@ -74,7 +74,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await ApiClient.login({ email: email.trim(), password });
+      const res = await ApiClient.login({ email: email.trim().toLowerCase(), password });
       setAuth(res.user, res.accessToken, res.activeWorkspaceId, res.workspaces);
       onClose();
     } catch (err: any) {
@@ -402,10 +402,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-1">
-                    Default seed admin:{' '}
-                    <code className="text-blue-600 dark:text-blue-400">admin@flowtrack.dev</code> /{' '}
-                    <code className="text-blue-600 dark:text-blue-400">Password123!</code>
+                  <div className="text-[11px] text-slate-400 mt-2 space-y-1">
+                    <div>
+                      Default admin:{' '}
+                      <button
+                        type="button"
+                        onClick={() => { setEmail('admin@flowtrack.dev'); setPassword('Password123!'); }}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
+                      >
+                        admin@flowtrack.dev
+                      </button>{' '}
+                      / <code className="text-slate-600 dark:text-slate-300">Password123!</code>
+                    </div>
+                    <div>
+                      Demo users (Password: <code className="text-slate-600 dark:text-slate-300">Demo@12345</code>):{' '}
+                      <button
+                        type="button"
+                        onClick={() => { setEmail('maya@acme.dev'); setPassword('Demo@12345'); }}
+                        className="text-blue-600 dark:text-blue-400 font-semibold hover:underline font-mono"
+                      >
+                        maya@acme.dev
+                      </button>
+                      {', '}
+                      <button
+                        type="button"
+                        onClick={() => { setEmail('tom@acme.dev'); setPassword('Demo@12345'); }}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
+                      >
+                        tom
+                      </button>
+                      {', '}
+                      <button
+                        type="button"
+                        onClick={() => { setEmail('mia@acme.dev'); setPassword('Demo@12345'); }}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
+                      >
+                        mia
+                      </button>
+                    </div>
                   </div>
                 </div>
 

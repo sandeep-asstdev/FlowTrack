@@ -30,7 +30,7 @@ import { CriticalPathPanel } from './CriticalPathPanel';
 import { ApiClient } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { getLayoutedElements } from '../../utils/layout';
-import { validateDependencyEdge, calculateCriticalPath, CpmResult } from '@flowtrack/shared';
+import { validateDependencyEdge, calculateCriticalPath, CpmResult, getTaskStateMetadata } from '@flowtrack/shared';
 import {
   getSmartViewportPosition,
   getNonOverlappingPosition,

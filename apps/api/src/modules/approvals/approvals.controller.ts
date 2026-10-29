@@ -98,6 +98,36 @@ export class ApprovalsController {
     return this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId });
   }
 
+  @Post('decide')
+  async decide(
+    @Request() req: any,
+    @Body() body: { taskId?: string; requestId?: string; decision: string; reason?: string; comment?: string; feedback?: string },
+    @Query('workspaceId') workspaceIdQuery?: string
+  ) {
+    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    let targetRequestId = body.requestId;
+    if (!targetRequestId && body.taskId) {
+      const activeReq = await this.approvalsService.findActiveRequestForTask(body.taskId, workspaceId);
+      if (activeReq) {
+        targetRequestId = activeReq.id;
+      }
+    }
+    const comment = body.reason || body.comment || body.feedback || '';
+    if (!targetRequestId) {
+      if (body.taskId) {
+        return this.approvalsService.submitTaskDirectDecision(body.taskId, workspaceId, req.user.id, {
+          decision: body.decision as any,
+          comment,
+        });
+      }
+      throw new BadRequestException('Either requestId or taskId is required');
+    }
+    return this.approvalsService.submitDecision(targetRequestId, workspaceId, req.user.id, {
+      decision: body.decision as any,
+      comment,
+    });
+  }
+
   @Post('requests/:id/decide')
   async submitDecision(
     @Param('id') id: string,

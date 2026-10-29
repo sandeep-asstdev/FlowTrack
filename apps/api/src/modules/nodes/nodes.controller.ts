@@ -127,6 +127,25 @@ export class NodesController {
     return this.lifecycleService.transitionNode(id, req.user?.id, body.toState, body);
   }
 
+  @Patch(':id/checklist')
+  updateChecklist(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: any
+  ) {
+    const list = Array.isArray(body) ? body : (body.checklist || []);
+    return this.nodesService.updateChecklist(id, req.user?.id, list);
+  }
+
+  @Post(':id/submit-work')
+  submitWork(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: any
+  ) {
+    return this.lifecycleService.createSubmission(id, req.user?.id, body);
+  }
+
   @Post(':id/submissions')
   createSubmission(
     @Req() req: any,

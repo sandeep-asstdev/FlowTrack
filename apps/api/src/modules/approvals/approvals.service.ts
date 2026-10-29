@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthorizationService } from '../auth/authorization.service';
@@ -634,6 +635,85 @@ export class ApprovalsService {
   /**
    * Authorizes delegation of approval authority for a stage instance.
    */
+  async findActiveRequestForTask(taskId: string, workspaceId: string) {
+    return this.prisma.approvalRequest.findFirst({
+      where: { nodeId: taskId, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      include: { stageInstances: { orderBy: { stageOrder: 'asc' } } },
+    });
+  }
+
+  async submitTaskDirectDecision(
+    taskId: string,
+    workspaceId: string,
+    actorId: string,
+    dto: { decision: string; comment?: string }
+  ) {
+    const node = await this.prisma.node.findUnique({
+      where: { id: taskId },
+      include: { project: true },
+    });
+    if (!node || node.deletedAt) throw new NotFoundException('Task not found');
+
+    if (node.submitterId === actorId || node.ownerId === actorId) {
+      throw new ForbiddenException('Separation of duties violation: Submitter cannot approve their own submission.');
+    }
+
+    if (
+      (dto.decision === APPROVAL_OUTCOMES.REJECTED || dto.decision === APPROVAL_OUTCOMES.CHANGES_REQUESTED) &&
+      (!dto.comment || !dto.comment.trim())
+    ) {
+      throw new BadRequestException(`A valid reason or comment is required when decision is "${dto.decision}".`);
+    }
+
+    const membership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
+    });
+    const isLeadOrManager = membership?.role === Role.ADMIN || membership?.role === Role.MANAGER || membership?.role === Role.TEAM_LEAD;
+    if (!isLeadOrManager) {
+      throw new ForbiddenException('Unauthorized: You are not authorized to make decisions on this task.');
+    }
+
+    let targetState: string = TASK_LIFECYCLE_STATES.APPROVED;
+    let approvalStatus = 'approved';
+    if (dto.decision === APPROVAL_OUTCOMES.CHANGES_REQUESTED) {
+      targetState = TASK_LIFECYCLE_STATES.CHANGES_REQUESTED;
+      approvalStatus = 'changes_requested';
+    } else if (dto.decision === APPROVAL_OUTCOMES.REJECTED) {
+      targetState = TASK_LIFECYCLE_STATES.BLOCKED;
+      approvalStatus = 'rejected';
+    }
+
+    const updated = await this.prisma.node.update({
+      where: { id: taskId },
+      data: {
+        state: targetState,
+        approvalStatus,
+        approvalFeedback: dto.comment,
+        ...(dto.decision === APPROVAL_OUTCOMES.APPROVED && { approvedAt: new Date() }),
+        version: { increment: 1 },
+      },
+      include: {
+        owner: { select: { id: true, fullName: true, avatarUrl: true } },
+        assignedBy: { select: { id: true, fullName: true, avatarUrl: true } },
+      },
+    });
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId: node.workspaceId,
+        actorId,
+        action: 'TASK_APPROVAL_DECISION',
+        targetType: 'task',
+        targetId: taskId,
+        reason: dto.comment,
+        outcome: dto.decision,
+      });
+    }
+
+    return { requestStatus: dto.decision, node: updated };
+  }
+
   async delegateApproval(
     requestId: string,
     workspaceId: string,

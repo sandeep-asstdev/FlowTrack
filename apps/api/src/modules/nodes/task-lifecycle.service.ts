@@ -376,13 +376,27 @@ export class TaskLifecycleService {
     });
     const nextVersion = latest ? latest.version + 1 : 1;
 
+    const remarkBody = (dto as any).remarks || (dto as any).notes || dto.summary;
+    if (remarkBody) {
+      const links = (dto as any).links;
+      const linksText = Array.isArray(links) && links.length ? `\n\n**Links**:\n${links.map((l) => `• ${l}`).join('\n')}` : '';
+      await this.prisma.remark.create({
+        data: {
+          workspaceId: node.workspaceId,
+          nodeId: node.id,
+          authorId: actorId,
+          body: `📝 **Work Submission (v${nextVersion})**:\n${remarkBody}${linksText}`,
+        },
+      }).catch(() => null);
+    }
+
     const submission = await this.prisma.workSubmission.create({
       data: {
         workspaceId: node.workspaceId,
         nodeId,
         version: nextVersion,
         submitterId: actorId,
-        summary: dto.summary || null,
+        summary: dto.summary || (dto as any).remarks || (dto as any).notes || null,
         deliverables: dto.deliverables || null,
         customData: dto.customData || {},
         metadata: dto.metadata || {},

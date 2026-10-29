@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleAuthService } from './google-auth.service';
 import { AuthorizationService } from './authorization.service';
+import { AutoBootstrapService } from './auto-bootstrap.service';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { AuthorizationService } from './authorization.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleAuthService, AuthorizationService],
-  exports: [AuthService, GoogleAuthService, AuthorizationService, JwtModule, PassportModule],
+  providers: [AuthService, JwtStrategy, GoogleAuthService, AuthorizationService, AutoBootstrapService],
+  exports: [AuthService, GoogleAuthService, AuthorizationService, AutoBootstrapService, JwtModule, PassportModule],
 })
 export class AuthModule {}

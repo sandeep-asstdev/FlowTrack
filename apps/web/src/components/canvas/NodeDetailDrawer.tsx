@@ -42,8 +42,20 @@ import {
   AlertCircle,
   ExternalLink,
   Zap,
+  CheckSquare,
 } from 'lucide-react';
 import { getRolePermissions } from '../../utils/permissions';
+
+const formatShortDate = (dateStr?: string) => {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
 
 interface NodeDetailDrawerProps {
   nodeId: string | null;
@@ -133,6 +145,21 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   // Subtasks / Checklist
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [creatingSubtask, setCreatingSubtask] = useState(false);
+
+  const handleToggleChecklistItem = async (itemId: string) => {
+    if (!nodeId) return;
+    const nextChecklist = checklist.map((item) =>
+      item.id === itemId ? { ...item, completed: !item.completed } : item
+    );
+    setChecklist(nextChecklist);
+    try {
+      await ApiClient.updateChecklist(nodeId, nextChecklist);
+      onNodeUpdated?.();
+    } catch (err: any) {
+      console.error('Failed to update checklist:', err);
+      setChecklist(checklist);
+    }
+  };
 
   // Work Submission
   const [submissionNotes, setSubmissionNotes] = useState('');
@@ -265,7 +292,10 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       } catch {}
 
       try {
-        const reqs = await ApiClient.request('/approvals/requests?nodeId=' + id + '&status=PENDING');
+        const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
+        const reqs = await ApiClient.request(
+          `/approvals/requests?nodeId=${id}&status=PENDING${wsId ? `&workspaceId=${wsId}` : ''}`
+        );
         setApprovalRequest(reqs?.[0] || null);
       } catch {}
 

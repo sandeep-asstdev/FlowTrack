@@ -40,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       ...safeUser,
       activeWorkspaceId: payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId,
+      workspaceId: payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId,
     };
   }
 }

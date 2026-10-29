@@ -86,6 +86,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
     onLike,
     onToggleLock,
     onAssignNode,
+    assignedBy,
   } = data as any;
 
   const cpm = (data as any)?.cpm;
@@ -461,9 +462,9 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
                   {assignedName}
                 </span>
               </div>
-              {data.assignedBy?.fullName && (
-                <span className="text-[10px] text-slate-400 pl-6.5 truncate" title={`Assigned by: ${data.assignedBy.fullName}`}>
-                  by {data.assignedBy.fullName}
+              {assignedBy?.fullName && (
+                <span className="text-[10px] text-slate-400 pl-6.5 truncate" title={`Assigned by: ${assignedBy.fullName}`}>
+                  by {assignedBy.fullName}
                 </span>
               )}
             </div>

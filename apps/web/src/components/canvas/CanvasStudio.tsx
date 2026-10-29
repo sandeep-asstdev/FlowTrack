@@ -1152,7 +1152,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               },
             });
           } catch (e) {
-            console.warn('Failed to persist canvas viewport to project settings:', e);
+            const err = e as any; if (err?.status !== 403 && !err?.message?.includes('403') && !err?.message?.includes('Unauthorized')) { console.warn('Failed to persist canvas viewport to project settings:', e); }
           }
         }, 1000);
       }
@@ -2099,7 +2099,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             project={project}
             onSelectNode={(id) => {
               setSelectedNodeId(id);
-              setIsDrawerOpen(true);
             }}
             onAddNode={() => {
               setTaskName('');

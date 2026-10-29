@@ -776,7 +776,7 @@ export class NodesService {
             outcome: 'BLOCKED',
           });
         }
-        throw new ForbiddenException('Unauthorized: Members can only edit tasks they are assigned to or collaborating on.');
+        throw new ForbiddenException('Forbidden: You can only update tasks assigned to you or collaborating on.');
       }
 
       // Members cannot reassign tasks to other users

@@ -24,7 +24,7 @@ export class ApprovalsController {
     @Body() dto: CreateApprovalPolicyDto,
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.createPolicy(workspaceId, req.user.id, dto);
   }
@@ -36,7 +36,7 @@ export class ApprovalsController {
     @Body() dto: CreateApprovalPolicyDto,
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.updatePolicy(id, workspaceId, req.user.id, dto);
   }
@@ -47,7 +47,7 @@ export class ApprovalsController {
     @Request() req: any,
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.getPolicy(id, workspaceId);
   }
@@ -58,7 +58,7 @@ export class ApprovalsController {
     @Query('workspaceId') workspaceIdQuery?: string,
     @Query('operationType') operationType?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.listPolicies(workspaceId, operationType);
   }
@@ -69,7 +69,7 @@ export class ApprovalsController {
     @Body() dto: CreateApprovalRequestDto,
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.createApprovalRequest(workspaceId, req.user.id, dto);
   }
@@ -80,7 +80,7 @@ export class ApprovalsController {
     @Request() req: any,
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.getApprovalRequest(id, workspaceId);
   }
@@ -93,7 +93,7 @@ export class ApprovalsController {
     @Query('nodeId') nodeId?: string,
     @Query('projectId') projectId?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId });
   }
@@ -104,7 +104,7 @@ export class ApprovalsController {
     @Body() body: { taskId?: string; requestId?: string; decision: string; reason?: string; comment?: string; feedback?: string },
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     let targetRequestId = body.requestId;
     if (!targetRequestId && body.taskId) {
       const activeReq = await this.approvalsService.findActiveRequestForTask(body.taskId, workspaceId);
@@ -135,7 +135,7 @@ export class ApprovalsController {
     @Body() dto: SubmitDecisionDto,
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.submitDecision(id, workspaceId, req.user.id, dto);
   }
@@ -147,7 +147,7 @@ export class ApprovalsController {
     @Body() body: { delegateUserId: string; reason?: string },
     @Query('workspaceId') workspaceIdQuery?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.user.workspaceId;
+    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     if (!body.delegateUserId) throw new BadRequestException('delegateUserId is required');
     return this.approvalsService.delegateApproval(id, workspaceId, req.user.id, body.delegateUserId, body.reason);

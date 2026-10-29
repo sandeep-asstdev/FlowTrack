@@ -377,7 +377,7 @@ export class TaskLifecycleService {
     const nextVersion = latest ? latest.version + 1 : 1;
 
     const remarkBody = (dto as any).remarks || (dto as any).notes || dto.summary;
-    if (remarkBody) {
+    if (remarkBody && this.prisma.remark?.create) {
       const links = (dto as any).links;
       const linksText = Array.isArray(links) && links.length ? `\n\n**Links**:\n${links.map((l) => `• ${l}`).join('\n')}` : '';
       await this.prisma.remark.create({

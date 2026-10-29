@@ -203,8 +203,11 @@ export class ApiClient {
     return this.request(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) });
   }
 
-  static deleteProject(projectId: string) {
-    return this.request(`/projects/${projectId}`, { method: 'DELETE' });
+  static deleteProject(projectId: string, options?: { reason?: string; force?: boolean }) {
+    return this.request(`/projects/${projectId}`, {
+      method: 'DELETE',
+      body: options ? JSON.stringify(options) : undefined,
+    });
   }
 
   static cloneProject(projectId: string, body?: any) {
@@ -647,11 +650,13 @@ export class ApiClient {
   }
 
   static getNodeAuditEvents(nodeId: string) {
-    return this.request(`/audit/events?targetId=${nodeId}`);
+    const wsId = this.getActiveWorkspaceId();
+    return this.request(`/audit/events?targetId=${nodeId}${wsId ? `&workspaceId=${wsId}` : ''}`);
   }
 
   static getProjectAuditEvents(projectId: string) {
-    return this.request(`/audit/events?targetId=${projectId}`);
+    const wsId = this.getActiveWorkspaceId();
+    return this.request(`/audit/events?targetId=${projectId}${wsId ? `&workspaceId=${wsId}` : ''}`);
   }
 
   static reassignUserWork(userId: string, successorUserId: string) {

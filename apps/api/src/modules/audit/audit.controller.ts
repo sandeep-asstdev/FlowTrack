@@ -22,7 +22,7 @@ export class AuditController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
-    const wsId = workspaceId || req.user?.workspaceId;
+    const wsId = workspaceId || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!wsId) {
       throw new BadRequestException('workspaceId is required');
     }
@@ -50,7 +50,7 @@ export class AuditController {
     @Query('targetType') targetType?: string,
     @Query('outcome') outcome?: string
   ) {
-    const wsId = workspaceId || req.user?.workspaceId;
+    const wsId = workspaceId || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
     if (!wsId) {
       throw new BadRequestException('workspaceId is required');
     }

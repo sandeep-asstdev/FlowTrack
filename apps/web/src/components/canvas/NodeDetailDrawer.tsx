@@ -67,7 +67,7 @@ interface NodeDetailDrawerProps {
   availableNodeTypes?: any[];
 }
 
-type TabKey = 'overview' | 'work' | 'activity';
+type TabKey = 'details' | 'work' | 'approvals' | 'history' | 'overview' | 'activity';
 
 export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   nodeId,
@@ -502,7 +502,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     (node.ownerId === user.id || !node.ownerId || currentRole === 'TEAM_LEAD' || currentRole === 'MANAGER' || currentRole === 'ADMIN')
   );
   const isPendingApproval = node.approvalStatus === 'pending' || node.status?.category === 'pending';
-  const isApproved = node.approvalStatus === 'approved' || node.status?.category === 'done';
+  const isApproved = (node.state === 'Completed' || node.state === 'Approved') && node.state !== 'Draft' && node.state !== 'In Progress' && node.state !== 'UnderReview';
   const isRejected = node.approvalStatus === 'rejected';
   const isApprovalRequired = Boolean(
     node.approvalStatus === 'pending' ||
@@ -723,14 +723,14 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   return (
     <div
       id="node-detail-drawer"
-      className={`fixed inset-y-0 right-0 ${
-        isExpanded ? 'w-full sm:w-[760px]' : 'w-full sm:w-[520px]'
-      } bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 flex flex-col pt-safe pb-safe transition-all duration-200 animate-in slide-in-from-right`}
+      className={`fixed inset-y-0 right-0 z-50 flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl transition-all duration-200 animate-in slide-in-from-right w-full ${
+        isExpanded ? 'sm:w-[760px]' : 'sm:w-[520px]'
+      } pt-safe pb-safe`}
     >
-      {/* 1. TOP HEADER (Always Visible) */}
-      <div className="h-16 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-5 flex items-center justify-between bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 mr-2 sm:mr-3">
-          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+      {/* 1. TOP HEADER (Sticky, Clean, Never Cut Off by Mobile Browser Bars) */}
+      <div className="min-h-16 border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-5 flex items-start justify-between bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shrink-0 gap-3">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
             <FileText className="w-4 h-4" />
           </div>
           <div className="min-w-0 flex-1">
@@ -740,48 +740,34 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               onChange={(e) => setTitle(e.target.value)}
               onBlur={() => saveNodeUpdates({ title })}
               disabled={!permissions.canEditProject}
-              className="w-full text-sm font-bold text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-none truncate"
+              className="w-full text-sm font-bold text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-none line-clamp-2"
               placeholder="Task Name"
             />
-            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 flex-wrap">
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400 flex-wrap">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 shrink-0">
                 {node.state || 'Draft'}
               </span>
               <span>•</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">
-                Assigned to: {node.owner?.fullName || 'Unassigned'}
+              <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[130px]">
+                {node.owner?.fullName || 'Unassigned'}
               </span>
-              {node.assignedBy?.fullName && (
-                <>
-                  <span>•</span>
-                  <span className="text-slate-500">
-                    Assigned by: {node.assignedBy.fullName}
-                  </span>
-                </>
-              )}
               {dueDate && (
                 <>
                   <span>•</span>
                   <span>Due: {formatShortDate(dueDate)}</span>
                 </>
               )}
-              {drawerSaveStatus === 'saving' ? (
-                <span className="flex items-center gap-1 text-amber-500 font-semibold">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Saving...
+              {drawerSaveStatus === 'saving' && (
+                <span className="flex items-center gap-1 text-amber-500 font-semibold text-[10px] ml-1">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> Saving...
                 </span>
-              ) : drawerSaveStatus === 'saved' ? (
-                <span className="text-emerald-500 font-semibold flex items-center gap-1">
-                  <Check className="w-3 h-3" /> Saved
-                </span>
-              ) : (
-                <span className="text-rose-500 font-semibold">Save failed</span>
               )}
             </div>
           </div>
         </div>
 
         {/* Header Right Actions */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 mt-0.5">
           {/* Expand / Minimize Width Toggle (desktop / tablet) */}
           <button
             onClick={() => setIsExpanded(!isExpanded)}
@@ -794,6 +780,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
           {/* Close Button */}
           <button
+            id="drawer-close-btn"
             onClick={onClose}
             className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             title="Close (Esc)"
@@ -804,47 +791,50 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         </div>
       </div>
 
-      {/* 2. THE THREE CLEAN TABS NAVIGATION */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 px-2 sm:px-4 shrink-0 overflow-x-auto touch-pan-x">
+      {/* 2. THE 4 SHORT TABS NAVIGATION */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 px-2 sm:px-4 shrink-0 overflow-x-auto no-scrollbar touch-pan-x">
         <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] shrink-0 ${
-            activeTab === 'overview'
+          id="tab-details"
+          onClick={() => setActiveTab('details')}
+          className={`flex-1 py-3 px-2 sm:px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-all min-h-[44px] shrink-0 ${
+            activeTab === 'details' || activeTab === 'overview'
               ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <FileText className="w-3.5 h-3.5 shrink-0" />
-          <span>Overview</span>
+          <span>Details</span>
         </button>
 
         <button
+          id="tab-work"
           onClick={() => setActiveTab('work')}
-          className={`flex-1 py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] shrink-0 ${
+          className={`flex-1 py-3 px-2 sm:px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-all min-h-[44px] shrink-0 ${
             activeTab === 'work'
               ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <Paperclip className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">Work &amp; Evidence</span>
+          <span>Work</span>
           {(documents.length > 0 || (node.children?.length || 0) > 0) && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
               {documents.length + (node.children?.length || 0)}
             </span>
           )}
         </button>
 
         <button
-          onClick={() => setActiveTab('activity')}
-          className={`flex-1 py-3 px-2 sm:px-3 text-[11px] sm:text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 sm:gap-2 transition-all min-h-[44px] shrink-0 ${
-            activeTab === 'activity'
+          id="tab-approvals"
+          onClick={() => setActiveTab('approvals')}
+          className={`flex-1 py-3 px-2 sm:px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-all min-h-[44px] shrink-0 ${
+            activeTab === 'approvals' || activeTab === 'activity'
               ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">Approvals &amp; History</span>
+          <span>Approvals</span>
           {isPendingApproval ? (
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
           ) : isApproved ? (
@@ -853,6 +843,19 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
           ) : null}
         </button>
+
+        <button
+          id="tab-history"
+          onClick={() => setActiveTab('history')}
+          className={`flex-1 py-3 px-2 sm:px-3 text-xs font-bold border-b-2 flex items-center justify-center gap-1.5 transition-all min-h-[44px] shrink-0 ${
+            activeTab === 'history'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <History className="w-3.5 h-3.5 shrink-0" />
+          <span>History</span>
+        </button>
       </div>
 
       {/* 3. TAB CONTENT BODY */}
@@ -860,7 +863,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         {/* ============================================================== */}
         {/* TAB 1: OVERVIEW                                                */}
         {/* ============================================================== */}
-        {activeTab === 'overview' && (
+        {(activeTab === 'overview' || activeTab === 'details') && (
           <div className="space-y-4">
             {/* Prominent Next Action Primary Button */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200 dark:border-blue-900 flex items-center justify-between gap-3">
@@ -989,8 +992,8 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-600 dark:text-slate-300">1. Checklist items satisfied</span>
-                  <span className={checklist.length > 0 && checklist.every((i) => i.completed) ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
-                    {checklist.length === 0 || checklist.every((i) => i.completed) ? '✓ Satisfied' : 'Pending'}
+                  <span className={checklist.length > 0 && checklist.every((i) => i.completed) ? 'text-emerald-600 font-bold' : checklist.length === 0 ? 'text-slate-500' : 'text-amber-600'}>
+                    {checklist.length === 0 ? 'No checklist required' : checklist.every((i) => i.completed) ? '✓ Satisfied' : 'Pending'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1105,54 +1108,46 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
             )}
 
-            {/* Essential Task Controls: Status & Priority */}
+            {/* Unified Task State & Priority */}
             <div className="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
               <div>
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                  Status
+                  State
                 </label>
-                <select
-                  value={statusId || node.statusId || ''}
-                  onChange={(e) => {
-                    const nextStatusId = e.target.value;
-                    setStatusId(nextStatusId);
-                    saveNodeUpdates({ statusId: nextStatusId });
-                  }}
-                  disabled={!permissions.canEditProject}
-                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                >
-                  {statusId && !statusOptions.some((s: any) => s.id === statusId) && (
-                    <option value={statusId}>
-                      {node.status?.labelI18n?.en || node.status?.name || node.status?.key || 'Current Status'}
-                    </option>
-                  )}
-                  {statusOptions.map((s: any) => (
-                    <option key={s.id} value={s.id}>
-                      {s.labelI18n?.en || s.name || s.key}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 min-h-[38px]">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    {node.state || 'Draft'}
+                  </span>
+                </div>
               </div>
 
               <div>
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                   Priority
                 </label>
-                <select
-                  value={priority}
-                  onChange={(e) => {
-                    const nextPriority = e.target.value;
-                    setPriority(nextPriority);
-                    saveNodeUpdates({ priority: nextPriority });
-                  }}
-                  disabled={!permissions.canEditProject}
-                  className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="LOW">Low</option>
-                  <option value="MEDIUM">Medium</option>
-                  <option value="HIGH">High</option>
-                  <option value="URGENT">Urgent</option>
-                </select>
+                {permissions.canEditProject ? (
+                  <select
+                    value={priority}
+                    onChange={(e) => {
+                      const nextPriority = e.target.value;
+                      setPriority(nextPriority);
+                      saveNodeUpdates({ priority: nextPriority });
+                    }}
+                    className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                    <option value="URGENT">Urgent</option>
+                  </select>
+                ) : (
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 min-h-[38px]">
+                    <span className="text-xs font-semibold text-slate-900 dark:text-white capitalize">
+                      {priority?.toLowerCase() || 'Medium'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2039,7 +2034,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         {/* ============================================================== */}
         {/* TAB 3: ACTIVITY & APPROVALS                                    */}
         {/* ============================================================== */}
-        {activeTab === 'activity' && (
+        {(activeTab === 'activity' || activeTab === 'approvals') && (
           <div className="space-y-5">
             {/* Approval Decision Card (Only shown when approval is required or requested) */}
             {isApprovalRequired || isPendingApproval || isApproved || isRejected ? (
@@ -2197,6 +2192,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
             )}
 
+            </div>
+        )}
+
+        {/* TAB 4: AUDIT HISTORY */}
+        {(activeTab === 'activity' || activeTab === 'history') && (
+          <div className="space-y-4">
             {/* Audit Trail & Activity Log */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
               <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -2232,6 +2233,88 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               )}
             </div>
           </div>
+        )}
+      </div>
+
+      {/* 4. STICKY BOTTOM ACTION BAR (Mobile-First) */}
+      <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3 px-4 shrink-0 pb-safe z-10 flex items-center justify-between gap-3">
+        <div className="text-xs min-w-0 flex-1">
+          <span className="font-semibold text-slate-500 block truncate">Current Status:</span>
+          <span className="font-bold text-slate-900 dark:text-white truncate block">{node.state || 'Draft'}</span>
+        </div>
+
+        {node.state === 'Draft' || node.state === 'Assigned' ? (
+          <button
+            id="mobile-drawer-primary-action"
+            type="button"
+            onClick={async () => {
+              await ApiClient.transitionNode(node.id, 'In Progress');
+              await loadNode(node.id);
+              onNodeUpdated();
+            }}
+            className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+          >
+            Start Task
+          </button>
+        ) : node.state === 'In Progress' ? (
+          <button
+            id="mobile-drawer-primary-action"
+            type="button"
+            onClick={() => setIsSubmittingModalOpen(true)}
+            className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+          >
+            Submit for Review
+          </button>
+        ) : node.state === 'UnderReview' || node.state === 'Ready for Review' || node.state === 'In Review' ? (
+          approvalAuth.allowed ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleRejectWork}
+                className="px-3 py-2.5 min-h-[44px] bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+              >
+                Request Changes
+              </button>
+              <button
+                id="mobile-drawer-primary-action"
+                type="button"
+                onClick={handleApproveWork}
+                className="px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+              >
+                Approve Task
+              </button>
+            </div>
+          ) : (
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold italic">
+              Awaiting Approver Review
+            </span>
+          )
+        ) : node.state === 'ChangesRequested' ? (
+          <button
+            id="mobile-drawer-primary-action"
+            type="button"
+            onClick={() => setIsSubmittingModalOpen(true)}
+            className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+          >
+            Resubmit for Review
+          </button>
+        ) : node.state === 'Approved' ? (
+          <button
+            id="mobile-drawer-primary-action"
+            type="button"
+            onClick={async () => {
+              await ApiClient.transitionNode(node.id, 'Completed');
+              await loadNode(node.id);
+              onNodeUpdated();
+            }}
+            className="px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+          >
+            Complete Task
+          </button>
+        ) : (
+          <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+            <CheckCircle2 className="w-4 h-4" /> Completed
+          </span>
         )}
       </div>
 

@@ -172,3 +172,33 @@ textarea:focus-visible,
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+
+/* Hide scrollbar for clean horizontal tab rows & chips */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Prevent auto-zoom on iOS Safari when tapping inputs */
+@media (max-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Dynamic Viewport Heights */
+.h-dvh {
+  height: 100dvh;
+}
+.min-h-dvh {
+  min-height: 100dvh;
+}
+.max-h-dvh {
+  max-height: 100dvh;
+}

@@ -33,6 +33,13 @@ test.describe('D. Workflow Canvas & Interactive Graph', () => {
     await expect(addTaskBtn).toBeVisible({ timeout: 8000 });
     await addTaskBtn.click();
 
+    // If Create Task modal opens, fill out title and submit
+    const titleInput = page.locator('#task-title-input');
+    if (await titleInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await titleInput.fill('New Canvas Task');
+      await page.locator('#create-task-submit-btn').click();
+    }
+
     // Verify a new task node is placed on the canvas
     await expect(page.locator('.react-flow__node').filter({ hasText: /task/i }).first()).toBeVisible({ timeout: 10000 });
   });

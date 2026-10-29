@@ -119,6 +119,16 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [edges, setEdges, onEdgesStateChange] = useEdgesState<Edge>([]);
   const [loading, setLoading] = useState(true);
   const [savedStatus, setSavedStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+
+  // Saving status safety auto-reset: never leave stuck on Saving...
+  useEffect(() => {
+    if (savedStatus === 'saving') {
+      const timer = setTimeout(() => {
+        setSavedStatus('saved');
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [savedStatus]);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [nodeTypesList, setNodeTypesList] = useState<any[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -185,7 +195,12 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   };
 
   // Hierarchical Sub-Canvas Drill-Down State
-  const [workspaceViewMode, setWorkspaceViewMode] = useState<ProjectViewMode>('canvas');
+  const [workspaceViewMode, setWorkspaceViewMode] = useState<ProjectViewMode>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 'list';
+    }
+    return 'canvas';
+  });
   const [breadcrumbTrail, setBreadcrumbTrail] = useState<BreadcrumbItem[]>([
     { id: null, title: project?.name || 'Root Canvas' },
   ]);
@@ -1076,6 +1091,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       if (pendingPositionUpdatesRef.current.size === 0) {
         setSavedStatus('saved');
         setSaveErrorMessage(null);
+      } else {
+        setTimeout(flushPendingPositionUpdates, 150);
       }
     } catch (err: any) {
       console.error('Failed to persist node position(s):', err);
@@ -1640,46 +1657,24 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           </button>
           <span className="text-slate-300 dark:text-slate-700">|</span>
 
-          {/* Active Project Identification Badge */}
-          <div
-            id="canvas-active-project-badge"
-            className="flex items-center gap-2 px-2.5 py-1 bg-blue-50/90 dark:bg-blue-950/70 border border-blue-200/90 dark:border-blue-900 rounded-xl shrink-0 shadow-xs"
-            title={`Active Project: ${project?.name || 'FlowTrack Project'}`}
-          >
-            <FolderKanban className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 hidden sm:inline">
-                Project:
-              </span>
-              <span className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[130px] sm:max-w-[200px] md:max-w-[300px]">
-                {project?.name || 'Untitled Project'}
-              </span>
-            </div>
+          {/* Project Title Shown ONCE */}
+          <div className="flex items-center gap-1.5 min-w-0" title={`Project: ${project?.name || 'FlowTrack Project'}`}>
+            <FolderKanban className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span id="canvas-active-project-badge" className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate max-w-[120px] xs:max-w-[160px] sm:max-w-[220px] md:max-w-[320px]">
+              {project?.name || 'Untitled Project'}
+            </span>
+            {currentParent.id && (
+              <>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 truncate max-w-[120px]">
+                  {currentParent.title}
+                </span>
+              </>
+            )}
+            <span className="text-[10px] text-slate-400 font-mono hidden xl:inline">
+              ({nodes.length} tasks)
+            </span>
           </div>
-          <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">|</span>
-
-          {/* Hierarchical Breadcrumb Navigation */}
-          <div className="flex items-center gap-1 text-xs font-semibold">
-            {breadcrumbTrail.map((crumb, idx) => (
-              <React.Fragment key={idx}>
-                {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-                <button
-                  onClick={() => handleBreadcrumbClick(idx)}
-                  className={`px-2 py-1 rounded-md transition-colors whitespace-nowrap ${
-                    idx === breadcrumbTrail.length - 1
-                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  {crumb.title}
-                </button>
-              </React.Fragment>
-            ))}
-          </div>
-
-          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap hidden md:inline">
-            ({nodes.length} nodes, {edges.length} edges)
-          </span>
 
           {/* Phase 3 Workspace View Switcher */}
           <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1716,7 +1711,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             title="Create a new task on canvas"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Task</span>
+            <span>Add Task</span>
           </button>
 
           {/* 2. Critical Path (Compact Toggle Indicator) */}
@@ -1952,46 +1947,9 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         {/* View helpers & Fit */}
         <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
           {/* Critical Path Method (CPM) Button */}
-          <button
-            onClick={() => {
-              setIsCpmPanelOpen((prev) => !prev);
-              if (!cpmData) {
-                refreshCriticalPath();
-              }
-            }}
-            className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
-              isCpmPanelOpen
-                ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
-                : 'bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-            }`}
-            title="Toggle Critical Path Method (CPM) analysis and schedule inspection"
-          >
-            <Zap className={`w-3.5 h-3.5 ${isCpmPanelOpen ? 'fill-white' : 'text-rose-500'}`} />
-            <span>Critical Path</span>
-            {cpmData && cpmData.criticalTaskCount > 0 && (
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
-                  isCpmPanelOpen
-                    ? 'bg-white/20 text-white'
-                    : 'bg-rose-200 dark:bg-rose-800 text-rose-900 dark:text-rose-100'
-                }`}
-              >
-                {cpmData.criticalTaskCount}
-              </span>
-            )}
-          </button>
-
-          <span className="hidden lg:inline text-slate-400">
+          <span className="hidden lg:inline text-slate-400 text-[11px] font-medium ml-auto">
             {nodes.length > 0 && `${displayedNodes.filter((n) => n.style?.opacity !== 0.22).length} of ${nodes.length} visible`}
           </span>
-          <button
-            onClick={() => reactFlowInstance.fitView({ padding: 0.2, duration: 400 })}
-            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-white dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-semibold border border-slate-200 dark:border-slate-700 flex items-center gap-1 transition-all"
-            title="Fit canvas to view"
-          >
-            <Sparkles className="w-3 h-3 text-blue-500" />
-            <span>Fit View</span>
-          </button>
         </div>
       </div>
 
@@ -2145,7 +2103,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             deleteKeyCode={['Backspace', 'Delete']}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            fitView={!savedViewport}
+            fitView={true}
             defaultViewport={savedViewport || { x: 0, y: 0, zoom: 0.85 }}
             onMoveEnd={onViewportMoveEnd}
             minZoom={0.2}

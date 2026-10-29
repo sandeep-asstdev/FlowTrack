@@ -186,6 +186,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               Cancel
             </button>
             <button
+              id="launch-canvas-btn"
               type="submit"
               disabled={loading || !name.trim()}
               className="px-5 py-2.5 min-h-[44px] rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"

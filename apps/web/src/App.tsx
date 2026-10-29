@@ -216,7 +216,7 @@ export function App() {
         projectName={selectedProject?.name}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 max-w-full">
+      <main className="flex-1 flex flex-col min-w-0 max-w-full pb-16 md:pb-0">
         {/* Route Error Guard (404, 403, 401) */}
         {routeError ? (
           <div className="flex-1 flex items-center justify-center p-3 sm:p-6">

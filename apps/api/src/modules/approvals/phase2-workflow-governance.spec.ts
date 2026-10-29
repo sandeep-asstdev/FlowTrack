@@ -705,9 +705,9 @@ describe('PHASE 2 - WORKFLOW GOVERNANCE (Master Spec Test Suite)', () => {
         },
       });
 
-      expect(recorded.beforeValues.passwordHash).toBe('[REDACTED]');
-      expect(recorded.beforeValues.jwt).toBe('[REDACTED]');
-      expect(recorded.beforeValues.email).toBe('admin@flowtrack.dev');
+      expect((recorded.beforeValues as any).passwordHash).toBe('[REDACTED]');
+      expect((recorded.beforeValues as any).jwt).toBe('[REDACTED]');
+      expect((recorded.beforeValues as any).email).toBe('admin@flowtrack.dev');
     });
 
     it('masks confidential resource titles in audit queries for unauthorized viewers', async () => {

@@ -47,12 +47,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
     setDraggingTaskId(taskId);
   };
 
-  const handleColumnDrop = async (e: React.DragEvent, colTargetState: string) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
-    if (!taskId) return;
-    setDraggingTaskId(null);
-
+  const handleTransitionTask = async (taskId: string, colTargetState: string) => {
     let targetState = colTargetState;
     if (colTargetState === 'Draft') targetState = 'Draft';
     else if (colTargetState === 'In Progress') targetState = 'In Progress';
@@ -72,6 +67,14 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
       setToastMessage(msg);
       setTimeout(() => setToastMessage(null), 6000);
     }
+  };
+
+  const handleColumnDrop = async (e: React.DragEvent, colTargetState: string) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
+    if (!taskId) return;
+    setDraggingTaskId(null);
+    await handleTransitionTask(taskId, colTargetState);
   };
 
   // Helper to extract clean data from nodes
@@ -131,7 +134,64 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
             )}
           </div>
 
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
+          {/* Mobile Cards (Phone layout, NOT squished table) */}
+          <div className="md:hidden space-y-3">
+            {parsedNodes.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-400 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+                No tasks found. Tap "+ Add Task" to create one.
+              </div>
+            ) : (
+              parsedNodes.map((task) => (
+                <div
+                  key={task.id}
+                  onClick={() => onSelectNode(task.id)}
+                  className="p-3.5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-2 active:bg-slate-50 dark:active:bg-slate-700/50 cursor-pointer min-h-[48px]"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className="px-2 py-0.5 rounded-full text-[10px] font-bold inline-block"
+                      style={{
+                        backgroundColor: `${task.statusColour}20`,
+                        color: task.statusColour,
+                      }}
+                    >
+                      {task.state || task.statusName}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        task.priority === 'CRITICAL' || task.priority === 'HIGH'
+                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                          : task.priority === 'MEDIUM'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {task.priority}
+                    </span>
+                  </div>
+
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2">
+                    {task.title}
+                  </h4>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/60 text-xs text-slate-500">
+                    <div className="flex items-center gap-1.5 truncate max-w-[140px]">
+                      <div className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center text-[10px] font-bold shrink-0">
+                        {(task.owner?.fullName || 'U')[0].toUpperCase()}
+                      </div>
+                      <span className="truncate">{task.owner?.fullName || 'Unassigned'}</span>
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-400">
+                      {task.dueDate ? new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No due date'}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Dense Table */}
+          <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-100/70 dark:bg-slate-800/70 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-700">
@@ -312,7 +372,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
           </div>
         )}
 
-        <div className="flex gap-4 min-h-[500px] items-start">
+        <div className="flex gap-3 sm:gap-4 min-h-[500px] items-start overflow-x-auto snap-x snap-mandatory pb-4">
           {columns.map((col) => {
             const colTasks = parsedNodes.filter(
               (n) => col.states.includes(n.state) || col.states.includes(n.statusCategory)
@@ -323,7 +383,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                 key={col.key}
                 onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
                 onDrop={(e) => handleColumnDrop(e, col.key)}
-                className="w-72 shrink-0 bg-slate-100/70 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 flex flex-col max-h-[calc(100vh-200px)] transition-colors hover:border-blue-400"
+                className="w-[82vw] xs:w-[85vw] sm:w-72 shrink-0 snap-center sm:snap-align-none bg-slate-100/70 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 flex flex-col max-h-[calc(100vh-200px)] transition-colors hover:border-blue-400"
               >
                 <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 dark:border-slate-700">
                   <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -366,6 +426,28 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                         <h4 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2">
                           {task.title}
                         </h4>
+
+                        {/* Mobile Touch Move Dropdown (No clumsy drag needed on touchscreens) */}
+                        <div
+                          className="md:hidden pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-[10px] text-slate-400 font-medium">Move to:</span>
+                          <select
+                            value={col.key}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleTransitionTask(task.id, e.target.value);
+                            }}
+                            className="text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-0.5 text-slate-700 dark:text-slate-300"
+                          >
+                            {columns.map((c) => (
+                              <option key={c.key} value={c.key}>
+                                {c.title}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
                         <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500">
                           <div className="flex items-center gap-1">
@@ -442,7 +524,52 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-xs space-y-3">
+          {/* Mobile Timeline: Simplified list with relative time */}
+          <div className="md:hidden space-y-2.5">
+            {parsedNodes.map((task) => {
+              let relativeStr = 'No due date';
+              let isPast = false;
+              if (task.dueDate) {
+                const diffDays = Math.round((new Date(task.dueDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                if (diffDays < 0) {
+                  relativeStr = `Overdue by ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'}`;
+                  isPast = true;
+                } else if (diffDays === 0) {
+                  relativeStr = 'Due today';
+                } else {
+                  relativeStr = `Due in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
+                }
+              }
+              return (
+                <div
+                  key={task.id}
+                  onClick={() => onSelectNode(task.id)}
+                  className="p-3.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-2 cursor-pointer active:bg-slate-50 min-h-[48px]"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      isPast
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                        : 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                    }`}>
+                      {relativeStr}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500">{task.state}</span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2">
+                    {task.title}
+                  </h4>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-700/60">
+                    <span>{task.owner?.fullName || 'Unassigned'}</span>
+                    <span>{task.progressPct}% complete</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop Timeline with Gantt Progress */}
+          <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-xs space-y-3">
             {parsedNodes.map((task) => (
               <div
                 key={task.id}

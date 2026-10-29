@@ -171,16 +171,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </button>
 
-        {/* Workspace Switcher (Desktop >= md screens) */}
+        {/* Workspace Switcher (Accessible on all screen sizes) */}
         {user && (
-          <div className="relative hidden md:block">
+          <div className="relative flex items-center">
             <button
               id="desktop-ws-switcher-btn"
               onClick={() => setShowWsMenu(!showWsMenu)}
-              className="flex items-center gap-2 px-3 py-1.5 min-h-[36px] rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 min-h-[36px] rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+              title="Switch Workspace Organization"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-              <span className="max-w-[130px] truncate">{activeWs?.name || 'Select Workspace'}</span>
+              <span className="max-w-[70px] xs:max-w-[100px] sm:max-w-[150px] truncate">{activeWs?.name || 'Workspace'}</span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             </button>
 
@@ -259,6 +260,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 Team
               </button>
             )}
+            {(currentRole === 'ADMIN' || currentRole === 'MANAGER' || currentRole === 'TEAM_LEAD') && (
+              <button
+                id="desktop-nav-approvals-btn"
+                onClick={() => onViewChange('approvals')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  currentView === 'approvals'
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Approvals
+              </button>
+            )}
             {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
               <button
                 id="desktop-nav-reports-btn"
@@ -278,8 +292,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-        {/* Active Role Selector (Desktop/Tablet >= sm screens) */}
-        <div className="relative hidden sm:block">
+        {/* Active Role Selector (Desktop >= md screens; on mobile it lives in Avatar Menu) */}
+        <div className="relative hidden md:block">
           <button
             id="role-menu-btn"
             onClick={() => setShowRoleMenu(!showRoleMenu)}
@@ -411,10 +425,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
 
-        {/* Theme Toggle (Min 44x44px touch target on mobile) */}
+        {/* Theme Toggle (Desktop/Tablet >= sm screens; in Avatar menu on mobile) */}
         <button
           onClick={toggleTheme}
-          className="w-10 h-10 min-w-[40px] sm:min-w-[36px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+          className="w-10 h-10 min-w-[40px] sm:min-w-[36px] hidden sm:flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
           title="Toggle Dark Mode"
           aria-label="Toggle Dark Mode"
         >
@@ -425,7 +439,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           id="header-notifications-btn"
           onClick={() => setShowNotifications(true)}
-          className="w-10 h-10 min-w-[40px] sm:min-w-[36px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 relative transition-colors"
+          className="w-10 h-10 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 relative transition-colors"
           title="Open Notifications"
           aria-label="Open Notifications"
         >
@@ -437,15 +451,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </button>
 
-        {/* Auth User Profile or Login Button */}
+        {/* Auth User Profile or Login Button (Avatar opens menu on mobile) */}
         {user ? (
           <div className="flex items-center gap-2 pl-1 sm:pl-2 sm:border-l sm:border-slate-200 sm:dark:border-slate-700">
-            <div
-              className="w-9 h-9 min-w-[36px] rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm"
-              title={`${user.fullName} (${user.email})`}
+            <button
+              id="header-user-avatar-btn"
+              onClick={() => setMobileDrawerOpen(true)}
+              className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm hover:ring-2 hover:ring-blue-400 transition-all cursor-pointer"
+              title={`${user.fullName} (${user.email}) - Open Menu`}
+              aria-label="User profile menu"
             >
               {user.fullName ? user.fullName[0].toUpperCase() : 'U'}
-            </div>
+            </button>
             <div className="hidden xl:block text-left">
               <div className="text-xs font-semibold text-slate-800 dark:text-slate-100 max-w-[110px] truncate">
                 {user.fullName}
@@ -787,6 +804,71 @@ export const Navbar: React.FC<NavbarProps> = ({
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
+
+      {/* Fixed Bottom Navigation Bar on Mobile (< md screens) */}
+      {user && (
+        <nav
+          id="mobile-bottom-nav"
+          aria-label="Mobile Navigation"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 backdrop-blur-md pb-safe shadow-lg flex items-center justify-around h-16 px-1"
+        >
+          <button
+            id="mobile-nav-projects-tab"
+            type="button"
+            onClick={() => onViewChange('dashboard')}
+            className={`flex-1 min-h-[44px] min-w-[44px] flex flex-col items-center justify-center py-1 transition-colors ${
+              currentView === 'dashboard'
+                ? 'text-blue-600 dark:text-blue-400 font-bold'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <FolderKanban className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Projects</span>
+          </button>
+
+          <button
+            id="mobile-nav-my-work-tab"
+            type="button"
+            onClick={() => onViewChange('my-work')}
+            className={`flex-1 min-h-[44px] min-w-[44px] flex flex-col items-center justify-center py-1 transition-colors ${
+              currentView === 'my-work'
+                ? 'text-blue-600 dark:text-blue-400 font-bold'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <CheckSquare className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">My Tasks</span>
+          </button>
+
+          <button
+            id="mobile-nav-notifications-tab"
+            type="button"
+            onClick={() => setShowNotifications(true)}
+            className="flex-1 min-h-[44px] min-w-[44px] flex flex-col items-center justify-center py-1 text-slate-500 hover:text-slate-900 dark:hover:text-white relative transition-colors"
+          >
+            <div className="relative">
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="min-w-[14px] h-[14px] px-0.5 rounded-full bg-blue-600 text-white text-[9px] font-extrabold flex items-center justify-center absolute -top-1 -right-1.5 ring-2 ring-white dark:ring-slate-900 animate-pulse">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] mt-0.5">Alerts</span>
+          </button>
+
+          <button
+            id="mobile-nav-menu-tab"
+            type="button"
+            onClick={() => setMobileDrawerOpen(true)}
+            className="flex-1 min-h-[44px] min-w-[44px] flex flex-col items-center justify-center py-1 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
+            aria-label="Open Navigation Menu"
+          >
+            <Menu className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Menu</span>
+          </button>
+        </nav>
+      )}
     </header>
   );
 };

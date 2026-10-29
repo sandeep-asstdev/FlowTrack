@@ -732,10 +732,15 @@ export async function loginAs(
 ) {
   const initial = createInitialMockState();
   const matchedUser = initial.users.find((u) => u.role === role) || initial.users[0];
+  const workspaces = (customState?.workspaces || initial.workspaces).map((w) => ({
+    ...w,
+    role,
+  }));
 
   const state = await setupMockApi(page, {
     ...customState,
     currentUser: matchedUser,
+    workspaces,
   });
 
   // Inject session into browser localStorage before navigation

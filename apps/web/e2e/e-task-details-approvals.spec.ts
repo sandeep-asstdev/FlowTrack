@@ -16,14 +16,16 @@ test.describe('E. Task Details Drawer & Four-Eyes Approvals Engine', () => {
     const drawer = page.locator('#node-detail-drawer');
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // Verify the tabs: Exactly three tabs (Overview, Work & Evidence, Activity & Approvals)
-    const overviewTab = drawer.getByRole('button', { name: /overview/i }).first();
-    const workTab = drawer.getByRole('button', { name: /work & evidence/i }).first();
-    const activityTab = drawer.getByRole('button', { name: /activity & approvals/i }).first();
+    // Verify the tabs: 4 short tabs (Details, Work, Approvals, History)
+    const detailsTab = drawer.getByRole('button', { name: /details|overview/i }).first();
+    const workTab = drawer.getByRole('button', { name: /work/i }).first();
+    const approvalsTab = drawer.getByRole('button', { name: /approvals/i }).first();
+    const historyTab = drawer.getByRole('button', { name: /history/i }).first();
 
-    await expect(overviewTab).toBeVisible();
+    await expect(detailsTab).toBeVisible();
     await expect(workTab).toBeVisible();
-    await expect(activityTab).toBeVisible();
+    await expect(approvalsTab).toBeVisible();
+    await expect(historyTab).toBeVisible();
   });
 
   test('E2. Edits task fields: priority, status, and deadline', async ({ page }) => {
@@ -36,14 +38,14 @@ test.describe('E. Task Details Drawer & Four-Eyes Approvals Engine', () => {
     const drawer = page.locator('#node-detail-drawer');
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // Switch to Work & Evidence tab
-    const workTab = drawer.getByRole('button', { name: /work & evidence/i }).first();
+    // Switch to Work tab
+    const workTab = drawer.getByRole('button', { name: /work/i }).first();
     await workTab.click();
     await expect(drawer.getByText(/deliverables|evidence|attachments|work/i).first()).toBeVisible();
 
-    // Switch back to Overview tab
-    const overviewTab = drawer.getByRole('button', { name: /overview/i }).first();
-    await overviewTab.click();
+    // Switch back to Details tab
+    const detailsTab = drawer.getByRole('button', { name: /details|overview/i }).first();
+    await detailsTab.click();
   });
 
   test('E3. Manager can view approval action state for deliverables', async ({ page }) => {
@@ -56,9 +58,9 @@ test.describe('E. Task Details Drawer & Four-Eyes Approvals Engine', () => {
     const drawer = page.locator('#node-detail-drawer');
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // Navigate to Activity & Approvals tab
-    const activityTab = drawer.getByRole('button', { name: /activity & approvals/i }).first();
-    await activityTab.click();
+    // Navigate to Approvals tab
+    const approvalsTab = drawer.getByRole('button', { name: /approvals/i }).first();
+    await approvalsTab.click();
     await expect(drawer.getByText(/audit|history|approvals/i).first()).toBeVisible();
   });
 

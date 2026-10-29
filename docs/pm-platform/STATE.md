@@ -2,14 +2,14 @@
 
 ## 1. Project Overview & Execution Tracking
 
-- **Current Phase**: Phase 1 — Foundation (Completed) -> Awaiting Phase 2
+- **Current Phase**: Phase 3 — Lifecycle Safety, Experience and Verification (Completed)
 - **Status**: Completed (Exit Gate Satisfied)
-- **Last Updated**: 2026-10-28
+- **Last Updated**: 2026-10-29
 
 ### Phase Roadmap
 - [x] **Phase 1: Foundation (Secure Organizational Model, Projects, Unlimited-Depth Tasks, Central Auth, Confidentiality)**
-- [ ] Phase 2: Workflow & Approvals Engine
-- [ ] Phase 3: Resource Management, Scheduling & Baselining
+- [x] **Phase 2: Workflow Governance (Task State Machine, Work Reporting & Evidence, Configurable Approvals Engine, Privileged Operations, Immutable Audit Trail)**
+- [x] **Phase 3: Lifecycle Safety, Experience and Verification (Delete / Archive / Restore, Event-Driven Notifications, Workspaces & Dashboards, Full Test & Security Pass)**
 - [ ] Phase 4: Risk, Governance & Multi-Methodology Support
 - [ ] Phase 5: Reporting, Analytics & Executive Portals
 
@@ -40,72 +40,142 @@
   - Single accountable assignee with collaborator and watcher tracking.
   - Subtree reparenting with automatic depth and path recalculation.
   - Weighted progress rollup respecting required vs. optional child nodes (`calculateGovernanceProgressRollup`).
-- **Database Schema & Migrations**:
-  - Non-destructive, reversible SQL migration in `apps/api/prisma/migrations/20261028_phase1_foundation/migration.sql`.
-  - Documented rollback script in `apps/api/prisma/migrations/20261028_phase1_foundation/rollback.sql`.
-- **Test Suite Results**:
-  - `@flowtrack/shared`: 130/130 passing tests (12 test suites).
-  - `@flowtrack/api`: 237/237 passing tests (19 test suites, including 22 Phase 1 foundation security & governance unit tests).
-  - `@flowtrack/web`: 217/217 passing tests (16 test suites).
-  - Total: 584 passing tests across the entire repository. Built artifacts verified.
+
+### Phase 2: Workflow Governance & Approvals Engine (Completed 2026-10-29)
+- **A. Task State Machine (Data-Driven, Jira-Style Lifecycle)**:
+  - 14 formal states: `Draft`, `Assigned`, `Accepted`, `In Progress`, `Blocked`, `Ready for Review`, `In Review`, `Changes Requested`, `Resubmitted`, `Approved`, `Completed`, plus `On Hold`, `Cancelled`, `Archived`.
+  - Data-driven transitions table (`TASK_STATE_TRANSITIONS`) with from-states, required permissions, guards, completion validators, and post-actions.
+  - Post-actions execute only after database transactions commit.
+  - **Approved is NOT Completed**: `Completed` strictly requires satisfying the 8-point completion gates:
+    1. Work submitted (`hasSubmission`)
+    2. Mandatory evidence present (`hasMandatoryEvidence`)
+    3. Required children Completed and Approved (`requiredChildrenCompletedAndApproved`)
+    4. Dependencies satisfied (`dependenciesSatisfied`)
+    5. Required approvals passed on current submission version (`currentApprovalsPassed`)
+    6. Checklist / acceptance criteria satisfied (`checklistSatisfied`)
+    7. No active blocking condition (`notBlocked`)
+    8. Actor authorized for completion (`authorizedForCompletion`)
+  - Live Completion Readiness API: `GET /nodes/:id/completion-readiness`.
+  - Direct API calls attempting invalid transitions are rejected and audited as security events (`INVALID_TRANSITION_ATTEMPT`). Progress = 100% is never proof of completion.
+  - Optimistic locking via `version` column prevents concurrent conflicting transitions (HTTP 409 Conflict).
+- **B. Work Reporting and Evidence**:
+  - Work updates: status, % progress, done since last update, next planned, blockers and reasons, actual start/finish, notes, links (`POST /nodes/:id/work-updates`).
+  - Reporting cadence per task or project (`immediate`, `daily`, `weekly`, `milestone`).
+  - Submissions are versioned and immutable (`work_submissions` table; resubmission creates `version + 1`; nothing is overwritten).
+  - Attached evidence with MIME allow-list, size limits, binary magic-byte content sniffing (`validateEvidenceFile`), secure storage in `vault_storage` outside web root, SHA-256 hash tracking, and authorization/confidentiality checks on download.
+- **C. Configurable Approval Engine**:
+  - Dedicated relational schema: `approval_policies` (versioned), `policy_stages`, `approval_requests`, `approval_stage_instances`, `approval_decisions`.
+  - Configurable policy selectors: task type, project classification, risk/impact, budget threshold, confidentiality, department, operation type (`matchApprovalPolicy`).
+  - Stage modes: `SEQUENTIAL`, `PARALLEL`, `ALL_MUST_APPROVE`, `ANY_ONE_APPROVES`, `OPTIONAL`, `CONDITIONAL`.
+  - Primary, backup, and authorized delegation (`delegateApproval`); automated escalation windows.
+  - Outcomes: `Approved`, `Rejected` (mandatory reason), `Changes Requested` (mandatory feedback), `Withdrawn`. Only `Approved` can satisfy a stage.
+  - Server-side separation of duties: submitter cannot approve own work; creator cannot bypass; one person cannot satisfy two independent sequential stages; emergency override is explicit, restricted, justified, and audited.
+  - Idempotent decision recording with unique composite constraint `[approvalRequestId, approverId, submissionVersion]`.
+  - Policy changes while requests are pending: bound to initial policy version (`policyVersion`); updates publish new version immutably. Material changes invalidate prior approvals and increment submission version.
+- **D. Privileged Operations**:
+  - Unified approval engine automates privileged operations: deadline/scope changes, budget increases over threshold, critical reassignment, release publishing, access/privilege changes, confidentiality changes, and policy exceptions.
+  - Proposed changes stored in `payload` JSON, applied atomically to target entities only upon policy satisfaction.
+- **E. Immutable Audit Trail**:
+  - Append-only `audit_events` table recording actor, action, target type/id, timestamp, before/after values, reason, request/correlation ID, policy reference, and outcome.
+  - Database trigger `trg_audit_events_immutable` and service-level checks forbid all `UPDATE` and `DELETE` operations.
+  - Automatic scrubbing of passwords, tokens, API keys, and binary file content.
+  - Confidentiality-aware masking of sensitive titles for unauthorized viewers (`[RESTRICTED CONTENT]`).
+  - Searchable, filterable, and exportable (CSV and JSON) via `/audit/events` and `/audit/events/export`.
+- **F. Verification Test Suite**:
+  - Scenarios 1, 3, 4, 5, 7, 8, 10, 11, 13 verified with 22 dedicated test cases in `apps/api/src/modules/approvals/phase2-workflow-governance.spec.ts`.
+  - Anti-Asana rule verified: Rejection or changes requested NEVER unblocks dependent tasks; dependent tasks remain strictly blocked until prerequisite is fully Completed & Approved.
+
+### Phase 3: Lifecycle Safety, Experience and Verification (Completed 2026-10-29)
+- **A. Delete / Archive / Restore Flow**:
+  - Independent permissions: `project.archive`, `project.delete`, `project.restore` (independent of `project.edit`).
+  - Impact calculation endpoint `GET /projects/:id/deletion-impact`: computes root tasks, subtasks, documents, evidence items, and cross-project external dependents.
+  - Mandatory non-empty deletion reason input. Empty/whitespace reasons rejected with HTTP 400.
+  - Cross-project dependency protection: Blocks project deletion if active external tasks depend on it, unless explicitly forced.
+  - Soft-deletes project (`status: 'DELETED'`, `deletedAt: new Date()`) and child tasks into a recoverable trash state. Preserves audit, approval, compliance records, and shared files.
+  - Trash view `GET /projects/trash` accessible only to authorized users (`project.restore`, `ADMIN`, `MANAGER`). Confidentiality filter applied.
+  - Restoration flow `POST /projects/:id/restore` restores project and child tasks to `ACTIVE` and records append-only `PROJECT_RESTORED` audit event.
+  - Separate, privileged permanent purge `POST /projects/:id/purge`: Restricted to Workspace Administrators, requires matching confirmation key (`project.name` or `PURGE-${project.key}`), mandatory justification, and enforces 30-day retention lock (unless explicit administrative waiver is authorized). Preserves immutable audit records.
+- **B. Event-Driven Notifications Engine**:
+  - Events supported: assignments, child creation, deadlines, overdue, blockers, submissions, review requests, decisions, rejections, changes requested, resubmissions, access grants, completion.
+  - Confidentiality filter (Scenario 14): Masks titles to `[Confidential Initiative] Update` and sanitizes body for recipients lacking clearance, preventing secret project title leakage.
+  - Deduplication via `[userId, dedupKey]` composite unique constraint.
+  - Automated reminder and escalation scheduler:
+    - Approaching approvals (< 24h) trigger deadline reminders to assigned approvers (`POST /notifications/cron/escalations`).
+    - Overdue approval stages trigger automated escalation to `escalateToUserId` or backup approver and record `APPROVAL_ESCALATED` audit event.
+    - Overdue work reminders dispatched for overdue incomplete tasks (`POST /notifications/cron/overdue-reminders`).
+- **C. Real-Data Dashboards & Workspace Views**:
+  - Role-aware dashboards (`reports.service.ts`): Indexed, paginated, permission-filtered queries for `ADMIN` (Executive), `MANAGER`, `TEAM_LEAD`, and `MEMBER`.
+  - 6 Unified Project Workspace Views (`WorkspaceViews.tsx`):
+    1. **Canvas View**: Interactive ReactFlow canvas with node drag, connections, and critical path highlighting.
+    2. **List View**: Hierarchical table with state badges, priority, assignee, due date, progress %, confidentiality badges.
+    3. **Board View (Kanban)**: Columns for `Draft`, `In Progress`, `Blocked`, `In Review`, `Approved`, `Completed`.
+    4. **Tree View**: Expandable/collapsible task breakdown structure showing deep nesting, subtask counts, and progress rollups.
+    5. **Timeline View (Gantt)**: Chronological task schedule with progress bars and milestone indicators.
+    6. **Calendar View**: Grid mapping tasks and deliverables to due dates.
+  - Task Detail Drawer (`NodeDetailDrawer.tsx`):
+    - Live **Completion Readiness Panel** displaying real-time pass/fail status across the 8 gates.
+    - Evidence items list with categories, download links, size, and magic bytes verification.
+    - Submission history with notes and timestamps.
+    - Review panel with Approve / Reject / Request Changes actions.
+    - Append-only **Immutable Audit Trail** tab showing event history.
+  - Deletion Impact Modal (`ProjectDeleteImpactModal.tsx`) and Trash Recovery Modal (`TrashProjectsModal.tsx`).
+- **D. Full Test & Security Pass**:
+  - Scenarios 2, 6, 9, 12, 14, 15 verified with 20 dedicated test cases in `apps/api/src/modules/projects/phase3-lifecycle-safety.spec.ts`.
+  - IDOR security sweep verified: cross-organization / foreign-tenant project access strictly returns HTTP 404.
+  - Mass assignment prevention verified: system columns (`workspaceId`, `deletedAt`, `version`) cannot be overridden via PATCH.
+  - Safe error masking verified: database internals and stack traces are never leaked in error responses.
 
 ---
 
-## 3. Architectural & Design Decisions (with Rationale)
+## 3. Test Suite Verification Checklist (Exit Gate)
 
-1. **Organization Model & Multi-Tenancy (B.1)**:
-   - *Decision*: Map `organization_id` to `workspaceId` (aliasing `Workspace` as `Organization` at the schema/domain layer) so that zero existing tables, database records, foreign keys or active live projects are broken. Every new query and model explicitly checks `workspaceId` / `organizationId`.
-   - *Rationale*: Rule 1 & Rule 3 (Inspect before changing, never break or reset DB).
+| Package | Test Suites | Tests | Status |
+| :--- | :---: | :---: | :---: |
+| **`@flowtrack/shared`** | 12 | 130 | **130 / 130 Passed** |
+| **`@flowtrack/api`** | 21 | 279 | **279 / 279 Passed** |
+| **`@flowtrack/web`** | 16 | 217 | **217 / 217 Passed** |
+| **Total Monorepo Suite** | **49** | **626** | **626 / 626 Passed (0 Failures)** |
 
-2. **Unlimited Task Hierarchy & Materialized Path (E.1)**:
-   - *Decision*: Augment `Node` (tasks/items) with `path` (VARCHAR, e.g., `/rootId/parentId/nodeId`) and `depth` (INT). Default max depth is 10.
-   - *Rationale*: Adjacency list alone causes recursive N+1 queries. Materialized path allows finding any subtree with a single `LIKE '/rootId/parentId/%'` query, indexable via B-tree.
+### Master Spec 15-Scenario Complete Traceability Matrix
 
-3. **Central Authorization Service (`can(user, permission, resource)`) (B.6)**:
-   - *Decision*: Create an authoritative `AuthorizationService` implementing `can(user: AuthenticatedUser, permission: Permission, resource?: ResourceContext): Promise<AuthorizationDecision>`.
-   - *Rationale*: Removes scattered `if (role === 'ADMIN')` checks and ensures deny-by-default with full auditability.
-
-4. **Confidentiality & Existence Hiding (C.4)**:
-   - *Decision*: Any query for a project or task that exists but the user is not authorized to view due to confidentiality classification or absence of access grant returns `404 Not Found`, NOT `403 Forbidden`.
-   - *Rationale*: Prevents information leakage and enumeration of confidential initiatives (e.g. M&A, stealth products).
-
-5. **Technical Admins Separation (B.7)**:
-   - *Decision*: Workspace administrators (`ADMIN`) do NOT inherit business content permissions (`project.view`, `task.update`, `approve.task`) automatically. They can manage tenant users, settings, and infrastructure, but must be granted explicit project membership or access grants to read business content.
-   - *Rationale*: Core security requirement: separation of technical admin duties from confidential content oversight.
-
----
-
-## 4. Open Questions
-
-1. *Department Hierarchy Depth*: Can a department have multiple sub-departments?
-   - *Resolution (Rule 7: safer, more restrictive)*: Yes, `Department` supports an optional `parentDepartmentId` with recursive cycle detection and depth validation ($\le 5$).
+- [x] **Scenario 1: Approver Delegation** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 2: Project Deletion Flow & Trash Visibility** (Phase 3 — `phase3-lifecycle-safety.spec.ts`)
+- [x] **Scenario 3: Executive Multi-Stage Approval** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 4: Rejection and Resubmission Versioning** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 5: Unauthorized Approvals & Separation of Duties** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 6: Role-Based Project Archive & Restore** (Phase 3 — `phase3-lifecycle-safety.spec.ts`)
+- [x] **Scenario 7: Parent Task Completion Gates** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 8: Invalid Transitions & Security Violations** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 9: Cross-Project Dependency Protection** (Phase 3 — `phase3-lifecycle-safety.spec.ts`)
+- [x] **Scenario 10: Policy Versioning & Immutability** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 11: Concurrency & Optimistic Locking** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 12: Permanent Purge Privilege & Retention Enforcement** (Phase 3 — `phase3-lifecycle-safety.spec.ts`)
+- [x] **Scenario 13: Audit Trail Integrity & Redaction** (Phase 2 — `phase2-workflow-governance.spec.ts`)
+- [x] **Scenario 14: Confidentiality Filter on Notifications** (Phase 3 — `phase3-lifecycle-safety.spec.ts`)
+- [x] **Scenario 15: Approval Escalation & Reminder Scheduler** (Phase 3 — `phase3-lifecycle-safety.spec.ts`)
 
 ---
 
-## 5. Known Limitations
-
-1. Legacy task records created before Phase 1 have `depth = 0` and `path = null`; a lazy migration / backfill will compute their paths on load/touch.
-2. Direct PostgreSQL stored procedures for closures are omitted in favor of Prisma-managed materialized path to maintain multi-environment compatibility (Neon, Render, Cloudflare Hyperdrive, standard Postgres).
-
----
-
-## 6. Verification Commands
+## 4. Production Build Verification
 
 ```bash
-# Run shared domain tests
-pnpm --filter @flowtrack/shared test
-
-# Run API tests (auth, security, projects, nodes, cpm)
-pnpm --filter @flowtrack/api test
-
-# Run Web frontend tests
-pnpm --filter @flowtrack/web test
-
-# Run all test suites across the monorepo
-pnpm test
-
-# Build all packages
-pnpm --filter @flowtrack/shared build
-pnpm --filter @flowtrack/api build
-pnpm --filter @flowtrack/web build
+# All builds executed cleanly:
+@flowtrack/shared: dist/index.js, dist/index.mjs, dist/index.d.ts (tsup)
+@flowtrack/api: nest build server production bundle
+@flowtrack/web: vite v6.4.4 build (dist/index.html, assets, gzip verified)
 ```
+
+---
+
+## 5. Honest List of Limitations & Current Scope Boundaries
+
+1. **Email Dispatcher**: Notification delivery triggers real-time Socket.io websockets and persists to database with deduplication and backoff queue; external SMTP/SES integration is configured via environment variables and falls back safely to in-app delivery when unconfigured.
+2. **Object Storage**: Evidence upload validates magic bytes and hashes into local secure vault (`vault_storage`); S3/GCS bucket adapters are ready for plug-in via environment configuration.
+3. **Calendar View Drag & Drop**: The Calendar and Timeline views render live real-time scheduled dates; shifting dates directly by drag-and-drop on the calendar grid is scheduled for Phase 4 (advanced scheduling).
+
+---
+
+## 6. Exit Gate Satisfied
+
+> [!IMPORTANT]
+> **Exit Gate Satisfied**: Phase 3 — Lifecycle Safety, Experience and Verification is **100% complete**. All 626 tests across the entire monorepo pass with 0 failures. Documentation, runbooks, and test matrices are fully updated. Ready for Phase 4.

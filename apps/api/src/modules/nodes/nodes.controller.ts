@@ -13,6 +13,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { NodesService } from './nodes.service';
+import { TaskLifecycleService } from './task-lifecycle.service';
 import {
   CreateNodeDto,
   UpdateNodeDto,
@@ -26,7 +27,10 @@ import { AuthGuard } from '@nestjs/passport';
 @UseGuards(AuthGuard('jwt'))
 @Controller('nodes')
 export class NodesController {
-  constructor(private readonly nodesService: NodesService) {}
+  constructor(
+    private readonly nodesService: NodesService,
+    private readonly lifecycleService: TaskLifecycleService
+  ) {}
 
   @Get()
   list(
@@ -79,6 +83,11 @@ export class NodesController {
     return this.nodesService.getNode(id, req.user?.id, req.user?.role);
   }
 
+  @Get(':id/completion-readiness')
+  getCompletionReadiness(@Req() req: any, @Param('id') id: string) {
+    return this.lifecycleService.evaluateNodeCompletionReadiness(id, req.user?.id);
+  }
+
   @Post()
   create(
     @Req() req: any,
@@ -97,6 +106,78 @@ export class NodesController {
   @Patch(':id')
   update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateNodeDto) {
     return this.nodesService.updateNode(id, dto, req.user?.id);
+  }
+
+  @Post(':id/transition')
+  transition(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: {
+      toState: string;
+      version?: number;
+      reason?: string;
+      feedback?: string;
+      isEmergencyOverride?: boolean;
+      emergencyJustification?: string;
+    }
+  ) {
+    if (!body.toState) {
+      throw new BadRequestException('toState is required');
+    }
+    return this.lifecycleService.transitionNode(id, req.user?.id, body.toState, body);
+  }
+
+  @Post(':id/submissions')
+  createSubmission(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { summary?: string; deliverables?: string; customData?: any; metadata?: any }
+  ) {
+    return this.lifecycleService.createSubmission(id, req.user?.id, body);
+  }
+
+  @Get(':id/submissions')
+  listSubmissions(@Param('id') id: string) {
+    return this.lifecycleService.listSubmissions(id);
+  }
+
+  @Post(':id/work-updates')
+  createWorkUpdate(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: any
+  ) {
+    return this.lifecycleService.createWorkUpdate(id, req.user?.id, body);
+  }
+
+  @Get(':id/work-updates')
+  listWorkUpdates(@Param('id') id: string) {
+    return this.lifecycleService.listWorkUpdates(id);
+  }
+
+  @Post(':id/evidence')
+  attachEvidence(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: any
+  ) {
+    return this.lifecycleService.attachEvidence(id, req.user?.id, body);
+  }
+
+  @Get(':id/evidence')
+  listEvidence(
+    @Req() req: any,
+    @Param('id') id: string
+  ) {
+    return this.lifecycleService.listEvidence(id, req.user?.id);
+  }
+
+  @Get(':id/evidence/:evidenceId/download')
+  getEvidenceForDownload(
+    @Req() req: any,
+    @Param('evidenceId') evidenceId: string
+  ) {
+    return this.lifecycleService.getEvidenceForDownload(evidenceId, req.user?.id);
   }
 
   @Post(':id/approve')

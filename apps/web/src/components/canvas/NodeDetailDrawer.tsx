@@ -110,6 +110,8 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [workspaceMembers, setWorkspaceMembers] = useState<any[]>([]);
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [documents, setDocuments] = useState<any[]>([]);
+  const [completionReadiness, setCompletionReadiness] = useState<any>(null);
+  const [auditEvents, setAuditEvents] = useState<any[]>([]);
 
   // Calculates inclusive calendar finish date (convention: start Jan 15 + 5 days = finish Jan 19)
   const calculatePlannedFinish = (startVal?: string, dur?: number): string => {
@@ -248,6 +250,17 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       setCollaboratorIds(data.customData?.collaboratorIds || []);
       setCustomData(data.customData || {});
       setDocuments(data.documents || []);
+
+      // Phase 3: Fetch live completion readiness & audit trail
+      try {
+        const readiness = await ApiClient.getNodeCompletionReadiness(id);
+        setCompletionReadiness(readiness);
+      } catch {}
+
+      try {
+        const audits = await ApiClient.getNodeAuditEvents(id);
+        setAuditEvents(audits || []);
+      } catch {}
     } catch (e) {
       console.error('Failed to load node details', e);
     } finally {

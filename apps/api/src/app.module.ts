@@ -18,6 +18,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { HealthModule } from './modules/health/health.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { OrganizationModule } from './modules/organization/organization.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { OrganizationModule } from './modules/organization/organization.module';
     ProjectsModule,
     TeamsModule,
     NodesModule,
+    ApprovalsModule,
     EdgesModule,
     NodeTypesModule,
     TemplatesModule,

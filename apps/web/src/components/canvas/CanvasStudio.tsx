@@ -19,6 +19,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { FlowTrackNode } from './FlowTrackNode';
+import { WorkspaceViews, ProjectViewMode } from './WorkspaceViews';
 import { FlowTrackEdge } from './FlowTrackEdge';
 import { NodeDetailDrawer } from './NodeDetailDrawer';
 import { NodeViewDetailsModal } from './NodeViewDetailsModal';
@@ -184,6 +185,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   };
 
   // Hierarchical Sub-Canvas Drill-Down State
+  const [workspaceViewMode, setWorkspaceViewMode] = useState<ProjectViewMode>('canvas');
   const [breadcrumbTrail, setBreadcrumbTrail] = useState<BreadcrumbItem[]>([
     { id: null, title: project?.name || 'Root Canvas' },
   ]);
@@ -1678,6 +1680,24 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap hidden md:inline">
             ({nodes.length} nodes, {edges.length} edges)
           </span>
+
+          {/* Phase 3 Workspace View Switcher */}
+          <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700">
+            {(['canvas', 'list', 'board', 'tree', 'timeline', 'calendar'] as const).map((vm) => (
+              <button
+                key={vm}
+                type="button"
+                onClick={() => setWorkspaceViewMode(vm)}
+                className={`px-2 py-1 rounded-lg text-xs font-bold capitalize transition-all ${
+                  workspaceViewMode === vm
+                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {vm}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -2071,6 +2091,25 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mr-3"></div>
             <span className="text-xs font-semibold">Loading node canvas...</span>
           </div>
+        ) : workspaceViewMode !== 'canvas' ? (
+          <WorkspaceViews
+            viewMode={workspaceViewMode}
+            nodes={nodes}
+            edges={edges}
+            project={project}
+            onSelectNode={(id) => {
+              setSelectedNodeId(id);
+              setIsDrawerOpen(true);
+            }}
+            onAddNode={() => {
+              setTaskName('');
+              setTaskDescription('');
+              setTaskAssigneeId('');
+              setTaskDueDate('');
+              setTaskPriority('MEDIUM');
+              setCreateTaskModalOpen(true);
+            }}
+          />
         ) : (
           <ReactFlow
             nodes={displayedNodes as any}

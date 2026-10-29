@@ -21,6 +21,11 @@ export const GRANULAR_PERMISSIONS = {
   MEMBERS_MANAGE: 'members.manage',
   PERMISSIONS_GRANT: 'permissions.grant',
   AUDIT_VIEW: 'audit.view',
+  TASK_COMPLETE: 'task.complete',
+  POLICY_MANAGE: 'policy.manage',
+  AUDIT_EXPORT: 'audit.export',
+  OPERATION_APPROVE: 'operation.approve',
+  PROJECT_PURGE: 'project.purge',
 } as const;
 
 export type GranularPermission = (typeof GRANULAR_PERMISSIONS)[keyof typeof GRANULAR_PERMISSIONS];
@@ -43,6 +48,11 @@ export const granularPermissionSchema = z.enum([
   GRANULAR_PERMISSIONS.MEMBERS_MANAGE,
   GRANULAR_PERMISSIONS.PERMISSIONS_GRANT,
   GRANULAR_PERMISSIONS.AUDIT_VIEW,
+  GRANULAR_PERMISSIONS.TASK_COMPLETE,
+  GRANULAR_PERMISSIONS.POLICY_MANAGE,
+  GRANULAR_PERMISSIONS.AUDIT_EXPORT,
+  GRANULAR_PERMISSIONS.OPERATION_APPROVE,
+  GRANULAR_PERMISSIONS.PROJECT_PURGE,
 ]);
 
 /**
@@ -274,3 +284,37 @@ export function calculateGovernanceProgressRollup(children: RollupTaskItem[]): n
   if (totalWeight === 0) return 0;
   return Math.round((weightedProgressSum / totalWeight) * 10) / 10;
 }
+
+/**
+ * Phase 3 — Lifecycle Safety Data Transfer Objects & Types
+ */
+export interface ProjectDeletionImpact {
+  projectId: string;
+  projectName: string;
+  taskCount: number;
+  subtaskCount: number;
+  totalNodesCount: number;
+  documentCount: number;
+  evidenceCount: number;
+  crossProjectDependenciesCount: number;
+  dependentProjects: Array<{ id: string; name: string; taskCount: number }>;
+  requiresApproval: boolean;
+  approvalPolicyName?: string | null;
+  isProtected: boolean;
+}
+
+export interface ProjectDeleteDto {
+  reason: string;
+  force?: boolean;
+}
+
+export interface ProjectRestoreDto {
+  reason?: string;
+}
+
+export interface ProjectPurgeDto {
+  confirmationKey: string;
+  justification: string;
+  forceRetentionWaiver?: boolean;
+}
+

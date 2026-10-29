@@ -79,6 +79,12 @@ model Workspace {
   positions     Position[]
   scopedRoles   ScopedRoleAssignment[]
   accessGrants  AccessGrant[]
+  approvalPolicies ApprovalPolicy[]
+  approvalRequests ApprovalRequest[]
+  auditEvents   AuditEvent[]
+  evidenceItems Evidence[]
+  workSubmissions WorkSubmission[]
+  workUpdates   WorkUpdate[]
 
   @@map("workspaces")
 }
@@ -130,6 +136,13 @@ model User {
   submittedNodes         Node[]          @relation("NodeSubmitter")
   taskApprovalsGiven     TaskApproval[]  @relation("ApprovalReviewer")
   taskApprovalsSubmitted TaskApproval[]  @relation("ApprovalSubmitter")
+  submittedWork          WorkSubmission[] @relation("WorkSubmissions")
+  workUpdates            WorkUpdate[]    @relation("UserWorkUpdates")
+  evidenceItems          Evidence[]      @relation("EvidenceUploader")
+  submittedApprovalRequests ApprovalRequest[] @relation("ApprovalRequestSubmitter")
+  approvalDecisions      ApprovalDecision[] @relation("UserApprovalDecisions")
+  delegatedDecisions     ApprovalDecision[] @relation("UserDelegatedDecisions")
+  auditEvents            AuditEvent[]    @relation("UserAuditEvents")
 
   @@index([isActive])
   @@index([departmentId])
@@ -185,6 +198,7 @@ model Project {
   chatThreads          ChatThread[]
   auditLogs            AuditLog[]
   members              ProjectMember[]
+  approvalRequests     ApprovalRequest[]
 
   @@index([workspaceId])
   @@index([workspaceId, key])
@@ -320,6 +334,10 @@ model Node {
   approvalStatus String?    @default("not_required") @map("approval_status")
   approvedAt   DateTime?    @map("approved_at")
   approvalFeedback String?  @map("approval_feedback")
+  state        String       @default("Draft")
+  cadence      String?      @default("immediate")
+  checklist    Json?        @default("[]")
+  mandatoryEvidenceCount Int @default(0) @map("mandatory_evidence_count")
   customData   Json?        @default("{}") @map("custom_data")
   collapsed    Boolean      @default(false)
   version      Int          @default(1)
@@ -347,6 +365,10 @@ model Node {
   documents    Document[]
   chatThreads  ChatThread[]
   approvals    TaskApproval[]
+  submissions  WorkSubmission[]
+  workUpdates  WorkUpdate[]
+  evidence     Evidence[]
+  approvalRequests ApprovalRequest[]
 
   @@index([projectId, parentNodeId])
   @@index([projectId, path])
@@ -652,6 +674,7 @@ model Department {
   users              User[]       @relation("DepartmentUsers")
   positions          Position[]
   projects           Project[]
+  approvalPolicies   ApprovalPolicy[]
 
   @@unique([workspaceId, name])
   @@map("departments")
@@ -714,5 +737,245 @@ model AccessGrant {
 
   @@index([workspaceId, userId, resourceType, resourceId])
   @@map("access_grants")
+}
+
+model WorkSubmission {
+  id                String            @id @default(uuid())
+  workspaceId       String            @map("workspace_id")
+  nodeId            String            @map("node_id")
+  version           Int               @default(1)
+  submitterId       String            @map("submitter_id")
+  summary           String?
+  deliverables      String?
+  customData        Json?             @default("{}") @map("custom_data")
+  metadata          Json?             @default("{}")
+  status            String            @default("submitted") // submitted | changes_requested | approved | superseded
+  submittedAt       DateTime          @default(now()) @map("submitted_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  node              Node              @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  submitter         User              @relation("WorkSubmissions", fields: [submitterId], references: [id], onDelete: Cascade)
+  evidence          Evidence[]
+  approvalRequests  ApprovalRequest[]
+
+  @@unique([nodeId, version])
+  @@index([workspaceId, nodeId])
+  @@map("work_submissions")
+}
+
+model WorkUpdate {
+  id              String    @id @default(uuid())
+  workspaceId     String    @map("workspace_id")
+  nodeId          String    @map("node_id")
+  authorId        String    @map("author_id")
+  status          String
+  progressPct     Float     @default(0) @map("progress_pct")
+  doneSinceLast   String?   @map("done_since_last")
+  nextPlanned     String?   @map("next_planned")
+  blockers        String?
+  actualStart     DateTime? @map("actual_start")
+  actualFinish    DateTime? @map("actual_finish")
+  notes           String?
+  links           Json?     @default("[]")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  node            Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  author          User      @relation("UserWorkUpdates", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([nodeId, createdAt])
+  @@map("work_updates")
+}
+
+model Evidence {
+  id                String           @id @default(uuid())
+  workspaceId       String           @map("workspace_id")
+  nodeId            String?          @map("node_id")
+  submissionId      String?          @map("submission_id")
+  submissionVersion Int?             @map("submission_version")
+  approvalRequestId String?          @map("approval_request_id")
+  uploadedBy        String           @map("uploaded_by")
+  name              String
+  category          String           @default("general") // permit | certificate | test_results | code_diff | signed_spec | receipt | deliverable | general
+  description       String?
+  mimeType          String           @map("mime_type")
+  fileSize          BigInt           @map("file_size")
+  storageKey        String           @map("storage_key")
+  fileHash          String?          @map("file_hash")
+  metadata          Json?            @default("{}")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  deletedAt         DateTime?        @map("deleted_at")
+
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  node              Node?            @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  submission        WorkSubmission?  @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  uploader          User             @relation("EvidenceUploader", fields: [uploadedBy], references: [id], onDelete: Cascade)
+  approvalRequest   ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, nodeId])
+  @@index([submissionId])
+  @@index([approvalRequestId])
+  @@map("evidence_items")
+}
+
+model ApprovalPolicy {
+  id                    String            @id @default(uuid())
+  workspaceId           String            @map("workspace_id")
+  name                  String
+  description           String?
+  version               Int               @default(1)
+  isActive              Boolean           @default(true) @map("is_active")
+  isDefault             Boolean           @default(false) @map("is_default")
+  
+  taskType              String?           @map("task_type")
+  projectClassification ConfidentialityLevel? @map("project_classification")
+  riskImpact            String?           @map("risk_impact") // LOW | MEDIUM | HIGH | CRITICAL
+  budgetThreshold       Decimal?          @map("budget_threshold") @db.Decimal(14, 2)
+  confidentiality       ConfidentialityLevel?
+  departmentId          String?           @map("department_id")
+  operationType         String?           @map("operation_type") // TASK_COMPLETION | DEADLINE_CHANGE | BUDGET_INCREASE | SCOPE_CHANGE | CRITICAL_REASSIGNMENT | RELEASE_PUBLISHING | ACCESS_CHANGE | PRIVILEGE_GRANT | CONFIDENTIALITY_CHANGE | EXCEPTION
+  
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  workspace             Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department            Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  stages                PolicyStage[]
+  requests              ApprovalRequest[]
+
+  @@unique([workspaceId, name, version])
+  @@index([workspaceId, operationType])
+  @@map("approval_policies")
+}
+
+model PolicyStage {
+  id                 String          @id @default(uuid())
+  policyId           String          @map("policy_id")
+  policyVersion      Int             @default(1) @map("policy_version")
+  stageOrder         Int             @map("stage_order")
+  name               String
+  description        String?
+  mode               String          @default("SEQUENTIAL") // SEQUENTIAL | PARALLEL
+  rule               String          @default("ANY_ONE_APPROVES") // ALL_MUST_APPROVE | ANY_ONE_APPROVES | OPTIONAL | CONDITIONAL
+  condition          Json?           @default("{}")
+  approverRole       String?         @map("approver_role") // MANAGER | EXECUTIVE | TEAM_LEAD | FINANCE | etc.
+  specificApproverId String?         @map("specific_approver_id")
+  backupApproverId   String?         @map("backup_approver_id")
+  allowDelegation    Boolean         @default(true) @map("allow_delegation")
+  dueDurationHours   Int?            @map("due_duration_hours")
+  escalateAfterHours Int?            @map("escalate_after_hours")
+  escalateToUserId   String?         @map("escalate_to_user_id")
+
+  policy             ApprovalPolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId, stageOrder])
+  @@map("policy_stages")
+}
+
+model ApprovalRequest {
+  id                 String                  @id @default(uuid())
+  workspaceId        String                  @map("workspace_id")
+  projectId          String?                 @map("project_id")
+  nodeId             String?                 @map("node_id")
+  submissionId       String?                 @map("submission_id")
+  submissionVersion  Int                     @default(1) @map("submission_version")
+  operationType      String                  @default("TASK_COMPLETION") @map("operation_type")
+  policyId           String                  @map("policy_id")
+  policyVersion      Int                     @default(1) @map("policy_version")
+  submitterId        String                  @map("submitter_id")
+  status             String                  @default("PENDING") // PENDING | APPROVED | REJECTED | CHANGES_REQUESTED | WITHDRAWN
+  currentStageIndex  Int                     @default(0) @map("current_stage_index")
+  payload            Json?                   @default("{}")
+  submittedAt        DateTime                @default(now()) @map("submitted_at")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  workspace          Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project            Project?                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  node               Node?                   @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  submission         WorkSubmission?         @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  policy             ApprovalPolicy          @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  submitter          User                    @relation("ApprovalRequestSubmitter", fields: [submitterId], references: [id], onDelete: Cascade)
+  stageInstances     ApprovalStageInstance[]
+  decisions          ApprovalDecision[]
+  evidence           Evidence[]
+
+  @@index([workspaceId, status])
+  @@index([nodeId, status])
+  @@index([projectId])
+  @@map("approval_requests")
+}
+
+model ApprovalStageInstance {
+  id                  String           @id @default(uuid())
+  approvalRequestId   String           @map("approval_request_id")
+  stageOrder          Int              @map("stage_order")
+  name                String
+  mode                String           @default("SEQUENTIAL")
+  rule                String           @default("ANY_ONE_APPROVES")
+  status              String           @default("PENDING") // PENDING | APPROVED | REJECTED | SKIPPED | CHANGES_REQUESTED
+  assignedApproverIds Json?            @default("[]") @map("assigned_approver_ids")
+  primaryApproverId   String?          @map("primary_approver_id")
+  backupApproverId    String?          @map("backup_approver_id")
+  delegatedApproverId String?          @map("delegated_approver_id")
+  dueDate             DateTime?        @map("due_date")
+  escalatedAt         DateTime?        @map("escalated_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  approvalRequest     ApprovalRequest  @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  decisions           ApprovalDecision[]
+
+  @@index([approvalRequestId, stageOrder])
+  @@map("approval_stage_instances")
+}
+
+model ApprovalDecision {
+  id                  String                 @id @default(uuid())
+  approvalRequestId   String                 @map("approval_request_id")
+  stageInstanceId     String?                @map("stage_instance_id")
+  approverId          String                 @map("approver_id")
+  delegatedFromUserId String?                @map("delegated_from_user_id")
+  decision            String                 // Approved | Rejected | Changes Requested | Withdrawn
+  comment             String?
+  policyVersion       Int                    @map("policy_version")
+  submissionVersion   Int                    @map("submission_version")
+  createdAt           DateTime               @default(now()) @map("created_at")
+
+  approvalRequest     ApprovalRequest        @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  stageInstance       ApprovalStageInstance? @relation(fields: [stageInstanceId], references: [id], onDelete: SetNull)
+  approver            User                   @relation("UserApprovalDecisions", fields: [approverId], references: [id], onDelete: Cascade)
+  delegatedFromUser   User?                  @relation("UserDelegatedDecisions", fields: [delegatedFromUserId], references: [id], onDelete: SetNull)
+
+  @@unique([approvalRequestId, approverId, submissionVersion])
+  @@index([approvalRequestId, stageInstanceId])
+  @@index([approverId])
+  @@map("approval_decisions")
+}
+
+model AuditEvent {
+  id              String    @id @default(uuid())
+  workspaceId     String    @map("workspace_id")
+  actorId         String    @map("actor_id")
+  action          String    // e.g. TASK_STATE_TRANSITION, WORK_SUBMISSION, APPROVAL_DECISION, PRIVILEGED_OPERATION, SECURITY_VIOLATION
+  targetType      String    @map("target_type") // task | project | approval_request | submission | policy
+  targetId        String    @map("target_id")
+  timestamp       DateTime  @default(now())
+  beforeValues    Json?     @map("before_values")
+  afterValues     Json?     @map("after_values")
+  reason          String?
+  requestId       String?   @map("request_id")
+  policyReference String?   @map("policy_reference")
+  outcome         String    @default("SUCCESS") // SUCCESS | FAILURE | REJECTED | BLOCKED | OVERRIDDEN
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor           User      @relation("UserAuditEvents", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, targetType, targetId])
+  @@index([workspaceId, timestamp])
+  @@index([actorId])
+  @@map("audit_events")
 }
 

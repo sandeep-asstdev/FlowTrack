@@ -1,14 +1,25 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthorizationService } from '../auth/authorization.service';
-import { CreateProjectDto, UpdateProjectDto, validateCustomData, GRANULAR_PERMISSIONS } from '@flowtrack/shared';
+import { AuditService } from '../audit/audit.service';
+import {
+  CreateProjectDto,
+  UpdateProjectDto,
+  validateCustomData,
+  GRANULAR_PERMISSIONS,
+  ProjectDeletionImpact,
+  ProjectDeleteDto,
+  ProjectRestoreDto,
+  ProjectPurgeDto,
+} from '@flowtrack/shared';
 import { Role } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly authService?: AuthorizationService
+    @Optional() private readonly authService?: AuthorizationService,
+    @Optional() private readonly auditService?: AuditService
   ) {}
 
   private async generateUniqueProjectKey(workspaceId: string, name: string): Promise<string> {
@@ -312,12 +323,133 @@ export class ProjectsService {
     });
   }
 
-  async deleteProject(projectId: string, workspaceId: string, actorId?: string, userRole?: string) {
-    const existing = await this.getProject(
+  /**
+   * Phase 3: Project Deletion Impact Analysis
+   */
+  async getProjectDeletionImpact(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string
+  ): Promise<ProjectDeletionImpact> {
+    const project = await this.getProject(
       projectId,
       workspaceId,
       actorId ? { id: actorId, role: userRole } : undefined
     );
+
+    const [taskCount, subtaskCount, documentCount, externalEdges] = await Promise.all([
+      this.prisma.node.count({
+        where: { projectId, parentNodeId: null, deletedAt: null },
+      }),
+      this.prisma.node.count({
+        where: { projectId, parentNodeId: { not: null }, deletedAt: null },
+      }),
+      this.prisma.document.count({
+        where: { node: { projectId }, deletedAt: null },
+      }),
+      this.prisma.edge.findMany({
+        where: {
+          sourceNode: { projectId },
+          targetNode: { projectId: { not: projectId } },
+          deletedAt: null,
+        },
+        include: {
+          targetNode: {
+            select: {
+              id: true,
+              projectId: true,
+              project: { select: { id: true, name: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    let evidenceCount = 0;
+    try {
+      if ((this.prisma as any).evidenceItem?.count) {
+        evidenceCount = await (this.prisma as any).evidenceItem.count({
+          where: { task: { projectId }, deletedAt: null },
+        });
+      }
+    } catch {
+      evidenceCount = 0;
+    }
+
+    const totalNodesCount = taskCount + subtaskCount;
+
+    // Group dependent external projects
+    const dependentProjectsMap = new Map<string, { id: string; name: string; taskCount: number }>();
+    for (const edge of externalEdges) {
+      const depPrj = edge.targetNode?.project;
+      if (depPrj) {
+        const existingDep = dependentProjectsMap.get(depPrj.id) || { id: depPrj.id, name: depPrj.name, taskCount: 0 };
+        existingDep.taskCount++;
+        dependentProjectsMap.set(depPrj.id, existingDep);
+      }
+    }
+    const dependentProjects = Array.from(dependentProjectsMap.values());
+    const crossProjectDependenciesCount = externalEdges.length;
+
+    // Policy & protection checks
+    const isProtected = !!(project.settings as any)?.isProtected;
+    const isHighImpact = totalNodesCount > 10 || project.classification === 'CONFIDENTIAL' || project.classification === 'HIGHLY_CONFIDENTIAL';
+
+    let requiresApproval = isProtected || isHighImpact;
+    let approvalPolicyName: string | null = null;
+
+    if ((this.prisma as any).approvalPolicy) {
+      try {
+        const policies = await (this.prisma as any).approvalPolicy.findMany({
+          where: {
+            workspaceId,
+            isActive: true,
+            operationType: 'PROJECT_DELETION',
+          },
+        });
+        if (policies.length > 0) {
+          requiresApproval = true;
+          approvalPolicyName = policies[0].name;
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    return {
+      projectId,
+      projectName: project.name,
+      taskCount,
+      subtaskCount,
+      totalNodesCount,
+      documentCount,
+      evidenceCount,
+      crossProjectDependenciesCount,
+      dependentProjects,
+      requiresApproval,
+      approvalPolicyName,
+      isProtected,
+    };
+  }
+
+  /**
+   * Phase 3: Project Soft Deletion with Impact & Reason Validation
+   */
+  async deleteProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string,
+    dto?: ProjectDeleteDto
+  ) {
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId },
+    });
+
+    if (!existing || existing.deletedAt) {
+      throw new NotFoundException('Project not found');
+    }
 
     if (this.authService && actorId) {
       await this.authService.enforce(
@@ -327,10 +459,405 @@ export class ProjectsService {
       );
     }
 
-    return this.prisma.project.update({
-      where: { id: projectId },
-      data: { deletedAt: new Date() },
+    // Mandatory non-empty reason
+    const reason = dto?.reason?.trim();
+    if (!reason) {
+      throw new BadRequestException('A valid non-empty deletion reason is mandatory.');
+    }
+
+    // Check cross-project dependent tasks
+    const externalDependents = await this.prisma.edge.findMany({
+      where: {
+        sourceNode: { projectId },
+        targetNode: { projectId: { not: projectId } },
+        deletedAt: null,
+      },
+      include: {
+        targetNode: {
+          select: {
+            id: true,
+            title: true,
+            project: { select: { id: true, name: true } },
+          },
+        },
+      },
     });
+
+    if (externalDependents.length > 0 && !dto?.force) {
+      const depNames = Array.from(
+        new Set(externalDependents.map((e) => e.targetNode?.project?.name).filter(Boolean))
+      );
+      throw new ConflictException(
+        `Cannot delete project: ${externalDependents.length} active external task(s) in other project(s) (${depNames.join(', ')}) depend on tasks in this project. Review impact analysis or confirm force deletion.`
+      );
+    }
+
+    // Soft-delete project and its tasks
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const prj = await tx.project.update({
+        where: { id: projectId },
+        data: {
+          deletedAt: new Date(),
+          status: 'DELETED',
+          settings: {
+            ...((existing.settings as any) || {}),
+            deletedBy: actorId,
+            deletionReason: reason,
+            deletedAt: new Date().toISOString(),
+          },
+          version: { increment: 1 },
+        },
+      });
+
+      // Soft delete child nodes without deleting files/evidence or audit records
+      await tx.node.updateMany({
+        where: { projectId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+
+      return prj;
+    });
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_SOFT_DELETED',
+        targetType: 'project',
+        targetId: projectId,
+        beforeValues: { status: existing.status, name: existing.name },
+        afterValues: { status: 'DELETED', deletedAt: updated.deletedAt },
+        reason,
+        outcome: 'SUCCESS',
+      });
+    }
+
+    return updated;
+  }
+
+  /**
+   * Phase 3: Project Restoration from Trash State
+   */
+  async restoreProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string,
+    dto?: ProjectRestoreDto
+  ) {
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+
+    if (!existing.deletedAt) {
+      throw new BadRequestException('Project is not deleted');
+    }
+
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, role: userRole, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_RESTORE,
+        { project: existing }
+      );
+    }
+
+    const reason = dto?.reason?.trim() || 'Restored from trash';
+
+    const restored = await this.prisma.$transaction(async (tx) => {
+      const prj = await tx.project.update({
+        where: { id: projectId },
+        data: {
+          deletedAt: null,
+          status: 'ACTIVE',
+          settings: {
+            ...((existing.settings as any) || {}),
+            restoredBy: actorId,
+            restorationReason: reason,
+            restoredAt: new Date().toISOString(),
+          },
+          version: { increment: 1 },
+        },
+      });
+
+      // Restore child tasks
+      await tx.node.updateMany({
+        where: { projectId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+
+      return prj;
+    });
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_RESTORED',
+        targetType: 'project',
+        targetId: projectId,
+        beforeValues: { status: existing.status, deletedAt: existing.deletedAt },
+        afterValues: { status: 'ACTIVE', deletedAt: null },
+        reason,
+        outcome: 'SUCCESS',
+      });
+    }
+
+    return restored;
+  }
+
+  /**
+   * Phase 3: Project Archival (Independent of project.edit)
+   */
+  async archiveProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string
+  ) {
+    const existing = await this.getProject(
+      projectId,
+      workspaceId,
+      actorId ? { id: actorId, role: userRole } : undefined
+    );
+
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, role: userRole, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_ARCHIVE,
+        { project: existing }
+      );
+    }
+
+    const updated = await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: 'ARCHIVED',
+        settings: {
+          ...((existing.settings as any) || {}),
+          isArchived: true,
+          archivedBy: actorId,
+          archivedAt: new Date().toISOString(),
+        },
+        version: { increment: 1 },
+      },
+    });
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_ARCHIVED',
+        targetType: 'project',
+        targetId: projectId,
+        beforeValues: { status: existing.status },
+        afterValues: { status: 'ARCHIVED' },
+        reason: 'Project archived',
+        outcome: 'SUCCESS',
+      });
+    }
+
+    return updated;
+  }
+
+  /**
+   * Phase 3: Project Unarchival
+   */
+  async unarchiveProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string
+  ) {
+    const existing = await this.getProject(
+      projectId,
+      workspaceId,
+      actorId ? { id: actorId, role: userRole } : undefined
+    );
+
+    if (this.authService && actorId) {
+      await this.authService.enforce(
+        { id: actorId, role: userRole, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_ARCHIVE,
+        { project: existing }
+      );
+    }
+
+    const updated = await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        status: 'ACTIVE',
+        settings: {
+          ...((existing.settings as any) || {}),
+          isArchived: false,
+          unarchivedBy: actorId,
+          unarchivedAt: new Date().toISOString(),
+        },
+        version: { increment: 1 },
+      },
+    });
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_UNARCHIVED',
+        targetType: 'project',
+        targetId: projectId,
+        beforeValues: { status: existing.status },
+        afterValues: { status: 'ACTIVE' },
+        reason: 'Project unarchived',
+        outcome: 'SUCCESS',
+      });
+    }
+
+    return updated;
+  }
+
+  /**
+   * Phase 3: List Soft-Deleted Projects in Trash View
+   */
+  async listTrashProjects(workspaceId: string, user?: { id?: string; role?: string }) {
+    if (this.authService && user?.id) {
+      const canRestore = await this.authService.can(
+        { id: user.id, role: user.role, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_RESTORE,
+        { workspaceId }
+      );
+      const canDelete = await this.authService.can(
+        { id: user.id, role: user.role, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_DELETE,
+        { workspaceId }
+      );
+      const isAdminOrManager = user.role === 'ADMIN' || user.role === 'MANAGER';
+      if (!canRestore && !canDelete && !isAdminOrManager) {
+        throw new ForbiddenException('Unauthorized: You lack permission to view deleted projects.');
+      }
+    }
+
+    let visibilityFilter: any = {};
+    if (this.authService && user?.id) {
+      visibilityFilter = await this.authService.getProjectVisibilityFilter({
+        id: user.id,
+        role: user.role,
+        workspaceId,
+      });
+      delete visibilityFilter.deletedAt;
+    }
+
+    return this.prisma.project.findMany({
+      where: {
+        workspaceId,
+        deletedAt: { not: null },
+        ...visibilityFilter,
+      },
+      include: {
+        _count: {
+          select: {
+            nodes: true,
+          },
+        },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Phase 3: Permanent Purge (Privileged Operation with Retention Rules)
+   */
+  async purgeProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string,
+    dto?: ProjectPurgeDto
+  ) {
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, workspaceId },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+
+    // Only Workspace Administrator can permanently purge
+    const isAdmin = userRole?.toUpperCase() === 'ADMIN';
+    let hasPurgePerm = false;
+    if (this.authService && actorId) {
+      hasPurgePerm = await this.authService.can(
+        { id: actorId, role: userRole, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_PURGE,
+        { project: existing }
+      );
+    }
+
+    if (!isAdmin && !hasPurgePerm) {
+      throw new ForbiddenException('Permanent purge is restricted to Workspace Administrators.');
+    }
+
+    // Project must already be soft-deleted into trash
+    if (!existing.deletedAt) {
+      throw new BadRequestException('Project must be soft-deleted before permanent purge.');
+    }
+
+    // Confirmation key validation
+    const expectedKey = `PURGE-${existing.key || existing.id}`;
+    if (dto?.confirmationKey !== existing.name && dto?.confirmationKey !== expectedKey) {
+      throw new BadRequestException(`Confirmation key mismatch. Please enter project name "${existing.name}" or "${expectedKey}".`);
+    }
+
+    // Mandatory justification
+    const justification = dto?.justification?.trim();
+    if (!justification) {
+      throw new BadRequestException('A valid non-empty justification is mandatory for permanent purge.');
+    }
+
+    // Retention rules check: default retention threshold 30 days
+    const retentionDays = 30;
+    const minPurgeDate = new Date(existing.deletedAt.getTime() + retentionDays * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    if (now < minPurgeDate && !dto?.forceRetentionWaiver) {
+      throw new BadRequestException(
+        `Retention rule active: Project is within the ${retentionDays}-day retention safety window. Specify forceRetentionWaiver: true with administrator authorization to override.`
+      );
+    }
+
+    // Purge related records while strictly preserving immutable audit_events!
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Delete edges
+      await tx.edge.deleteMany({ where: { projectId } }).catch(() => null);
+      // 2. Delete nodes
+      await tx.node.deleteMany({ where: { projectId } }).catch(() => null);
+      // 3. Delete project members
+      await tx.projectMember.deleteMany({ where: { projectId } }).catch(() => null);
+      // 4. Delete documents attached to project
+      await tx.document.deleteMany({ where: { node: { projectId } } }).catch(() => null);
+      // 5. Delete project
+      await tx.project.delete({ where: { id: projectId } });
+    });
+
+    // Record immutable audit event
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_PURGED',
+        targetType: 'project',
+        targetId: projectId,
+        beforeValues: { name: existing.name, key: existing.key, deletedAt: existing.deletedAt },
+        afterValues: null,
+        reason: justification,
+        outcome: 'PERMANENTLY_PURGED',
+      });
+    }
+
+    return {
+      success: true,
+      message: `Project "${existing.name}" permanently purged. Compliance and audit records preserved.`,
+    };
   }
 
   async cloneProject(

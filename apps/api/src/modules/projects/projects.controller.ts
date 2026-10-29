@@ -38,6 +38,12 @@ export class ProjectsController {
     return this.projectsService.listWorkspaceProjects(wsId, req.user);
   }
 
+  @Get('trash')
+  listTrash(@Req() req: any, @Headers('x-workspace-id') headerWsId?: string) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    return this.projectsService.listTrashProjects(wsId, req.user);
+  }
+
   @Post()
   create(
     @Req() req: any,
@@ -81,15 +87,85 @@ export class ProjectsController {
     return this.projectsService.updateProject(id, wsId, dto, actorId, req.user?.role);
   }
 
-  @Delete(':id')
-  delete(
+  @Get(':id/deletion-impact')
+  getDeletionImpact(
     @Req() req: any,
     @Param('id') id: string,
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
     const actorId = req.user?.id || req.user?.sub;
-    return this.projectsService.deleteProject(id, wsId, actorId, req.user?.role);
+    return this.projectsService.getProjectDeletionImpact(id, wsId, actorId, req.user?.role);
+  }
+
+  @Delete(':id')
+  delete(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto?: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.deleteProject(id, wsId, actorId, req.user?.role, dto);
+  }
+
+  @Post(':id/delete')
+  deleteWithPost(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto?: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.deleteProject(id, wsId, actorId, req.user?.role, dto);
+  }
+
+  @Post(':id/restore')
+  restore(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto?: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.restoreProject(id, wsId, actorId, req.user?.role, dto);
+  }
+
+  @Post(':id/archive')
+  archive(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.archiveProject(id, wsId, actorId, req.user?.role);
+  }
+
+  @Post(':id/unarchive')
+  unarchive(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.unarchiveProject(id, wsId, actorId, req.user?.role);
+  }
+
+  @Post(':id/purge')
+  purge(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto?: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.purgeProject(id, wsId, actorId, req.user?.role, dto);
   }
 
   @Post(':id/clone')

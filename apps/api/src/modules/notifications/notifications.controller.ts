@@ -47,4 +47,16 @@ export class NotificationsController {
   async updatePreferences(@Request() req: any, @Body() prefs: NotificationPreferencesDto) {
     return this.notificationsService.updateUserPreferences(req.user.id, prefs);
   }
+
+  @Post('cron/escalations')
+  async runEscalations(@Request() req: any) {
+    const wsId = req.user?.activeWorkspaceId || req.user?.workspaceId;
+    return this.notificationsService.processApprovalEscalations(wsId);
+  }
+
+  @Post('cron/overdue-reminders')
+  async runOverdueReminders(@Request() req: any) {
+    const wsId = req.user?.activeWorkspaceId || req.user?.workspaceId;
+    return this.notificationsService.processOverdueWorkReminders(wsId);
+  }
 }

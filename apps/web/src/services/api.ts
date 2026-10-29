@@ -538,4 +538,73 @@ export class ApiClient {
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
   }
+
+  // =========================================================================
+  // Phase 3: Lifecycle Safety, Workspaces & Task Readiness API
+  // =========================================================================
+
+  static getProjectDeletionImpact(projectId: string) {
+    return this.request(`/projects/${projectId}/deletion-impact`);
+  }
+
+
+  static restoreProject(projectId: string, dto?: { reason?: string }) {
+    return this.request(`/projects/${projectId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify(dto || {}),
+    });
+  }
+
+  static archiveProject(projectId: string) {
+    return this.request(`/projects/${projectId}/archive`, {
+      method: 'POST',
+    });
+  }
+
+  static unarchiveProject(projectId: string) {
+    return this.request(`/projects/${projectId}/unarchive`, {
+      method: 'POST',
+    });
+  }
+
+  static getTrashProjects() {
+    return this.request('/projects/trash');
+  }
+
+  static purgeProject(
+    projectId: string,
+    dto: { confirmationKey: string; justification: string; forceRetentionWaiver?: boolean }
+  ) {
+    return this.request(`/projects/${projectId}/purge`, {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    });
+  }
+
+  static getNodeCompletionReadiness(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/completion-readiness`);
+  }
+
+  static getNodeSubmissions(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/submissions`);
+  }
+
+  static getNodeEvidence(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/evidence`);
+  }
+
+  static getNodeAuditEvents(nodeId: string) {
+    return this.request(`/audit/events?targetId=${nodeId}`);
+  }
+
+  static getProjectAuditEvents(projectId: string) {
+    return this.request(`/audit/events?targetId=${projectId}`);
+  }
+
+  static reassignUserWork(userId: string, successorUserId: string) {
+    return this.request(`/users/${userId}/reassign-work`, {
+      method: 'POST',
+      body: JSON.stringify({ successorUserId }),
+    });
+  }
 }

@@ -7,14 +7,22 @@ export class ConsoleChannel implements OtpChannel {
 
   constructor() {
     const isProduction = process.env.NODE_ENV === 'production';
+    const isRenderHosting = process.env.RENDER === 'true' || Boolean(process.env.RENDER_SERVICE_ID);
     const allowOverride =
       process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION === 'true' ||
       process.env.ALLOW_CONSOLE_WHATSAPP_IN_PRODUCTION === 'true' ||
-      process.env.ALLOW_CONSOLE_SMS_IN_PRODUCTION === 'true';
+      process.env.ALLOW_CONSOLE_SMS_IN_PRODUCTION === 'true' ||
+      (isRenderHosting && (!process.env.RELTIGROW_API_KEY || process.env.RELTIGROW_API_KEY === 'your_reltigrow_api_key_here'));
 
     if (isProduction && !allowOverride) {
       throw new Error(
         'CRITICAL SECURITY ERROR: ConsoleChannel cannot be used in production environment without explicit ALLOW_CONSOLE_OTP_IN_PRODUCTION=true override. Please configure Reltigrow WhatsApp channel or set ALLOW_CONSOLE_OTP_IN_PRODUCTION=true in your environment.'
+      );
+    }
+
+    if (isProduction && isRenderHosting && !process.env.RELTIGROW_API_KEY) {
+      this.logger.warn(
+        'Running on Render with ConsoleChannel OTP simulation. Real WhatsApp messages will not be sent until RELTIGROW_API_KEY is configured in Render dashboard.'
       );
     }
   }

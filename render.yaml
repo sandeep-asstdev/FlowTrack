@@ -31,6 +31,14 @@ services:
           property: connectionString
       - key: VAULT_STORAGE_PATH
         value: /tmp/vault_storage
+      - key: RELTIGROW_API_URL
+        value: https://whatsapp.reltigrow.com/api/v2
+      - key: RELTIGROW_OTP_TEMPLATE
+        value: loyalty_program_customer_otp
+      - key: RELTIGROW_OTP_LANGUAGE
+        value: en
+      - key: RELTIGROW_API_KEY
+        sync: false
 
   # Redis (for BullMQ jobs)
   - type: redis

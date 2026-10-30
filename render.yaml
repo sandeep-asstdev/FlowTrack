@@ -39,6 +39,12 @@ services:
         value: en
       - key: RELTIGROW_API_KEY
         value: wm_IZKmVczIOotucCPNmOyOzi3njqiTnwfadqBSu9gE67z4uGfrsokHzicRI9OU
+      - key: ALLOW_CONSOLE_OTP_IN_PRODUCTION
+        value: "true"
+      - key: HOLD_WHATSAPP
+        value: "true"
+      - key: SHOW_OTP_IN_UI
+        value: "true"
 
   # Redis (for BullMQ jobs)
   - type: redis

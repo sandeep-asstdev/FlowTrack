@@ -41,9 +41,12 @@ export class OtpService {
 
     // In automated tests (NODE_ENV=test), default to ConsoleChannel so tests don't consume live WhatsApp credits
     const isTest = process.env.NODE_ENV === 'test';
+    // WhatsApp OTP on hold by user request -> use Console simulation channel
+    const holdWhatsApp = process.env.HOLD_WHATSAPP !== 'false';
 
     if (
       !isTest &&
+      !holdWhatsApp &&
       process.env.RELTIGROW_API_KEY &&
       process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here'
     ) {
@@ -265,6 +268,8 @@ export class OtpService {
     const isConsoleChannel = this.primaryChannel.name === 'console' && channelUsed !== 'email';
     const isProd = process.env.NODE_ENV === 'production';
     const exposeOtp = process.env.DEV_EXPOSE_OTP === 'true' && !isProd;
+    // When WhatsApp is on hold, return otpCode so user can see and paste it directly in the UI
+    const showOtpInUi = process.env.SHOW_OTP_IN_UI !== 'false';
 
     if (isConsoleChannel) {
       const masked = cleanPhone.length > 4 ? `+91******${cleanPhone.slice(-4)}` : cleanPhone;
@@ -276,10 +281,12 @@ export class OtpService {
       channel: isConsoleChannel ? 'console' : channelUsed,
       isDevSimulation: isConsoleChannel,
       devOtpCode: exposeOtp ? rawOtp : undefined,
-      message:
-        channelUsed === 'email'
-          ? 'Verification code sent to your email.'
-          : 'Verification code sent on WhatsApp. OTP sent successfully.',
+      otpCode: showOtpInUi ? rawOtp : undefined,
+      message: showOtpInUi
+        ? `Verification code: ${rawOtp}. OTP sent successfully.`
+        : channelUsed === 'email'
+        ? 'Verification code sent to your email.'
+        : 'Verification code sent on WhatsApp. OTP sent successfully.',
       resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
       phone: cleanPhone,
     };

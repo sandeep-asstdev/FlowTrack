@@ -128,22 +128,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setOtpSent(true);
       setOtpCooldownSeconds(res.resendCooldownSeconds || 45);
       setIsCooldownActive(true);
-      if (res.channel === 'email' || channel === 'email') {
+
+      const receivedOtp = (res as any).otpCode || (res as any).devOtpCode;
+      if (receivedOtp) {
+        setOtpCode(receivedOtp);
+        setDevSimulationNotice(`Verification Code: ${receivedOtp} (Autofilled below)`);
+        setSuccessMessage(`Code generated: ${receivedOtp}`);
+      } else if (res.channel === 'email' || channel === 'email') {
         setSuccessMessage('Verification code sent to your email.');
       } else {
-        setSuccessMessage('Verification code sent on WhatsApp.');
-      }
-      if (res.isDevSimulation) {
-        setDevSimulationNotice(
-          res.devOtpCode
-            ? `Dev Mode: OTP is ${res.devOtpCode} (logged to API server terminal)`
-            : 'Dev Mode: Verification code is logged in the API server terminal.'
-        );
+        setSuccessMessage('Verification code generated.');
       }
       if (res.canFallbackToEmail) {
         setCanFallbackEmail(true);
       }
-      setTimeout(() => setSuccessMessage(null), 3500);
+      setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err: any) {
       setError(err.message || 'Failed to send verification code. Please try again.');
       setCanFallbackEmail(true);
@@ -649,7 +648,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </div>
 
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    We'll send a 6-digit code to this number on WhatsApp.
+                    Enter your number to receive or auto-generate a 6-digit verification code.
                   </p>
 
                   {/* 6-Digit OTP verification inputs */}
@@ -688,8 +687,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       </div>
 
                       {devSimulationNotice && (
-                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300">
-                          {devSimulationNotice}
+                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-900 dark:text-blue-200 flex items-center justify-between">
+                          <span className="font-medium">{devSimulationNotice}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const match = devSimulationNotice.match(/\b\d{6}\b/);
+                              if (match) setOtpCode(match[0]);
+                            }}
+                            className="font-bold underline text-blue-600 dark:text-blue-400 cursor-pointer ml-2 shrink-0"
+                          >
+                            Paste Code
+                          </button>
                         </div>
                       )}
 
@@ -862,7 +871,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </div>
 
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    We'll send a 6-digit code to this number on WhatsApp.
+                    Enter your number to receive or auto-generate a 6-digit verification code.
                   </p>
 
                   {otpSent && !isPhoneVerified && (
@@ -885,6 +894,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                           Verify
                         </button>
                       </div>
+
+                      {devSimulationNotice && (
+                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-900 dark:text-blue-200 flex items-center justify-between">
+                          <span className="font-medium">{devSimulationNotice}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const match = devSimulationNotice.match(/\b\d{6}\b/);
+                              if (match) setOtpCode(match[0]);
+                            }}
+                            className="font-bold underline text-blue-600 dark:text-blue-400 cursor-pointer ml-2 shrink-0"
+                          >
+                            Paste Code
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between pt-1 text-[11px]">
                         <button
                           type="button"

@@ -12,6 +12,8 @@ export class ConsoleChannel implements OtpChannel {
       process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION === 'true' ||
       process.env.ALLOW_CONSOLE_WHATSAPP_IN_PRODUCTION === 'true' ||
       process.env.ALLOW_CONSOLE_SMS_IN_PRODUCTION === 'true' ||
+      process.env.HOLD_WHATSAPP === 'true' ||
+      process.env.SHOW_OTP_IN_UI === 'true' ||
       (isRenderHosting && (!process.env.RELTIGROW_API_KEY || process.env.RELTIGROW_API_KEY === 'your_reltigrow_api_key_here'));
 
     if (isProduction && !allowOverride) {

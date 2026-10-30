@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { ApiClient } from '../../services/api';
@@ -19,6 +19,7 @@ import {
   RotateCw,
 } from 'lucide-react';
 import { GoogleSignInButton } from './GoogleSignInButton';
+import { ResendCountdownTimer } from './ResendCountdownTimer';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -45,10 +46,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // OTP flow state
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
+  const [isCooldownActive, setIsCooldownActive] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const [canFallbackEmail, setCanFallbackEmail] = useState(false);
-  const cooldownTimerRef = useRef<any>(null);
+  const [devSimulationNotice, setDevSimulationNotice] = useState<string | null>(null);
 
   // Google completion specific fields
   const [googlePendingData, setGooglePendingData] = useState<{
@@ -70,19 +72,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Cooldown countdown effect
-  useEffect(() => {
-    if (otpCooldown > 0) {
-      cooldownTimerRef.current = setTimeout(() => {
-        setOtpCooldown((c) => c - 1);
-      }, 1000);
-      return () => clearTimeout(cooldownTimerRef.current);
-    }
-  }, [otpCooldown]);
-
   if (!isOpen) return null;
 
-  const handleGoogleSuccess = (authData: any) => {
+  const handleGoogleSuccess = useCallback((authData: any) => {
     if (authData.status === 'PENDING_REGISTRATION') {
       setGooglePendingData({
         signupToken: authData.signupToken,
@@ -97,11 +89,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
     setAuth(authData.user, authData.accessToken, authData.activeWorkspaceId, authData.workspaces);
     onClose();
-  };
+  }, [setAuth, onClose]);
 
-  const handleGoogleError = (errorMessage: string) => {
+  const handleGoogleError = useCallback((errorMessage: string) => {
     setError(errorMessage);
-  };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,16 +119,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     setLoading(true);
     setError(null);
+    setDevSimulationNotice(null);
     try {
       const fullPhone = `+91${cleanDigits}`;
       const targetEmail = email || googlePendingData?.email;
       const res = await ApiClient.requestOtp(fullPhone, channel, targetEmail);
+      if (!res || res.success === false) {
+        throw new Error(res?.message || 'Failed to dispatch verification code. Please check configuration.');
+      }
       setOtpSent(true);
-      setOtpCooldown(res.resendCooldownSeconds || 45);
+      setOtpCooldownSeconds(res.resendCooldownSeconds || 45);
+      setIsCooldownActive(true);
       if (res.channel === 'email' || channel === 'email') {
         setSuccessMessage('Verification code sent to your email.');
       } else {
         setSuccessMessage('Verification code sent on WhatsApp.');
+      }
+      if (res.isDevSimulation) {
+        setDevSimulationNotice(
+          res.devOtpCode
+            ? `Dev Mode: OTP is ${res.devOtpCode} (logged to API server terminal)`
+            : 'Dev Mode: Verification code is logged in the API server terminal.'
+        );
       }
       if (res.canFallbackToEmail) {
         setCanFallbackEmail(true);
@@ -145,6 +149,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     } catch (err: any) {
       setError(err.message || 'Failed to send verification code. Please try again.');
       setCanFallbackEmail(true);
+      setOtpSent(false);
     } finally {
       setLoading(false);
     }
@@ -478,7 +483,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       className="w-full pl-9 pr-10 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                      placeholder="••••••••"
                     />
                     <button
                       type="button"
@@ -592,8 +597,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1 flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
-                      <div className="flex items-center gap-1 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
-                        <span>ðŸ‡®ðŸ‡³</span>
+                      <div className="flex items-center gap-1.5 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                        <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">IN</span>
                         <span>+91</span>
                       </div>
                       <input
@@ -617,14 +622,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     {!isPhoneVerified && (
-                      <button
-                        type="button"
-                        onClick={() => handleSendRegistrationOtp('whatsapp')}
-                        disabled={loading || otpCooldown > 0 || phoneDigits.length !== 10}
-                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
-                      >
-                        {otpCooldown > 0 ? `Wait (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send code on WhatsApp'}
-                      </button>
+                      <ResendCountdownTimer
+                        initialCooldownSeconds={isCooldownActive ? otpCooldownSeconds : 0}
+                        onCooldownEnd={() => setIsCooldownActive(false)}
+                        onResend={() => handleSendRegistrationOtp('whatsapp')}
+                        isSending={loading}
+                        disabled={phoneDigits.length !== 10}
+                        variant="button"
+                      />
                     )}
 
                     {isPhoneVerified && (
@@ -654,9 +659,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         <span className="font-semibold text-slate-700 dark:text-slate-300">
                           Enter 6-Digit Verification Code
                         </span>
-                        {otpCooldown > 0 && (
-                          <span className="text-slate-400 font-mono">Resend in {otpCooldown}s</span>
-                        )}
+                        <ResendCountdownTimer
+                          initialCooldownSeconds={isCooldownActive ? otpCooldownSeconds : 0}
+                          onCooldownEnd={() => setIsCooldownActive(false)}
+                          onResend={() => handleSendRegistrationOtp('whatsapp')}
+                          isSending={loading}
+                          variant="text"
+                        />
                       </div>
                       <div className="flex items-center gap-2">
                         <input
@@ -677,6 +686,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                           {verifyingOtp ? 'Verifying...' : 'Verify'}
                         </button>
                       </div>
+
+                      {devSimulationNotice && (
+                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300">
+                          {devSimulationNotice}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between pt-1 text-[11px]">
                         <button
                           type="button"
@@ -693,7 +709,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                           <button
                             type="button"
                             onClick={() => handleSendRegistrationOtp('email')}
-                            disabled={loading || otpCooldown > 0}
+                            disabled={loading || isCooldownActive}
                             className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                           >
                             Get code via email
@@ -812,8 +828,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1 flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
-                      <div className="flex items-center gap-1 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
-                        <span>ðŸ‡®ðŸ‡³</span>
+                      <div className="flex items-center gap-1.5 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                        <span className="px-1 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">IN</span>
                         <span>+91</span>
                       </div>
                       <input
@@ -834,14 +850,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       />
                     </div>
                     {!isPhoneVerified && (
-                      <button
-                        type="button"
-                        onClick={() => handleSendRegistrationOtp('whatsapp')}
-                        disabled={loading || otpCooldown > 0 || phoneDigits.length !== 10}
-                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 shrink-0 disabled:opacity-50 cursor-pointer"
-                      >
-                        {otpCooldown > 0 ? `Wait (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send code on WhatsApp'}
-                      </button>
+                      <ResendCountdownTimer
+                        initialCooldownSeconds={isCooldownActive ? otpCooldownSeconds : 0}
+                        onCooldownEnd={() => setIsCooldownActive(false)}
+                        onResend={() => handleSendRegistrationOtp('whatsapp')}
+                        isSending={loading}
+                        disabled={phoneDigits.length !== 10}
+                        variant="button"
+                      />
                     )}
                   </div>
 

@@ -1156,7 +1156,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       } catch (e) {}
 
       // 2. Debounced backend persistence to project settings (if authorized)
-      if (permissions.canEditProject) {
+      if (permissions.canEditProjectSettings) {
         if (viewportDebounceTimerRef.current) {
           clearTimeout(viewportDebounceTimerRef.current);
         }
@@ -1174,7 +1174,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         }, 1000);
       }
     },
-    [project.id, project.settings, permissions.canEditProject]
+    [project.id, project.settings, permissions.canEditProjectSettings]
   );
 
   // Restore viewport once nodes are loaded

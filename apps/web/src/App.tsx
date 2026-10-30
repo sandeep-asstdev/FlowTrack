@@ -20,6 +20,7 @@ import {
   subscribeToRoute,
 } from './utils/router';
 import { Loader2, AlertCircle, ArrowLeft, ShieldAlert } from 'lucide-react';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 export function App() {
   const { user, activeWorkspaceId, setActiveWorkspace, loadInitialAuth, isLoading: isAuthLoading } = useAuthStore();
@@ -217,6 +218,7 @@ export function App() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 max-w-full pb-16 md:pb-0">
+        <ErrorBoundary fallbackTitle="Error loading workspace view" onReset={handleBackToDashboard}>
         {/* Route Error Guard (404, 403, 401) */}
         {routeError ? (
           <div className="flex-1 flex items-center justify-center p-3 sm:p-6">
@@ -361,6 +363,7 @@ export function App() {
             </p>
           </div>
         )}
+        </ErrorBoundary>
       </main>
 
       {/* Modals */}

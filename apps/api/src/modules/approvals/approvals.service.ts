@@ -80,6 +80,18 @@ export class ApprovalsService {
     private readonly authService: AuthorizationService
   ) {}
 
+  async resolveWorkspaceForNode(nodeId: string): Promise<string | null> {
+    try {
+      const node = await this.prisma.node.findUnique({
+        where: { id: nodeId },
+        select: { workspaceId: true },
+      });
+      return node?.workspaceId || null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Creates a versioned approval policy with stages.
    */

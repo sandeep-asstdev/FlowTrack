@@ -14,6 +14,7 @@
     "test:e2e": "pnpm --filter @flowtrack/web test:e2e",
     "lint": "pnpm -r --if-present run lint",
     "seed:demo": "pnpm --filter @flowtrack/api seed:demo",
+    "test:otp": "pnpm --filter @flowtrack/api test:otp",
     "teardown:demo": "pnpm --filter @flowtrack/api teardown:demo"
   },
   "devDependencies": {

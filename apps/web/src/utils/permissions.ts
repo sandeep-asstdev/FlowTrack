@@ -7,6 +7,7 @@ export interface RolePermissions {
   roleLabel: string;
   roleBadgeColor: string;
   canEditProject: boolean; // Edit canvas nodes, connections, titles, and workflow
+  canEditProjectSettings: boolean; // Persist project-level backend settings (ADMIN & MANAGER)
   canEditLayout: boolean; // Super Admin: can alter layout design, auto-organize
   canManageUsers: boolean; // Super Admin: manage all members, managers, team leads
   canCreateProject: boolean; // Super Admin & Manager: create projects
@@ -31,6 +32,7 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       roleLabel: 'Super Admin',
       roleBadgeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-950/70 dark:text-purple-300 border-purple-300 dark:border-purple-800',
       canEditProject: true,
+      canEditProjectSettings: true,
       canEditLayout: true,
       canManageUsers: true,
       canCreateProject: true,
@@ -53,6 +55,7 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       roleLabel: 'Manager',
       roleBadgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border-blue-300 dark:border-blue-800',
       canEditProject: true,
+      canEditProjectSettings: true,
       canEditLayout: false, // Altering layout design is reserved for Super Admin
       canManageUsers: true,
       canCreateProject: true,
@@ -75,6 +78,7 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       roleLabel: 'Team Lead',
       roleBadgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border-amber-300 dark:border-amber-800',
       canEditProject: true,
+      canEditProjectSettings: false,
       canEditLayout: false,
       canManageUsers: false,
       canCreateProject: false,
@@ -97,6 +101,7 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
       roleLabel: 'Guest Viewer',
       roleBadgeColor: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700',
       canEditProject: false,
+      canEditProjectSettings: false,
       canEditLayout: false,
       canManageUsers: false,
       canCreateProject: false,
@@ -119,6 +124,7 @@ export function getRolePermissions(rawRole?: string | null): RolePermissions {
     roleLabel: 'Member',
     roleBadgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800',
     canEditProject: true,
+    canEditProjectSettings: false,
     canEditLayout: false,
     canManageUsers: false,
     canCreateProject: false,

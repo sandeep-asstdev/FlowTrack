@@ -242,20 +242,36 @@ export class OtpService {
     }
 
     if (!sendResult.success) {
-      this.logger.error(`Failed to dispatch OTP: ${sendResult.error}`);
-      return {
-        success: false,
-        message: sendResult.error || 'Failed to dispatch verification code.',
-        errorCode: sendResult.errorCode,
-        canFallbackToEmail: sendResult.canFallbackToEmail || false,
-        resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
-        phone: cleanPhone,
-      };
+      const errorId = `ERR-OTP-${Date.now().toString(36).toUpperCase()}`;
+      this.logger.error(`[${errorId}] Failed to dispatch OTP: ${sendResult.error}`);
+      throw new HttpException(
+        {
+          success: false,
+          errorId,
+          message: sendResult.error || "We couldn't send the code. Please try again or use email.",
+          errorCode: sendResult.errorCode || 'PROVIDER_OUTAGE',
+          canFallbackToEmail: sendResult.canFallbackToEmail !== false,
+          resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
+          phone: cleanPhone,
+        },
+        HttpStatus.BAD_GATEWAY
+      );
+    }
+
+    const isConsoleChannel = this.primaryChannel.name === 'console' && channelUsed !== 'email';
+    const isProd = process.env.NODE_ENV === 'production';
+    const exposeOtp = process.env.DEV_EXPOSE_OTP === 'true' && !isProd;
+
+    if (isConsoleChannel) {
+      const masked = cleanPhone.length > 4 ? `+91******${cleanPhone.slice(-4)}` : cleanPhone;
+      console.log(`\n========================================\n[DEV OTP] ${masked} -> ${rawOtp}\n========================================\n`);
     }
 
     return {
       success: true,
-      channel: channelUsed,
+      channel: isConsoleChannel ? 'console' : channelUsed,
+      isDevSimulation: isConsoleChannel,
+      devOtpCode: exposeOtp ? rawOtp : undefined,
       message:
         channelUsed === 'email'
           ? 'Verification code sent to your email.'

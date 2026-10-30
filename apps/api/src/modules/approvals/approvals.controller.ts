@@ -93,7 +93,10 @@ export class ApprovalsController {
     @Query('nodeId') nodeId?: string,
     @Query('projectId') projectId?: string
   ) {
-    const workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
+    let workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
+    if (!workspaceId && nodeId) {
+      workspaceId = (await this.approvalsService.resolveWorkspaceForNode(nodeId)) || undefined;
+    }
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
     return this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId });
   }

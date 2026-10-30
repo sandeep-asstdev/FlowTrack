@@ -1098,7 +1098,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                  Task Approved &amp; Completed
+                  {node.state === 'Completed' ? 'Task Completed' : 'Task Approved'}
                 </span>
               </div>
             ) : !node.ownerId && permissions.canAssignTasks ? (

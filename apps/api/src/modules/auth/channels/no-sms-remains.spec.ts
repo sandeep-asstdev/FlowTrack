@@ -39,21 +39,21 @@ describe('Zero SMS Remnants & Production Protection Suite', () => {
   it('refuses to instantiate ConsoleChannel in production environment without explicit override', () => {
     const origEnv = process.env.NODE_ENV;
     const origOverride = process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION;
+    const origSmsOverride = process.env.ALLOW_CONSOLE_SMS_IN_PRODUCTION;
 
     try {
       process.env.NODE_ENV = 'production';
       delete process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION;
+      delete process.env.ALLOW_CONSOLE_WHATSAPP_IN_PRODUCTION;
+      delete process.env.ALLOW_CONSOLE_SMS_IN_PRODUCTION;
 
       expect(() => {
         new ConsoleChannel();
       }).toThrow(/CRITICAL SECURITY ERROR: ConsoleChannel cannot be used in production environment/i);
     } finally {
       process.env.NODE_ENV = origEnv;
-      if (origOverride) {
-        process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION = origOverride;
-      } else {
-        delete process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION;
-      }
+      if (origOverride) process.env.ALLOW_CONSOLE_OTP_IN_PRODUCTION = origOverride;
+      if (origSmsOverride) process.env.ALLOW_CONSOLE_SMS_IN_PRODUCTION = origSmsOverride;
     }
   });
 

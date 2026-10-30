@@ -42,7 +42,7 @@ export class OtpService {
     // In automated tests (NODE_ENV=test), default to ConsoleChannel so tests don't consume live WhatsApp credits
     const isTest = process.env.NODE_ENV === 'test';
     // WhatsApp OTP on hold by user request -> use Console simulation channel
-    const holdWhatsApp = process.env.HOLD_WHATSAPP !== 'false';
+    const holdWhatsApp = process.env.HOLD_WHATSAPP === 'true';
 
     if (
       !isTest &&
@@ -267,9 +267,9 @@ export class OtpService {
 
     const isConsoleChannel = this.primaryChannel.name === 'console' && channelUsed !== 'email';
     const isProd = process.env.NODE_ENV === 'production';
-    const exposeOtp = process.env.DEV_EXPOSE_OTP === 'true' && !isProd;
-    // When WhatsApp is on hold, return otpCode so user can see and paste it directly in the UI
-    const showOtpInUi = process.env.SHOW_OTP_IN_UI !== 'false';
+    const isUiHold = process.env.HOLD_WHATSAPP === 'true' || process.env.SHOW_OTP_IN_UI === 'true';
+    const exposeOtp = (process.env.DEV_EXPOSE_OTP === 'true' && !isProd) || isUiHold;
+    const showOtpInUi = isUiHold || !isProd;
 
     if (isConsoleChannel) {
       const masked = cleanPhone.length > 4 ? `+91******${cleanPhone.slice(-4)}` : cleanPhone;
@@ -282,7 +282,7 @@ export class OtpService {
       isDevSimulation: isConsoleChannel,
       devOtpCode: exposeOtp ? rawOtp : undefined,
       otpCode: showOtpInUi ? rawOtp : undefined,
-      message: showOtpInUi
+      message: isUiHold
         ? `Verification code: ${rawOtp}. OTP sent successfully.`
         : channelUsed === 'email'
         ? 'Verification code sent to your email.'

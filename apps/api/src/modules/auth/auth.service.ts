@@ -41,16 +41,16 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    otpServiceOrGoogle?: OtpService | GoogleAuthService,
+    otpService?: OtpService,
     auditService?: AuditService,
     googleAuthService?: GoogleAuthService
   ) {
-    if (otpServiceOrGoogle instanceof GoogleAuthService) {
-      this.googleAuthService = otpServiceOrGoogle;
+    if (otpService instanceof GoogleAuthService || (otpService && 'verifyIdToken' in (otpService as any))) {
+      this.googleAuthService = otpService as unknown as GoogleAuthService;
       this.otpService = new OtpService(this.prisma);
       this.auditService = auditService || ({ log: async () => {} } as any);
     } else {
-      this.otpService = (otpServiceOrGoogle as OtpService) || new OtpService(this.prisma);
+      this.otpService = otpService || new OtpService(this.prisma);
       this.auditService = auditService || ({ log: async () => {} } as any);
       this.googleAuthService = googleAuthService || new GoogleAuthService();
     }

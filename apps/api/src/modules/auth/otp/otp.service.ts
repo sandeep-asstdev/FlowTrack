@@ -36,16 +36,10 @@ export class OtpService {
   private inMemoryOtpChallenges: any[] = [];
   private inMemoryPhoneProofs = new Map<string, any>();
 
-  constructor(
-    private readonly prisma: PrismaService,
-    customChannel?: OtpChannel,
-    customEmailChannel?: OtpChannel
-  ) {
-    this.emailChannel = customEmailChannel || new EmailChannel();
+  constructor(private readonly prisma: PrismaService) {
+    this.emailChannel = new EmailChannel();
 
-    if (customChannel) {
-      this.primaryChannel = customChannel;
-    } else if (
+    if (
       process.env.RELTIGROW_API_KEY &&
       process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here'
     ) {

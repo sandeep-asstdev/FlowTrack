@@ -27,3 +27,4 @@ export class EmailChannel implements OtpChannel {
     return `${maskedUser}@${domain}`;
   }
 }
+

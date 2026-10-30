@@ -33,3 +33,4 @@ export class ConsoleChannel implements OtpChannel {
     return `${phone.slice(0, 3)}******${phone.slice(-4)}`;
   }
 }
+

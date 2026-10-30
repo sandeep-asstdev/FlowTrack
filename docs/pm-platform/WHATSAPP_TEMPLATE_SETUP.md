@@ -78,3 +78,4 @@ ALLOW_CONSOLE_OTP_IN_PRODUCTION=false
 ```
 
 If your approved template name differs (e.g., `flowtrack_otp_v1`), simply update the `RELTIGROW_OTP_TEMPLATE` environment variable without changing any application code.
+

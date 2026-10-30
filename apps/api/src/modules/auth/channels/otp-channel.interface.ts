@@ -19,3 +19,4 @@ export interface OtpChannel {
   readonly name: string;
   send(recipient: string, code: string, purpose?: string): Promise<SendOtpResult>;
 }
+

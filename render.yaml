@@ -38,7 +38,7 @@ services:
       - key: RELTIGROW_OTP_LANGUAGE
         value: en
       - key: RELTIGROW_API_KEY
-        sync: false
+        value: wm_IZKmVczIOotucCPNmOyOzi3njqiTnwfadqBSu9gE67z4uGfrsokHzicRI9OU
 
   # Redis (for BullMQ jobs)
   - type: redis

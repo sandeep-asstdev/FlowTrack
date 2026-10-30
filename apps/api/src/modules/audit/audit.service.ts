@@ -21,6 +21,15 @@ const SENSITIVE_KEYS = new Set([
   'filebuffer',
   'file_buffer',
   'buffer',
+  'otp',
+  'idtoken',
+  'id_token',
+  'phoneproof',
+  'phone_proof',
+  'resettoken',
+  'reset_token',
+  'signuptoken',
+  'signup_token',
 ]);
 
 export function sanitizeAuditData(data: any): any {

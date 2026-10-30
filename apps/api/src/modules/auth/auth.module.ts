@@ -7,6 +7,8 @@ import { JwtStrategy } from './jwt.strategy';
 import { GoogleAuthService } from './google-auth.service';
 import { AuthorizationService } from './authorization.service';
 import { AutoBootstrapService } from './auto-bootstrap.service';
+import { OtpService } from './sms/otp.service';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -15,9 +17,10 @@ import { AutoBootstrapService } from './auto-bootstrap.service';
       secret: process.env.JWT_SECRET || 'flowtrack-super-secret-jwt-key-2026-very-secure',
       signOptions: { expiresIn: '7d' },
     }),
+    AuditModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleAuthService, AuthorizationService, AutoBootstrapService],
-  exports: [AuthService, GoogleAuthService, AuthorizationService, AutoBootstrapService, JwtModule, PassportModule],
+  providers: [AuthService, JwtStrategy, GoogleAuthService, AuthorizationService, AutoBootstrapService, OtpService],
+  exports: [AuthService, GoogleAuthService, AuthorizationService, AutoBootstrapService, OtpService, JwtModule, PassportModule],
 })
 export class AuthModule {}

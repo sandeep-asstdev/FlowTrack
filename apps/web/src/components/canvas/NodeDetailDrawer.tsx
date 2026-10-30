@@ -998,13 +998,25 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-600 dark:text-slate-300">2. Supporting evidence attached</span>
-                  <span className={documents.length >= (node.mandatoryEvidenceCount || 0) ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
-                    {documents.length >= (node.mandatoryEvidenceCount || 0) ? '✓ Attached' : 'Missing'}
+                  <span
+                    className={
+                      documents.length > 0 && documents.length >= (node.mandatoryEvidenceCount || 0)
+                        ? 'text-emerald-600 font-bold'
+                        : (node.mandatoryEvidenceCount || 0) === 0 && documents.length === 0
+                        ? 'text-slate-500'
+                        : 'text-amber-600'
+                    }
+                  >
+                    {(node.mandatoryEvidenceCount || 0) === 0 && documents.length === 0
+                      ? 'No evidence required'
+                      : documents.length > 0
+                      ? `✓ ${documents.length} Attached`
+                      : `Missing (0/${node.mandatoryEvidenceCount || 1})`}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-600 dark:text-slate-300">3. Approver review passed</span>
-                  <span className={node.state === 'Approved' || node.state === 'Completed' ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
+                  <span className={node.state === 'Approved' || node.state === 'Completed' ? 'text-emerald-600 font-bold' : 'text-slate-500'}>
                     {node.state === 'Approved' || node.state === 'Completed' ? '✓ Approved' : 'Awaiting'}
                   </span>
                 </div>
@@ -1075,7 +1087,14 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   View Feedback
                 </button>
               </div>
-            ) : isApproved ? (
+            ) : (isApproved || node.state === 'Approved' || node.state === 'Completed') &&
+              node.state !== 'Draft' &&
+              node.state !== 'Assigned' &&
+              node.state !== 'In Progress' &&
+              node.state !== 'Ready for Review' &&
+              node.state !== 'In Review' &&
+              node.state !== 'UnderReview' &&
+              node.state !== 'Resubmitted' ? (
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 flex items-center gap-2.5">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
@@ -1226,12 +1245,22 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     <option value="">-- Any Authorized Manager / Lead --</option>
                     {workspaceMembers
                       .filter((m: any) => m.role === 'MANAGER' || m.role === 'TEAM_LEAD' || m.role === 'ADMIN')
+                      .sort((a: any, b: any) => {
+                        const order: Record<string, number> = { MANAGER: 1, TEAM_LEAD: 2, ADMIN: 3 };
+                        return (order[a.role] || 4) - (order[b.role] || 4);
+                      })
                       .map((m: any) => {
                         const u = m.user || {};
                         const uid = u.id || m.userId;
+                        const roleLabel =
+                          m.role === 'MANAGER'
+                            ? 'Manager'
+                            : m.role === 'TEAM_LEAD'
+                            ? 'Team Lead'
+                            : 'System Admin';
                         return (
                           <option key={m.id || uid} value={uid}>
-                            {u.fullName || u.email} ({m.role})
+                            {u.fullName || u.email} ({roleLabel})
                           </option>
                         );
                       })}

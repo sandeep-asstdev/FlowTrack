@@ -2,9 +2,9 @@
 
 ## 1. Project Overview & Execution Tracking
 
-- **Current Phase**: Phase 6 — Mobile-First UI/UX Rebuild (Completed)
-- **Status**: Completed (Exit Gate Satisfied, All 14 Mobile E2E & 626 Unit Tests Passing)
-- **Last Updated**: 2026-10-29
+- **Current Phase**: Phase 8 — Authentication: Sign In, Sign Up, Google, Mobile OTP, Password Reset (Completed)
+- **Status**: Completed (Exit Gate Satisfied, All 637 Monorepo Unit & Integration Tests Passing)
+- **Last Updated**: 2026-10-30
 
 ### Phase Roadmap
 - [x] **Phase 1: Foundation (Secure Organizational Model, Projects, Unlimited-Depth Tasks, Central Auth, Confidentiality)**
@@ -13,6 +13,7 @@
 - [x] **Phase 4: Risk, Governance & Multi-Methodology Support (Governance Rules & Compliance)**
 - [x] **Phase 5: Real User-Facing Bug Fixes (Server-Driven Task State, Unhandled ReferenceErrors, Strict Server Authorization)**
 - [x] **Phase 6: Mobile-First UI/UX Rebuild (Full-Screen Mobile Sheet, Contradictions Fixed, 10-Viewport Responsive Testing, Zero Regressions)**
+- [x] **Phase 8: Production-Grade Authentication & Security (Google OAuth, +91 Verified Mobile OTP, Session Invalidation via `tokenVersion`, Mass-Assignment Lockdown)**
 
 ---
 
@@ -191,6 +192,31 @@
    - Comprehensive test suite `e2e/phase6-mobile-ui.spec.ts` passing 14/14 tests.
    - Zero horizontal overflow (`document.documentElement.scrollWidth <= window.innerWidth`) verified at all 10 viewports.
 
+### Phase 8: Production-Grade Authentication & Security (Completed 2026-10-30)
+- **A. Sign-In Security & Uniform Latency**:
+  - Dummy `bcrypt.compare` on non-existent accounts ensures uniform response latency, mitigating email enumeration attacks.
+  - Uniform generic error: `"Invalid email or password"` for all credential failures.
+  - Session invalidation via `user.tokenVersion`: Changing passwords or requesting password resets increments `tokenVersion`, instantly terminating all active JWT sessions.
+- **B. Mobile Phone Verification (+91 Indian Format)**:
+  - Phone numbers strictly validated to `+91[6-9]\d{9}`.
+  - Modular SMS provider architecture (`ConsoleProvider` in dev, `Msg91Provider` for production DLT).
+  - Rate limiting & bot defenses: 45s resend cooldown, 5 sends/hr/phone, 10 sends/hr/IP, 500 daily global cap, 5-attempt challenge lockout.
+  - Single-use `PhoneVerificationProof` (15-min TTL) cryptographically verified and consumed on registration.
+- **C. Strict Role Enforcement & Mass-Assignment Lockdown**:
+  - Public registration unconditionally assigns `Role.MEMBER`.
+  - Client attempts to supply `role` or `requestedRole` are discarded by server-side DTO validation.
+  - Role promotion is restricted to platform administrators via `PATCH /users/:id/role`.
+- **D. Google OAuth & Identity Linking**:
+  - Validates Google ID tokens with public key signature, audience, and `email_verified: true` checks.
+  - Auto-links Google identities to existing accounts with verified matching emails.
+  - New Google signups require phone verification before account creation.
+- **E. Password Recovery**:
+  - Anti-enumeration response: `"If an account exists with this email, password recovery instructions have been dispatched."`
+  - 30-minute single-use reset tokens stored as SHA-256 hashes.
+- **F. Full Audit Trail**:
+  - All auth lifecycle events (`USER_REGISTERED`, `LOGIN_SUCCESS`, `LOGIN_FAILED`, `OTP_DISPATCHED`, `OTP_VERIFIED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_COMPLETED`, `GOOGLE_LINKED`) logged to immutable audit trail.
+  - Zero sensitive credentials (passwords, OTPs, tokens) stored in audit payloads.
+
 ---
 
 ## 5. Production Build Verification
@@ -206,13 +232,14 @@
 
 ## 6. Honest List of Limitations & Current Scope Boundaries
 
-1. **Email Dispatcher**: Notification delivery triggers real-time Socket.io websockets and persists to database with deduplication and backoff queue; external SMTP/SES integration is configured via environment variables and falls back safely to in-app delivery when unconfigured.
-2. **Object Storage**: Evidence upload validates magic bytes and hashes into local secure vault (`vault_storage`); S3/GCS bucket adapters are ready for plug-in via environment configuration.
-3. **Calendar View Drag & Drop**: The Calendar and Timeline views render live real-time scheduled dates; shifting dates directly by drag-and-drop on the calendar grid is scheduled for Phase 4 (advanced scheduling).
+1. **SMS Provider Setup**: Local development and testing utilize the in-memory/console provider. Production deployment requires setting `MSG91_AUTH_KEY` or `ALLOW_CONSOLE_SMS_IN_PRODUCTION=true`.
+2. **Google OAuth Client Credentials**: Google authentication requires `GOOGLE_CLIENT_ID` in production matching the registered domain in Google Cloud Console.
+3. **Email Dispatcher**: External SMTP/SES integration is configured via environment variables and falls back safely to in-app delivery when unconfigured.
+4. **Object Storage**: Evidence upload validates magic bytes and hashes into local secure vault (`vault_storage`); S3/GCS bucket adapters are ready for plug-in via environment configuration.
 
 ---
 
 ## 7. Exit Gate Satisfied
 
 > [!IMPORTANT]
-> **Exit Gate Satisfied**: Phase 6 — Mobile-First UI/UX Rebuild is verified and passing. All 14 mobile E2E tests, 17 core E2E tests, and 626 monorepo tests pass cleanly with 0 errors. Exhaustive before/after evidence is documented in `docs/pm-platform/UI_FIX_REPORT.md`.
+> **Exit Gate Satisfied**: Phase 8 — Authentication: Sign In, Sign Up, Google, Mobile OTP, Password Reset is verified and passing. All 637 monorepo tests pass cleanly with 0 regressions. Full verification details are documented in `docs/pm-platform/AUTH_REPORT.md` and operations in `docs/pm-platform/OWNER_HANDBOOK.md`.

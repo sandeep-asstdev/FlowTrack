@@ -62,58 +62,58 @@ export class AutoBootstrapService implements OnModuleInit {
 
   private async ensureDefaultAdmin() {
     const adminEmail = 'admin@flowtrack.dev';
+    const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
     const existing = await this.prisma.user.findUnique({ where: { email: adminEmail } });
 
-    if (!existing) {
-      this.logger.log(`Provisioning default platform admin (${adminEmail})...`);
-      const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+    // Create default workspace
+    const defaultWs = await this.prisma.workspace.upsert({
+      where: { slug: 'acme-developments' },
+      update: {},
+      create: {
+        name: 'Acme Developments',
+        slug: 'acme-developments',
+        logoUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb18615f8?w=128&q=80',
+        themeSettings: { accentColour: '#3b82f6', density: 'comfortable' },
+      },
+    });
 
-      // Create default workspace
-      const defaultWs = await this.prisma.workspace.upsert({
-        where: { slug: 'acme-developments' },
-        update: {},
-        create: {
-          name: 'Acme Developments',
-          slug: 'acme-developments',
-          logoUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb18615f8?w=128&q=80',
-          themeSettings: { accentColour: '#3b82f6', density: 'comfortable' },
-        },
-      });
+    const admin = await this.prisma.user.upsert({
+      where: { email: adminEmail },
+      update: {
+        passwordHash,
+        isActive: true,
+        emailVerified: true,
+        phoneVerified: true,
+        deletedAt: null,
+      },
+      create: {
+        email: adminEmail,
+        fullName: 'System Administrator',
+        phone: '+919876543210',
+        passwordHash,
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=96&q=80',
+        isActive: true,
+        emailVerified: true,
+        phoneVerified: true,
+        tokenVersion: 1,
+      },
+    });
 
-      const admin = await this.prisma.user.create({
-        data: {
-          email: adminEmail,
-          fullName: 'System Administrator',
-          phone: '+919876543210',
-          passwordHash,
-          avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=96&q=80',
-          isActive: true,
-        },
-      });
+    await this.prisma.membership.upsert({
+      where: { workspaceId_userId: { workspaceId: defaultWs.id, userId: admin.id } },
+      update: { role: Role.ADMIN },
+      create: { workspaceId: defaultWs.id, userId: admin.id, role: Role.ADMIN },
+    });
 
-      await this.prisma.membership.upsert({
-        where: { workspaceId_userId: { workspaceId: defaultWs.id, userId: admin.id } },
-        update: { role: Role.ADMIN },
-        create: { workspaceId: defaultWs.id, userId: admin.id, role: Role.ADMIN },
-      });
-
-      this.logger.log(`Default admin created: ${adminEmail}`);
-    }
+    this.logger.log(`Default admin verified: ${adminEmail}`);
   }
 
   async ensureDemoDataset() {
-    // Check if demo users already exist
-    const sampleUser = await this.prisma.user.findUnique({ where: { email: 'maya@acme.dev' } });
-    if (sampleUser) {
-      // Already primed
-      return;
-    }
-
-    this.logger.log('Seeding demo dataset (Acme Motors, Rival Corp, users, projects, tasks, approval policies)...');
+    this.logger.log('Synchronizing demo dataset (Acme Motors, Rival Corp, users, projects, tasks, approval policies)...');
     const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
     const userMap = new Map<string, any>();
 
-    // 1. Seed Users
+    // 1. Seed & ensure Users
     for (const spec of DEMO_USERS) {
       const user = await this.prisma.user.upsert({
         where: { email: spec.email },
@@ -123,6 +123,8 @@ export class AutoBootstrapService implements OnModuleInit {
           passwordHash,
           isActive: true,
           deletedAt: null,
+          emailVerified: true,
+          phoneVerified: true,
         },
         create: {
           email: spec.email,
@@ -130,6 +132,9 @@ export class AutoBootstrapService implements OnModuleInit {
           jobTitle: spec.jobTitle,
           passwordHash,
           isActive: true,
+          emailVerified: true,
+          phoneVerified: true,
+          tokenVersion: 1,
         },
       });
       userMap.set(spec.key, user);

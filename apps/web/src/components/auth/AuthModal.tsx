@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { ApiClient } from '../../services/api';
@@ -6,9 +6,7 @@ import {
   X,
   Mail,
   Lock,
-  Phone,
   User,
-  KeyRound,
   Sparkles,
   Eye,
   EyeOff,
@@ -17,6 +15,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
+  Check,
+  RotateCw,
 } from 'lucide-react';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
@@ -29,7 +29,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
   const { setAuth } = useAuthStore();
 
-  const [mode, setMode] = useState<'login' | 'register' | 'otp' | 'forgot'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'otp' | 'forgot' | 'google_complete'>('login');
   const [email, setEmail] = useState('admin@flowtrack.dev');
   const [password, setPassword] = useState('Password123!');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -39,8 +39,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Registration specific fields
   const [fullName, setFullName] = useState('');
   const [phoneDigits, setPhoneDigits] = useState('9876543210');
-  const [requestedRole, setRequestedRole] = useState<'MEMBER' | 'TEAM_LEAD' | 'MANAGER'>('MEMBER');
-  const [workspaceName, setWorkspaceName] = useState('');
+  const [phoneProof, setPhoneProof] = useState<string | null>(null);
+  const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+
+  // OTP flow state
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const cooldownTimerRef = useRef<any>(null);
+
+  // Google completion specific fields
+  const [googlePendingData, setGooglePendingData] = useState<{
+    signupToken: string;
+    email: string;
+    fullName: string;
+    avatarUrl?: string;
+  } | null>(null);
 
   // Password Recovery specific fields
   const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -49,18 +64,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [recoveryStep, setRecoveryStep] = useState<'request' | 'reset'>('request');
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
 
-  // OTP
-  const [phone, setPhone] = useState('+919876543210');
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-
+  // General state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Cooldown countdown effect
+  useEffect(() => {
+    if (otpCooldown > 0) {
+      cooldownTimerRef.current = setTimeout(() => {
+        setOtpCooldown((c) => c - 1);
+      }, 1000);
+      return () => clearTimeout(cooldownTimerRef.current);
+    }
+  }, [otpCooldown]);
+
   if (!isOpen) return null;
 
   const handleGoogleSuccess = (authData: any) => {
+    if (authData.status === 'PENDING_REGISTRATION') {
+      setGooglePendingData({
+        signupToken: authData.signupToken,
+        email: authData.email,
+        fullName: authData.fullName,
+        avatarUrl: authData.avatarUrl,
+      });
+      setFullName(authData.fullName || '');
+      setMode('google_complete');
+      setError(null);
+      return;
+    }
     setAuth(authData.user, authData.accessToken, authData.activeWorkspaceId, authData.workspaces);
     onClose();
   };
@@ -78,9 +111,58 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setAuth(res.user, res.accessToken, res.activeWorkspaceId, res.workspaces);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Invalid credentials or account inaccessible.');
+      setError(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendRegistrationOtp = async () => {
+    const cleanDigits = phoneDigits.replace(/\D/g, '');
+    if (!/^[6-9]\d{9}$/.test(cleanDigits)) {
+      setError('Please provide a valid 10-digit Indian mobile number (starting with 6, 7, 8, or 9).');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const fullPhone = `+91${cleanDigits}`;
+      await ApiClient.requestOtp(fullPhone);
+      setOtpSent(true);
+      setOtpCooldown(45);
+      setSuccessMessage('Verification code sent via SMS.');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send verification code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyRegistrationOtp = async () => {
+    if (!otpCode || otpCode.length !== 6) {
+      setError('Please enter the complete 6-digit verification code.');
+      return;
+    }
+
+    setVerifyingOtp(true);
+    setError(null);
+    try {
+      const cleanDigits = phoneDigits.replace(/\D/g, '');
+      const fullPhone = `+91${cleanDigits}`;
+      const res = await ApiClient.verifyOtp(fullPhone, otpCode);
+
+      if (res.phoneProof) {
+        setPhoneProof(res.phoneProof);
+        setIsPhoneVerified(true);
+        setSuccessMessage('Mobile number verified successfully!');
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Incorrect verification code. Please try again.');
+    } finally {
+      setVerifyingOtp(false);
     }
   };
 
@@ -89,16 +171,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setLoading(true);
     setError(null);
 
-    // Frontend validation
     if (!fullName.trim() || fullName.trim().length < 2) {
       setError('Full name must be at least 2 characters');
       setLoading(false);
       return;
     }
 
-    const cleanPhoneDigits = phoneDigits.replace(/\D/g, '');
-    if (!/^[6-9]\d{9}$/.test(cleanPhoneDigits)) {
-      setError('Please provide a valid 10-digit Indian mobile number (must start with 6, 7, 8, or 9).');
+    if (!isPhoneVerified || !phoneProof) {
+      setError('Please verify your mobile number via OTP before creating your account.');
       setLoading(false);
       return;
     }
@@ -116,27 +196,68 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
 
     try {
-      const fullPhone = `+91${cleanPhoneDigits}`;
+      const cleanDigits = phoneDigits.replace(/\D/g, '');
+      const fullPhone = `+91${cleanDigits}`;
       const res = await ApiClient.register({
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password,
         fullName: fullName.trim(),
         phone: fullPhone,
-        requestedRole,
-        workspaceName: workspaceName.trim() || undefined,
+        phoneProof,
       });
 
       setAuth(res.user, res.accessToken, res.activeWorkspaceId, [
         {
           id: res.activeWorkspaceId,
-          name: workspaceName.trim() || `${res.user.fullName}'s Workspace`,
+          name: `${res.user.fullName}'s Workspace`,
           slug: 'my-workspace',
-          role: res.role || requestedRole,
+          role: res.role || 'MEMBER',
         },
       ]);
       onClose();
     } catch (err: any) {
       setError(err.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteGoogleRegistration = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googlePendingData?.signupToken) return;
+
+    if (!isPhoneVerified || !phoneProof) {
+      setError('Please verify your mobile number with OTP to finalize registration.');
+      return;
+    }
+
+    if (password && password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    if (password && password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const cleanDigits = phoneDigits.replace(/\D/g, '');
+      const fullPhone = `+91${cleanDigits}`;
+
+      const res = await ApiClient.completeGoogleRegistration({
+        signupToken: googlePendingData.signupToken,
+        fullName: fullName.trim() || googlePendingData.fullName,
+        phone: fullPhone,
+        phoneProof,
+        password: password || undefined,
+      });
+
+      setAuth(res.user, res.accessToken, res.activeWorkspaceId, res.workspaces);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to complete Google registration.');
     } finally {
       setLoading(false);
     }
@@ -149,10 +270,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setRecoveryNotice(null);
 
     try {
-      const res = await ApiClient.forgotPassword(recoveryEmail.trim());
+      const res = await ApiClient.forgotPassword(recoveryEmail.trim().toLowerCase());
       setRecoveryNotice(res.message);
-      if (res.resetToken) {
-        setRecoveryToken(res.resetToken);
+      if (res.resetToken || res.devResetToken) {
+        setRecoveryToken(res.resetToken || res.devResetToken);
         setRecoveryStep('reset');
       }
     } catch (err: any) {
@@ -175,7 +296,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     try {
       const res = await ApiClient.resetPassword({
-        email: recoveryEmail.trim(),
+        email: recoveryEmail.trim().toLowerCase(),
         token: recoveryToken.trim(),
         newPassword,
       });
@@ -192,119 +313,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleSendOtp = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await ApiClient.requestOtp(phone);
-      setOtpSent(true);
-      setOtp('123456'); // pre-fill dev mock OTP
-    } catch (err: any) {
-      setError(err.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await ApiClient.verifyOtp(phone, otp);
-      setAuth(res.user, res.accessToken, res.activeWorkspaceId, res.workspaces);
-      onClose();
-    } catch (err: any) {
-      setError(err.message || 'OTP verification failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 z-50 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain animate-in fade-in zoom-in-95 duration-150 my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+      <div
+        className="w-full max-w-[440px] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white">
-              {mode === 'login' && t('login')}
-              {mode === 'register' && t('signup')}
-              {mode === 'otp' && 'Fast Phone OTP Sign In'}
-              {mode === 'forgot' && 'Password Recovery'}
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+              {mode === 'login'
+                ? t('login')
+                : mode === 'register'
+                ? 'Create an Account'
+                : mode === 'google_complete'
+                ? 'Finish Registration'
+                : 'Account Recovery'}
             </h3>
-            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Access your visual node canvas workspace
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              {mode === 'login'
+                ? 'Access your visual project workflow workspace'
+                : mode === 'register'
+                ? 'Join your team on FlowTrack as a Member'
+                : mode === 'google_complete'
+                ? 'Verify your mobile number to complete setup'
+                : 'Recover your password safely'}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
-            title="Close dialog"
-            aria-label="Close dialog"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Mode Selector Tabs (min 44px touch targets) */}
-        {mode !== 'forgot' ? (
-          <div className="flex border-b border-slate-100 dark:border-slate-800 p-1.5 bg-slate-50 dark:bg-slate-950 gap-1">
+        {/* Tab Switcher (Login vs Sign Up) */}
+        {mode !== 'forgot' && mode !== 'google_complete' && (
+          <div className="p-1 mx-4 sm:mx-6 mt-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex text-xs font-semibold">
             <button
-              id="tab-auth-login"
+              id="tab-login-btn"
+              type="button"
               onClick={() => {
                 setMode('login');
                 setError(null);
               }}
-              className={`flex-1 py-2.5 min-h-[44px] flex items-center justify-center text-xs font-semibold rounded-xl transition-all ${
+              className={`flex-1 py-2 rounded-xl transition-all ${
                 mode === 'login'
-                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              {t('login')}
+              Sign In
             </button>
             <button
-              id="tab-auth-register"
+              id="tab-register-btn"
+              type="button"
               onClick={() => {
                 setMode('register');
                 setError(null);
               }}
-              className={`flex-1 py-2.5 min-h-[44px] flex items-center justify-center text-xs font-semibold rounded-xl transition-all ${
+              className={`flex-1 py-2 rounded-xl transition-all ${
                 mode === 'register'
-                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              {t('signup')}
-            </button>
-            <button
-              id="tab-auth-otp"
-              onClick={() => {
-                setMode('otp');
-                setError(null);
-              }}
-              className={`flex-1 py-2.5 min-h-[44px] flex items-center justify-center text-xs font-semibold rounded-xl transition-all gap-1 ${
-                mode === 'otp'
-                  ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span>OTP</span>
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
-            <button
-              onClick={() => {
-                setMode('login');
-                setError(null);
-              }}
-              className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5 py-1.5 min-h-[44px]"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to Sign In</span>
+              Sign Up
             </button>
           </div>
         )}
@@ -325,7 +402,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          {/* LOGIN VIEW */}
+          {/* 1. SIGN IN VIEW */}
           {mode === 'login' && (
             <div className="space-y-4">
               <GoogleSignInButton
@@ -360,7 +437,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       onChange={(e) => setEmail(e.target.value)}
                       required
                       className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="admin@flowtrack.dev"
+                      placeholder="name@organization.com"
                     />
                   </div>
                 </div>
@@ -402,60 +479,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-2 space-y-1">
-                    <div>
-                      Default admin:{' '}
-                      <button
-                        type="button"
-                        onClick={() => { setEmail('admin@flowtrack.dev'); setPassword('Password123!'); }}
-                        className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
-                      >
-                        admin@flowtrack.dev
-                      </button>{' '}
-                      / <code className="text-slate-600 dark:text-slate-300">Password123!</code>
-                    </div>
-                    <div>
-                      Demo users (Password: <code className="text-slate-600 dark:text-slate-300">Demo@12345</code>):{' '}
-                      <button
-                        type="button"
-                        onClick={() => { setEmail('maya@acme.dev'); setPassword('Demo@12345'); }}
-                        className="text-blue-600 dark:text-blue-400 font-semibold hover:underline font-mono"
-                      >
-                        maya@acme.dev
-                      </button>
-                      {', '}
-                      <button
-                        type="button"
-                        onClick={() => { setEmail('tom@acme.dev'); setPassword('Demo@12345'); }}
-                        className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
-                      >
-                        tom
-                      </button>
-                      {', '}
-                      <button
-                        type="button"
-                        onClick={() => { setEmail('mia@acme.dev'); setPassword('Demo@12345'); }}
-                        className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
-                      >
-                        mia
-                      </button>
-                    </div>
-                  </div>
                 </div>
 
                 <button
                   id="login-submit-btn"
                   type="submit"
                   disabled={loading}
-                  className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 flex items-center justify-center"
+                  className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 flex items-center justify-center cursor-pointer"
                 >
                   {loading ? 'Signing In...' : t('login')}
                 </button>
+
+                <div className="pt-2 text-center text-xs text-slate-500">
+                  New here?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('register');
+                      setError(null);
+                    }}
+                    className="font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                  >
+                    Create an account
+                  </button>
+                </div>
               </form>
             </div>
           )}
 
-          {/* REGISTRATION VIEW */}
+          {/* 2. SIGN UP VIEW (MOBILE-FIRST WITH VERIFIED PHONE PROOF) */}
           {mode === 'register' && (
             <div className="space-y-4">
               <GoogleSignInButton
@@ -471,7 +523,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
                 <div className="relative flex justify-center text-[10px] uppercase">
                   <span className="bg-white dark:bg-slate-900 px-2.5 text-slate-400 font-semibold tracking-wider">
-                    or register with email & mobile
+                    or register with email & phone
                   </span>
                 </div>
               </div>
@@ -515,76 +567,107 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
 
-                {/* Indian Mobile Number with Fixed +91 Prefix */}
+                {/* Indian Mobile Number with Fixed +91 Prefix & OTP Verification */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Indian Mobile Number <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
-                    <div className="flex items-center gap-1.5 px-3 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
-                      <span className="text-base leading-none">🇮🇳</span>
-                      <span>+91</span>
-                    </div>
-                    <input
-                      id="register-phone-input"
-                      type="tel"
-                      maxLength={10}
-                      value={phoneDigits}
-                      onChange={(e) => setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                      required
-                      className="flex-1 px-3 py-2.5 min-h-[44px] text-xs bg-transparent focus:outline-none font-mono"
-                      placeholder="9876543210"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Fixed +91 prefix followed by 10 digits starting with 6, 7, 8, or 9
-                  </p>
-                </div>
-
-                {/* Requested Role & Organization */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Requested Role
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Mobile Number <span className="text-rose-500">*</span>
                     </label>
-                    <select
-                      id="register-role-select"
-                      value={requestedRole}
-                      onChange={(e) => setRequestedRole(e.target.value as any)}
-                      className="w-full px-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="MEMBER">Member (Contributor / Assignee)</option>
-                      <option value="TEAM_LEAD">Team Lead (Approver)</option>
-                      <option value="MANAGER">Manager (Approver)</option>
-                    </select>
+                    {isPhoneVerified && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                        <Check className="w-3.5 h-3.5" /> Verified
+                      </span>
+                    )}
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Organization / Workspace
-                    </label>
-                    <div className="relative">
-                      <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1 flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
+                      <div className="flex items-center gap-1 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                        <span>🇮🇳</span>
+                        <span>+91</span>
+                      </div>
                       <input
-                        id="register-workspace-input"
-                        type="text"
-                        value={workspaceName}
-                        onChange={(e) => setWorkspaceName(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Apex Enterprises"
+                        id="register-phone-input"
+                        type="tel"
+                        maxLength={10}
+                        value={phoneDigits}
+                        onChange={(e) => {
+                          setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
+                          if (isPhoneVerified) {
+                            setIsPhoneVerified(false);
+                            setPhoneProof(null);
+                            setOtpSent(false);
+                          }
+                        }}
+                        disabled={isPhoneVerified}
+                        required
+                        className="flex-1 px-3 py-2 min-h-[44px] text-xs bg-transparent focus:outline-none font-mono"
+                        placeholder="9876543210"
                       />
                     </div>
+
+                    {!isPhoneVerified && (
+                      <button
+                        type="button"
+                        onClick={handleSendRegistrationOtp}
+                        disabled={loading || otpCooldown > 0 || phoneDigits.length !== 10}
+                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+                      >
+                        {otpCooldown > 0 ? `Resend (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send OTP'}
+                      </button>
+                    )}
+
+                    {isPhoneVerified && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPhoneVerified(false);
+                          setPhoneProof(null);
+                          setOtpSent(false);
+                          setOtpCode('');
+                        }}
+                        className="text-xs font-semibold text-slate-500 hover:text-blue-600 underline py-2 shrink-0 cursor-pointer"
+                      >
+                        Change
+                      </button>
+                    )}
                   </div>
+
+                  {/* 6-Digit OTP verification inputs */}
+                  {otpSent && !isPhoneVerified && (
+                    <div className="mt-2.5 p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          Enter 6-Digit Verification Code
+                        </span>
+                        {otpCooldown > 0 && (
+                          <span className="text-slate-400 font-mono">Resend in {otpCooldown}s</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          id="register-otp-input"
+                          type="text"
+                          maxLength={6}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          className="flex-1 px-3 py-2 text-center text-sm font-mono tracking-widest rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[40px]"
+                          placeholder="••••••"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVerifyRegistrationOtp}
+                          disabled={verifyingOtp || otpCode.length !== 6}
+                          className="px-4 py-2 min-h-[40px] text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+                        >
+                          {verifyingOtp ? 'Verifying...' : 'Verify'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 text-[11px] text-blue-700 dark:text-blue-300 flex items-start gap-2">
-                  <Shield className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    <strong>Security Policy:</strong> Public signup allows registering as Member, Team Lead, or Manager. Platform Admin roles require explicit authorization by existing administrators.
-                  </span>
-                </div>
-
-                {/* Password & Confirm Password */}
+                {/* Password & Confirm */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Password <span className="text-rose-500">*</span>
@@ -637,38 +720,173 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
 
+                {/* Friendly Role Policy Notice */}
+                <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/40 text-[11px] text-blue-700 dark:text-blue-300 flex items-start gap-2">
+                  <Shield className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
+                  <span>
+                    You will join as a <strong>Member</strong>. Your organization administrator can adjust your role after onboarding.
+                  </span>
+                </div>
+
                 <button
                   id="register-submit-btn"
                   type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 mt-3 flex items-center justify-center"
+                  disabled={loading || !isPhoneVerified}
+                  className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 mt-2 flex items-center justify-center cursor-pointer"
                 >
-                  {loading ? 'Registering Account...' : 'Complete Registration'}
+                  {loading ? 'Creating Account...' : 'Complete Registration'}
                 </button>
               </form>
             </div>
           )}
 
-          {/* FORGOT PASSWORD VIEW */}
+          {/* 3. GOOGLE REGISTRATION COMPLETION VIEW */}
+          {mode === 'google_complete' && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 text-xs text-blue-800 dark:text-blue-300">
+                <span className="font-bold">Google Identity Verified:</span> {googlePendingData?.email}
+              </div>
+
+              <form onSubmit={handleCompleteGoogleRegistration} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Full Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Mobile Phone Verification */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Mobile Number <span className="text-rose-500">*</span>
+                    </label>
+                    {isPhoneVerified && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+                        <Check className="w-3.5 h-3.5" /> Verified
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1 flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
+                      <div className="flex items-center gap-1 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
+                        <span>🇮🇳</span>
+                        <span>+91</span>
+                      </div>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        value={phoneDigits}
+                        onChange={(e) => {
+                          setPhoneDigits(e.target.value.replace(/\D/g, '').slice(0, 10));
+                          if (isPhoneVerified) {
+                            setIsPhoneVerified(false);
+                            setPhoneProof(null);
+                          }
+                        }}
+                        disabled={isPhoneVerified}
+                        required
+                        className="flex-1 px-3 py-2 min-h-[44px] text-xs bg-transparent focus:outline-none font-mono"
+                        placeholder="9876543210"
+                      />
+                    </div>
+                    {!isPhoneVerified && (
+                      <button
+                        type="button"
+                        onClick={handleSendRegistrationOtp}
+                        disabled={loading || otpCooldown > 0 || phoneDigits.length !== 10}
+                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 shrink-0 disabled:opacity-50 cursor-pointer"
+                      >
+                        {otpCooldown > 0 ? `Wait (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send OTP'}
+                      </button>
+                    )}
+                  </div>
+
+                  {otpSent && !isPhoneVerified && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center gap-2">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="flex-1 px-3 py-2 text-center text-sm font-mono tracking-widest rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="••••••"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyRegistrationOtp}
+                        disabled={verifyingOtp || otpCode.length !== 6}
+                        className="px-4 py-2 min-h-[38px] text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 cursor-pointer"
+                      >
+                        Verify
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Optional Fallback Password */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Set a Password <span className="text-slate-400 font-normal">(Optional fallback)</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Min 8 characters"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                  <Shield className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
+                  <span>
+                    You will join as a <strong>Member</strong>. Your administrator can promote you later.
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !isPhoneVerified}
+                  className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {loading ? 'Finalizing Setup...' : 'Finish Registration'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* 4. PASSWORD RECOVERY VIEW */}
           {mode === 'forgot' && (
             <div className="space-y-4">
-              {recoveryNotice && (
-                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-700 dark:text-blue-300 text-xs flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{recoveryNotice}</span>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                  setRecoveryNotice(null);
+                }}
+                className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 flex items-center gap-1.5 py-1 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Sign In</span>
+              </button>
 
               {recoveryStep === 'request' ? (
                 <form onSubmit={handleForgotPassword} className="space-y-4">
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    Enter the email associated with your FlowTrack account. We will issue a secure,
-                    single-use recovery token.
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Enter your account's email address. If an account is found, instructions will be dispatched.
                   </p>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                      Account Email
+                      Email Address
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
@@ -678,128 +896,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         onChange={(e) => setRecoveryEmail(e.target.value)}
                         required
                         className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="you@company.com"
+                        placeholder="name@organization.com"
                       />
                     </div>
                   </div>
 
+                  {recoveryNotice && (
+                    <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300">
+                      {recoveryNotice}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 flex items-center justify-center"
+                    className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    {loading ? 'Dispatching Token...' : 'Send Recovery Instructions'}
+                    {loading ? 'Sending Instructions...' : 'Send Recovery Instructions'}
                   </button>
                 </form>
               ) : (
                 <form onSubmit={handleResetPassword} className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                      Recovery Token
+                      Reset Token
                     </label>
-                    <div className="relative">
-                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                      <input
-                        type="text"
-                        value={recoveryToken}
-                        onChange={(e) => setRecoveryToken(e.target.value)}
-                        required
-                        className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter token from email"
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      value={recoveryToken}
+                      onChange={(e) => setRecoveryToken(e.target.value)}
+                      required
+                      className="w-full px-3 py-2.5 min-h-[44px] text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter the token received"
+                    />
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                       New Password
                     </label>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                      <input
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        required
-                        className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Min 8 characters"
-                      />
-                    </div>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                      className="w-full px-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Min 8 characters"
+                    />
                   </div>
 
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 flex items-center justify-center"
+                    className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    {loading ? 'Updating Password...' : 'Save New Password & Sign In'}
+                    {loading ? 'Updating Password...' : 'Reset Password'}
                   </button>
                 </form>
               )}
             </div>
-          )}
-
-          {/* OTP VIEW */}
-          {mode === 'otp' && (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('phone')}
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      required
-                      className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                      placeholder="+919876543210"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSendOtp}
-                    disabled={loading}
-                    className="px-3.5 py-2 min-h-[44px] bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold whitespace-nowrap flex items-center justify-center"
-                  >
-                    Send OTP
-                  </button>
-                </div>
-              </div>
-
-              {otpSent && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Enter 6-Digit OTP
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      required
-                      className="w-full pl-9 pr-3 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono tracking-widest text-center text-sm"
-                      placeholder="123456"
-                    />
-                  </div>
-                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
-                    {t('otpHint')}
-                  </div>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading || !otpSent}
-                className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 flex items-center justify-center"
-              >
-                {loading ? 'Verifying...' : 'Verify & Enter Workspace'}
-              </button>
-            </form>
           )}
         </div>
       </div>

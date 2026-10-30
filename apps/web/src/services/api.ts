@@ -115,6 +115,13 @@ export class ApiClient {
     });
   }
 
+  static completeGoogleRegistration(data: { signupToken: string; fullName: string; phone: string; phoneProof: string; password?: string }) {
+    return this.request('/auth/google/complete', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   static linkGoogleAccount(idTokenOrCredential: string) {
     return this.request('/auth/google/link', {
       method: 'POST',

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Req, Ip } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
   RegisterDto,
@@ -6,6 +6,7 @@ import {
   RequestOtpDto,
   VerifyOtpDto,
   GoogleAuthDto,
+  CompleteGoogleRegistrationDto,
   ForgotPasswordDto,
   ResetPasswordDto,
 } from '@flowtrack/shared';
@@ -40,6 +41,11 @@ export class AuthController {
     return this.authService.loginWithGoogle(dto);
   }
 
+  @Post('google/complete')
+  completeGoogleRegistration(@Body() dto: CompleteGoogleRegistrationDto) {
+    return this.authService.completeGoogleRegistration(dto);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Post('google/link')
   linkGoogle(@Req() req: any, @Body() dto: GoogleAuthDto) {
@@ -47,8 +53,8 @@ export class AuthController {
   }
 
   @Post('otp/request')
-  requestOtp(@Body() dto: RequestOtpDto) {
-    return this.authService.requestOtp(dto);
+  requestOtp(@Body() dto: RequestOtpDto, @Ip() ip: string) {
+    return this.authService.requestOtp(dto, ip);
   }
 
   @Post('otp/verify')

@@ -160,7 +160,7 @@ describe('Fast User Management & Role Security Target Suite', () => {
 
   // 1. REGISTRATION & INDIAN PHONE VALIDATION
   describe('1. Registration & Indian Phone Validation', () => {
-    it('accepts valid registration with +91 Indian mobile number and requested role', async () => {
+    it('accepts valid registration with +91 Indian mobile number and strictly assigns Role.MEMBER', async () => {
       const res = await authService.register({
         fullName: 'Anita Sharma',
         email: 'anita@flowtrack.in',
@@ -171,7 +171,7 @@ describe('Fast User Management & Role Security Target Suite', () => {
 
       expect(res.user.email).toBe('anita@flowtrack.in');
       expect(res.user.phone).toBe('+919876543210');
-      expect(res.role).toBe(Role.MANAGER);
+      expect(res.role).toBe(Role.MEMBER);
       expect(res.accessToken).toBe('mock-jwt-token-xyz');
     });
 

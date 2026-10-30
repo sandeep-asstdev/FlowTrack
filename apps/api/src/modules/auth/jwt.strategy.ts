@@ -7,13 +7,23 @@ export interface JwtPayload {
   sub: string;
   email: string;
   activeWorkspaceId?: string;
+  tokenVersion?: number;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly prisma: PrismaService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (req: any) => {
+          let token = null;
+          if (req && req.cookies && req.cookies['flowtrack_jwt']) {
+            token = req.cookies['flowtrack_jwt'];
+          }
+          return token;
+        },
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'flowtrack-super-secret-jwt-key-2026-very-secure',
     });
@@ -33,6 +43,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user || user.deletedAt || !user.isActive) {
       throw new UnauthorizedException('User not found or deactivated');
+    }
+
+    // Invalidate session if tokenVersion does not match current user record
+    if (
+      payload.tokenVersion !== undefined &&
+      user.tokenVersion !== undefined &&
+      payload.tokenVersion !== user.tokenVersion
+    ) {
+      throw new UnauthorizedException('Session expired or invalidated. Please sign in again.');
     }
 
     const { passwordHash: _hash, ...safeUser } = user;

@@ -177,7 +177,7 @@ describe('FlowTrack — Complete User Management & Authentication Suite', () => 
 
         expect(res.user.email).toBe('vikram@flowtrack.in');
         expect(res.user.phone).toBe('+919876543210');
-        expect(res.role).toBe(Role.MANAGER);
+        expect(res.role).toBe(Role.MEMBER);
         expect(res.accessToken).toBeDefined();
 
         // Verify password is encrypted via bcrypt in the database

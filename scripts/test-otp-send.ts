@@ -26,8 +26,8 @@ function loadEnvFile(filePath: string) {
 loadEnvFile(path.resolve(__dirname, '../apps/api/.env'));
 loadEnvFile(path.resolve(__dirname, '../.env'));
 
-import { ConsoleChannel } from '../apps/api/src/modules/auth/otp/channels/console.channel';
-import { ReltigrowChannel } from '../apps/api/src/modules/auth/otp/channels/reltigrow.channel';
+import { ConsoleChannel } from '../apps/api/src/modules/auth/channels/console.channel';
+import { ReltigrowWhatsAppChannel } from '../apps/api/src/modules/auth/channels/reltigrow-whatsapp.channel';
 
 async function main() {
   const targetPhone = process.argv[2] || '+919876543210';
@@ -43,8 +43,8 @@ async function main() {
 
   let channel: any;
   if (hasReltigrowKey) {
-    console.log('[TEST-OTP] Using ReltigrowChannel (Live WhatsApp Business API)');
-    channel = new ReltigrowChannel();
+    console.log('[TEST-OTP] Using ReltigrowWhatsAppChannel (Live WhatsApp Business API)');
+    channel = new ReltigrowWhatsAppChannel();
   } else {
     console.log('[TEST-OTP] Using ConsoleChannel (Simulated dev channel)');
     channel = new ConsoleChannel();

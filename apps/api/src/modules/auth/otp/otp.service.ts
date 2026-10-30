@@ -39,7 +39,11 @@ export class OtpService {
   constructor(private readonly prisma: PrismaService) {
     this.emailChannel = new EmailChannel();
 
+    // In automated tests (NODE_ENV=test), default to ConsoleChannel so tests don't consume live WhatsApp credits
+    const isTest = process.env.NODE_ENV === 'test';
+
     if (
+      !isTest &&
       process.env.RELTIGROW_API_KEY &&
       process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here'
     ) {

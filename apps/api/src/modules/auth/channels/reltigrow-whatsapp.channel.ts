@@ -65,8 +65,15 @@ export class ReltigrowWhatsAppChannel implements OtpChannel {
     const normalizedPhone = recipient.replace(/\s+/g, '');
 
     const endpoint = `${this.apiUrl.replace(/\/+$/, '')}/messages/template`;
+    // Reltigrow v2 template endpoint expects:
+    // { phone, template_name, language, field_1 }
+    // We also include Meta Cloud API schema (to, template) for dual-compatibility.
     const payload = {
+      phone: normalizedPhone,
       to: normalizedPhone,
+      template_name: this.templateName,
+      language: this.templateLanguage,
+      field_1: code,
       template: {
         name: this.templateName,
         language: {
@@ -75,17 +82,6 @@ export class ReltigrowWhatsAppChannel implements OtpChannel {
         components: [
           {
             type: 'body',
-            parameters: [
-              {
-                type: 'text',
-                text: code,
-              },
-            ],
-          },
-          {
-            type: 'button',
-            sub_type: 'url',
-            index: '0',
             parameters: [
               {
                 type: 'text',
@@ -126,13 +122,19 @@ export class ReltigrowWhatsAppChannel implements OtpChannel {
           data = {};
         }
 
-        if (response.ok) {
+        if (response.ok && (data.success !== false)) {
+          const messageId =
+            data.data?.message_id ||
+            data.messageId ||
+            data.id ||
+            `reltigrow-${Date.now()}`;
+
           this.logger.log(
-            `[Reltigrow] WhatsApp OTP template dispatched to ${maskedPhone} (purpose: ${purpose}, key: ${this.maskKey()})`
+            `[Reltigrow] WhatsApp OTP template dispatched to ${maskedPhone} (purpose: ${purpose}, id: ${messageId}, key: ${this.maskKey()})`
           );
           return {
             success: true,
-            messageId: data.messageId || data.id || `reltigrow-${Date.now()}`,
+            messageId,
           };
         }
 
@@ -147,7 +149,7 @@ export class ReltigrowWhatsAppChannel implements OtpChannel {
         }
 
         this.logger.error(
-          `[Reltigrow] HTTP ${status} error delivering to ${maskedPhone}: ${mapped.errorCode} (key: ${this.maskKey()})`
+          `[Reltigrow] HTTP ${status} error delivering to ${maskedPhone}: ${mapped.errorCode} - ${JSON.stringify(data.errors || data.error || data.message || '')} (key: ${this.maskKey()})`
         );
         return mapped;
       } catch (err: any) {
@@ -181,7 +183,13 @@ export class ReltigrowWhatsAppChannel implements OtpChannel {
   }
 
   private mapProviderError(status: number, data: any): SendOtpResult {
-    const rawMsg = (data.message || data.error?.message || '').toLowerCase();
+    const rawMsg = (
+      data.message ||
+      data.error?.message ||
+      (typeof data.errors === 'object' ? JSON.stringify(data.errors) : '') ||
+      (typeof data.error?.details === 'object' ? JSON.stringify(data.error?.details) : '') ||
+      ''
+    ).toLowerCase();
 
     if (status === 401 || status === 403) {
       return {

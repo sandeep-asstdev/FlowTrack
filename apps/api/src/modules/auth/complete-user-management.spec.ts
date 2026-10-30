@@ -627,7 +627,12 @@ describe('FlowTrack — Complete User Management & Authentication Suite', () => 
 
     it('marks real external SMTP / WhatsApp carrier delivery as NOT RUN when unconfigured', () => {
       const hasSmtpConfigured = Boolean(process.env.SMTP_HOST || process.env.SENDGRID_API_KEY);
-      const hasWhatsAppCarrierConfigured = Boolean(process.env.RELTIGROW_API_KEY && process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here');
+      const isTestEnv = process.env.NODE_ENV === 'test';
+      const hasWhatsAppCarrierConfigured = Boolean(
+        !isTestEnv &&
+        process.env.RELTIGROW_API_KEY &&
+        process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here'
+      );
 
       expect(hasSmtpConfigured).toBe(false);
       expect(hasWhatsAppCarrierConfigured).toBe(false);

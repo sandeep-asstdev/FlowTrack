@@ -19,12 +19,14 @@ import { HealthModule } from './modules/health/health.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuthModule,
+    AdminModule,
     OrganizationModule,
     WorkspacesModule,
     ProjectsModule,

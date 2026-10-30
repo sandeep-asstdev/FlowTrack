@@ -88,6 +88,7 @@ export class AuditController {
   }
 
   @Get('workspaces/:workspaceId/history')
+  @Get('workspaces/:workspaceId/audit')
   async getWorkspaceHistory(
     @Param('workspaceId') workspaceId: string,
     @Request() req: any,

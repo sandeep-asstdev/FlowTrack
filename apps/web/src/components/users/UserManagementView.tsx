@@ -42,6 +42,12 @@ export interface WorkspaceMember {
 
 export const UserManagementView: React.FC = () => {
   const { user: currentUser, activeWorkspaceId, getActiveRole } = useAuthStore();
+  const isPlatformAdmin = currentUser?.email === 'admin@flowtrack.dev' || getActiveRole() === 'ADMIN';
+
+  // Scope: 'platform' (default for Platform Admin) vs 'workspace'
+  const [scope, setScope] = useState<'platform' | 'workspace'>('platform');
+  const [platformStats, setPlatformStats] = useState<any>(null);
+
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -65,44 +71,79 @@ export const UserManagementView: React.FC = () => {
   const [deactivating, setDeactivating] = useState(false);
 
   const fetchMembers = useCallback(async () => {
-    if (!activeWorkspaceId) return;
     try {
       setError(null);
-      const data = await ApiClient.getWorkspaceMembers(activeWorkspaceId);
-      setMembers(data);
+      if (isPlatformAdmin && scope === 'platform') {
+        const [usersRes, statsRes] = await Promise.all([
+          ApiClient.getPlatformUsers({
+            search: search || undefined,
+            role: roleFilter !== 'ALL' ? roleFilter : undefined,
+            status: statusFilter !== 'ALL' ? statusFilter.toLowerCase() : undefined,
+            limit: 100,
+          }),
+          ApiClient.getPlatformStats().catch(() => null),
+        ]);
+        if (statsRes) setPlatformStats(statsRes);
+        const mappedMembers = (usersRes?.items || []).map((u: any) => u.workspaceMemberShape || u);
+        setMembers(mappedMembers);
+      } else if (activeWorkspaceId) {
+        const data = await ApiClient.getWorkspaceMembers(activeWorkspaceId);
+        setMembers(data);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load workspace members');
+      setError(err.message || 'Failed to load user records');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, isPlatformAdmin, scope, search, roleFilter, statusFilter]);
 
   const fetchAuditLogs = useCallback(async () => {
-    if (!activeWorkspaceId) return;
     try {
       setAuditLoading(true);
-      const res = await ApiClient.getWorkspaceAuditHistory(activeWorkspaceId, {
-        limit: 50,
-        action: auditActionFilter !== 'ALL' ? auditActionFilter : undefined,
-      });
-      setAuditLogs(res?.logs || []);
+      if (isPlatformAdmin && scope === 'platform') {
+        const res = await ApiClient.getPlatformAudits({
+          action: auditActionFilter !== 'ALL' ? auditActionFilter : undefined,
+          limit: 50,
+        });
+        const normalized = (res?.logs || res?.items || []).map((log: any) => ({
+          ...log,
+          createdAt: log.createdAt || log.timestamp || new Date().toISOString(),
+          entityType: log.entityType || log.targetType || 'User',
+          beforeState: log.beforeState || log.beforeValues,
+          afterState: log.afterState || log.afterValues,
+        }));
+        setAuditLogs(normalized);
+      } else if (activeWorkspaceId) {
+        const res = await ApiClient.getWorkspaceAuditHistory(activeWorkspaceId, {
+          limit: 50,
+          action: auditActionFilter !== 'ALL' ? auditActionFilter : undefined,
+        });
+        const normalized = (res?.logs || res?.items || []).map((log: any) => ({
+          ...log,
+          createdAt: log.createdAt || log.timestamp || new Date().toISOString(),
+          entityType: log.entityType || log.targetType || 'Entity',
+          beforeState: log.beforeState || log.beforeValues,
+          afterState: log.afterState || log.afterValues,
+        }));
+        setAuditLogs(normalized);
+      }
     } catch (err: any) {
       console.error('Failed to load audit logs:', err);
     } finally {
       setAuditLoading(false);
     }
-  }, [activeWorkspaceId, auditActionFilter]);
+  }, [activeWorkspaceId, isPlatformAdmin, scope, auditActionFilter]);
 
   useEffect(() => {
     fetchMembers();
   }, [fetchMembers]);
 
   useEffect(() => {
-    if (activeTab === 'audit' && activeWorkspaceId) {
+    if (activeTab === 'audit') {
       fetchAuditLogs();
     }
-  }, [activeTab, activeWorkspaceId, fetchAuditLogs]);
+  }, [activeTab, fetchAuditLogs]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -166,13 +207,17 @@ export const UserManagementView: React.FC = () => {
 
   // Handle Deactivation / Activation
   const handleConfirmDeactivation = async () => {
-    if (!deactivateTarget || !activeWorkspaceId) return;
+    if (!deactivateTarget) return;
     const target = deactivateTarget;
     const newStatus = !target.user.isActive;
 
     try {
       setDeactivating(true);
-      await ApiClient.updateMemberStatus(activeWorkspaceId, target.userId, newStatus);
+      if (scope === 'platform') {
+        await ApiClient.updatePlatformUserStatus(target.userId, newStatus);
+      } else if (activeWorkspaceId) {
+        await ApiClient.updateMemberStatus(activeWorkspaceId, target.userId, newStatus);
+      }
       setDeactivateTarget(null);
       setActionSuccess(
         `${newStatus ? 'Activated' : 'Deactivated'} ${target.user.fullName} successfully.`
@@ -230,9 +275,10 @@ export const UserManagementView: React.FC = () => {
             onClick={() => {
               setRefreshing(true);
               fetchMembers();
+              if (activeTab === 'audit') fetchAuditLogs();
             }}
             disabled={refreshing}
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all text-xs font-semibold flex items-center gap-1.5"
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
             title="Refresh user list"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -240,13 +286,53 @@ export const UserManagementView: React.FC = () => {
           <button
             id="invite-member-btn"
             onClick={() => setInviteModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+            className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
             <span>Invite Member</span>
           </button>
         </div>
       </div>
+
+      {/* Scope Selector: Entire Platform vs Current Workspace */}
+      {isPlatformAdmin && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/80 dark:border-purple-900/50 rounded-2xl">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+            <span className="text-xs font-bold text-purple-900 dark:text-purple-200">
+              Active Scope:
+            </span>
+            <span className="text-xs text-purple-700/80 dark:text-purple-300">
+              {scope === 'platform' ? 'Viewing all registered users & global audit logs across the platform' : 'Viewing members of current active workspace'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 rounded-xl border border-purple-200 dark:border-purple-800 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setScope('platform')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                scope === 'platform'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-300'
+              }`}
+            >
+              🌐 All Platform Users
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope('workspace')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                scope === 'workspace'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300'
+              }`}
+            >
+              🏢 Current Workspace
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Metric Counters & Role Breakdown */}
       <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
@@ -335,28 +421,28 @@ export const UserManagementView: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
         <button
           onClick={() => setActiveTab('members')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'members'
               ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
           }`}
         >
           <Users className="w-4 h-4" />
-          Team Members ({members.length})
+          {scope === 'platform' ? 'Platform Users' : 'Team Members'} ({members.length})
         </button>
         <button
           onClick={() => {
             setActiveTab('audit');
             fetchAuditLogs();
           }}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'audit'
               ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
           }`}
         >
           <History className="w-4 h-4" />
-          Workspace Audit Trail
+          {scope === 'platform' ? 'Global Audit Trail' : 'Workspace Audit Trail'} ({auditLogs.length})
         </button>
       </div>
 
@@ -761,7 +847,7 @@ export const UserManagementView: React.FC = () => {
                         {log.action}
                       </span>
                       <span className="text-[11px] text-slate-400">
-                        {new Date(log.createdAt).toLocaleString()}
+                        {new Date(log.createdAt || log.timestamp || Date.now()).toLocaleString()}
                       </span>
                     </div>
 
@@ -830,7 +916,7 @@ export const UserManagementView: React.FC = () => {
                     return (
                       <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
                         <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap text-[11px]">
-                          {new Date(log.createdAt).toLocaleString()}
+                          {new Date(log.createdAt || log.timestamp || Date.now()).toLocaleString()}
                         </td>
                         <td className="py-3.5 px-4">
                           <span

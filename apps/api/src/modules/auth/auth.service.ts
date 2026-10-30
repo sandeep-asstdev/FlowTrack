@@ -174,6 +174,38 @@ export class AuthService {
       });
     }
 
+    // Also join user to the primary organization workspace as MEMBER so they are in the team workspace
+    try {
+      const primaryWs = await this.prisma.workspace.findFirst({
+        where: { id: { not: workspace.id } },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (primaryWs) {
+        await this.prisma.membership.upsert({
+          where: { workspaceId_userId: { workspaceId: primaryWs.id, userId: user.id } },
+          create: { workspaceId: primaryWs.id, userId: user.id, role: assignedRole },
+          update: {},
+        });
+        if (this.auditService?.log) {
+          await this.auditService.log({
+            workspaceId: primaryWs.id,
+            entityName: 'User',
+            entityId: user.id,
+            actorId: user.id,
+            action: 'AUTH_SIGNUP',
+            newValues: {
+              email: user.email,
+              phone: user.phone,
+              fullName: user.fullName,
+              assignedRole,
+            },
+          });
+        }
+      }
+    } catch {
+      // non-blocking
+    }
+
     const token = this.generateToken(user.id, user.email, workspace.id, user.tokenVersion || 1);
 
     return {

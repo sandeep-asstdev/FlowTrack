@@ -589,6 +589,51 @@ export class ApiClient {
     return this.request(`/workspaces/${wsId}/history${q ? `?${q}` : ''}`);
   }
 
+  // ==========================================
+  // PLATFORM ADMIN METHODS
+  // ==========================================
+
+  static getPlatformUsers(options?: { search?: string; role?: string; status?: string; limit?: number; offset?: number }) {
+    const params = new URLSearchParams();
+    if (options?.search) params.append('search', options.search);
+    if (options?.role && options.role !== 'ALL') params.append('role', options.role);
+    if (options?.status && options.status !== 'ALL') params.append('status', options.status);
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    const q = params.toString();
+    return this.request<{ items: any[]; total: number; limit: number; offset: number }>(`/admin/users${q ? `?${q}` : ''}`);
+  }
+
+  static getPlatformAudits(options?: { action?: string; limit?: number; offset?: number }) {
+    const params = new URLSearchParams();
+    if (options?.action && options.action !== 'ALL') params.append('action', options.action);
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    const q = params.toString();
+    return this.request<{ items: any[]; logs: any[]; total: number; limit: number; offset: number }>(`/admin/audits${q ? `?${q}` : ''}`);
+  }
+
+  static getPlatformStats() {
+    return this.request<{
+      totalUsers: number;
+      activeUsers: number;
+      deactivatedUsers: number;
+      adminCount: number;
+      memberCount: number;
+      totalWorkspaces: number;
+      totalProjects: number;
+      recentSignups: number;
+      totalAudits: number;
+    }>('/admin/stats');
+  }
+
+  static updatePlatformUserStatus(userId: string, isActive: boolean) {
+    return this.request(`/admin/users/${userId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    });
+  }
+
   static async downloadProjectReportCsv(projectId: string, type: 'tasks' | 'milestones' | 'financials' | 'workload' = 'tasks') {
     if (!this.activeWorkspaceId) throw new Error('No active workspace');
     const res = await fetch(`${API_BASE}/workspaces/${this.activeWorkspaceId}/reports/export/${projectId}?type=${type}`, {

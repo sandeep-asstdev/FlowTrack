@@ -62,3 +62,4 @@ describe('Repository Character Encoding & Anti-Mojibake Integrity', () => {
     expect(content).not.toContain('🇮🇳');
   });
 });
+

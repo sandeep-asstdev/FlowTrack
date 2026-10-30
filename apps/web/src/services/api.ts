@@ -129,8 +129,17 @@ export class ApiClient {
     });
   }
 
-  static requestOtp(phone: string) {
-    return this.request('/auth/otp/request', { method: 'POST', body: JSON.stringify({ phone }) });
+  static requestOtp(phone: string, channel: 'whatsapp' | 'email' = 'whatsapp', email?: string) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      channel?: string;
+      resendCooldownSeconds?: number;
+      canFallbackToEmail?: boolean;
+    }>('/auth/otp/request', {
+      method: 'POST',
+      body: JSON.stringify({ phone, channel, email }),
+    });
   }
 
   static verifyOtp(phone: string, otp: string) {

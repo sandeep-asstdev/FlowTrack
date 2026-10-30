@@ -197,10 +197,10 @@
   - Dummy `bcrypt.compare` on non-existent accounts ensures uniform response latency, mitigating email enumeration attacks.
   - Uniform generic error: `"Invalid email or password"` for all credential failures.
   - Session invalidation via `user.tokenVersion`: Changing passwords or requesting password resets increments `tokenVersion`, instantly terminating all active JWT sessions.
-- **B. Mobile Phone Verification (+91 Indian Format)**:
+- **B. Mobile Phone Verification via Reltigrow WhatsApp (+91 Indian Format)**:
   - Phone numbers strictly validated to `+91[6-9]\d{9}`.
-  - Modular SMS provider architecture (`ConsoleProvider` in dev, `Msg91Provider` for production DLT).
-  - Rate limiting & bot defenses: 45s resend cooldown, 5 sends/hr/phone, 10 sends/hr/IP, 500 daily global cap, 5-attempt challenge lockout.
+  - Multi-channel architecture: `ReltigrowWhatsAppChannel` (primary), `ConsoleChannel` (dev simulation), and `EmailChannel` (fallback). Zero SMS legacy code remains.
+  - Rate limiting & bot defenses: 45s resend cooldown, 5 sends/hr/phone, 10 sends/hr/IP, 500 daily global cap, 5-minute code expiration, 5-attempt challenge lockout.
   - Single-use `PhoneVerificationProof` (15-min TTL) cryptographically verified and consumed on registration.
 - **C. Strict Role Enforcement & Mass-Assignment Lockdown**:
   - Public registration unconditionally assigns `Role.MEMBER`.
@@ -232,7 +232,7 @@
 
 ## 6. Honest List of Limitations & Current Scope Boundaries
 
-1. **SMS Provider Setup**: Local development and testing utilize the in-memory/console provider. Production deployment requires setting `MSG91_AUTH_KEY` or `ALLOW_CONSOLE_SMS_IN_PRODUCTION=true`.
+1. **Reltigrow WhatsApp Gateway Setup**: Local development and testing utilize the in-memory/console provider. Real outbound WhatsApp delivery requires configuring `RELTIGROW_API_KEY` and Meta-approved template `flowtrack_signup_otp` in production.
 2. **Google OAuth Client Credentials**: Google authentication requires `GOOGLE_CLIENT_ID` in production matching the registered domain in Google Cloud Console.
 3. **Email Dispatcher**: External SMTP/SES integration is configured via environment variables and falls back safely to in-app delivery when unconfigured.
 4. **Object Storage**: Evidence upload validates magic bytes and hashes into local secure vault (`vault_storage`); S3/GCS bucket adapters are ready for plug-in via environment configuration.
@@ -242,4 +242,4 @@
 ## 7. Exit Gate Satisfied
 
 > [!IMPORTANT]
-> **Exit Gate Satisfied**: Phase 8 — Authentication: Sign In, Sign Up, Google, Mobile OTP, Password Reset is verified and passing. All 637 monorepo tests pass cleanly with 0 regressions. Full verification details are documented in `docs/pm-platform/AUTH_REPORT.md` and operations in `docs/pm-platform/OWNER_HANDBOOK.md`.
+> **Exit Gate Satisfied**: Phase 8 Addendum v2 — Authentication & Reltigrow WhatsApp Business OTP is verified and passing. All 659 monorepo tests pass cleanly with 0 regressions. Full verification details are documented in `docs/pm-platform/AUTH_REPORT.md` and operations in `docs/pm-platform/OWNER_HANDBOOK.md`.

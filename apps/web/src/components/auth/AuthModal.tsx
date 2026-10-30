@@ -47,6 +47,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [otpSent, setOtpSent] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [canFallbackEmail, setCanFallbackEmail] = useState(false);
   const cooldownTimerRef = useRef<any>(null);
 
   // Google completion specific fields
@@ -117,7 +118,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleSendRegistrationOtp = async () => {
+  const handleSendRegistrationOtp = async (channel: 'whatsapp' | 'email' = 'whatsapp') => {
     const cleanDigits = phoneDigits.replace(/\D/g, '');
     if (!/^[6-9]\d{9}$/.test(cleanDigits)) {
       setError('Please provide a valid 10-digit Indian mobile number (starting with 6, 7, 8, or 9).');
@@ -128,13 +129,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setError(null);
     try {
       const fullPhone = `+91${cleanDigits}`;
-      await ApiClient.requestOtp(fullPhone);
+      const targetEmail = email || googlePendingData?.email;
+      const res = await ApiClient.requestOtp(fullPhone, channel, targetEmail);
       setOtpSent(true);
-      setOtpCooldown(45);
-      setSuccessMessage('Verification code sent via SMS.');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setOtpCooldown(res.resendCooldownSeconds || 45);
+      if (res.channel === 'email' || channel === 'email') {
+        setSuccessMessage('Verification code sent to your email.');
+      } else {
+        setSuccessMessage('Verification code sent on WhatsApp.');
+      }
+      if (res.canFallbackToEmail) {
+        setCanFallbackEmail(true);
+      }
+      setTimeout(() => setSuccessMessage(null), 3500);
     } catch (err: any) {
       setError(err.message || 'Failed to send verification code. Please try again.');
+      setCanFallbackEmail(true);
     } finally {
       setLoading(false);
     }
@@ -468,7 +478,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       className="w-full pl-9 pr-10 py-2.5 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="••••••••"
+                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                     />
                     <button
                       type="button"
@@ -583,7 +593,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1 flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
                       <div className="flex items-center gap-1 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
-                        <span>🇮🇳</span>
+                        <span>ðŸ‡®ðŸ‡³</span>
                         <span>+91</span>
                       </div>
                       <input
@@ -609,11 +619,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {!isPhoneVerified && (
                       <button
                         type="button"
-                        onClick={handleSendRegistrationOtp}
+                        onClick={() => handleSendRegistrationOtp('whatsapp')}
                         disabled={loading || otpCooldown > 0 || phoneDigits.length !== 10}
-                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
                       >
-                        {otpCooldown > 0 ? `Resend (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send OTP'}
+                        {otpCooldown > 0 ? `Wait (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send code on WhatsApp'}
                       </button>
                     )}
 
@@ -632,6 +642,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       </button>
                     )}
                   </div>
+
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    We'll send a 6-digit code to this number on WhatsApp.
+                  </p>
 
                   {/* 6-Digit OTP verification inputs */}
                   {otpSent && !isPhoneVerified && (
@@ -662,6 +676,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         >
                           {verifyingOtp ? 'Verifying...' : 'Verify'}
                         </button>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOtpSent(false);
+                            setOtpCode('');
+                            setError(null);
+                          }}
+                          className="text-slate-500 hover:text-blue-600 underline cursor-pointer"
+                        >
+                          Change number
+                        </button>
+                        {(canFallbackEmail || email) && (
+                          <button
+                            type="button"
+                            onClick={() => handleSendRegistrationOtp('email')}
+                            disabled={loading || otpCooldown > 0}
+                            className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                          >
+                            Get code via email
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -776,7 +813,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1 flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 overflow-hidden">
                       <div className="flex items-center gap-1 px-2.5 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 select-none">
-                        <span>🇮🇳</span>
+                        <span>ðŸ‡®ðŸ‡³</span>
                         <span>+91</span>
                       </div>
                       <input
@@ -799,33 +836,62 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {!isPhoneVerified && (
                       <button
                         type="button"
-                        onClick={handleSendRegistrationOtp}
+                        onClick={() => handleSendRegistrationOtp('whatsapp')}
                         disabled={loading || otpCooldown > 0 || phoneDigits.length !== 10}
-                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 shrink-0 disabled:opacity-50 cursor-pointer"
+                        className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 shrink-0 disabled:opacity-50 cursor-pointer"
                       >
-                        {otpCooldown > 0 ? `Wait (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send OTP'}
+                        {otpCooldown > 0 ? `Wait (${otpCooldown}s)` : otpSent ? 'Resend' : 'Send code on WhatsApp'}
                       </button>
                     )}
                   </div>
 
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    We'll send a 6-digit code to this number on WhatsApp.
+                  </p>
+
                   {otpSent && !isPhoneVerified && (
-                    <div className="mt-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center gap-2">
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        className="flex-1 px-3 py-2 text-center text-sm font-mono tracking-widest rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="••••••"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyRegistrationOtp}
-                        disabled={verifyingOtp || otpCode.length !== 6}
-                        className="px-4 py-2 min-h-[38px] text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 cursor-pointer"
-                      >
-                        Verify
-                      </button>
+                    <div className="mt-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          className="flex-1 px-3 py-2 text-center text-sm font-mono tracking-widest rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="••••••"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVerifyRegistrationOtp}
+                          disabled={verifyingOtp || otpCode.length !== 6}
+                          className="px-4 py-2 min-h-[38px] text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 cursor-pointer"
+                        >
+                          Verify
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOtpSent(false);
+                            setOtpCode('');
+                            setError(null);
+                          }}
+                          className="text-slate-500 hover:text-blue-600 underline cursor-pointer"
+                        >
+                          Change number
+                        </button>
+                        {googlePendingData?.email && (
+                          <button
+                            type="button"
+                            onClick={() => handleSendRegistrationOtp('email')}
+                            disabled={loading || otpCooldown > 0}
+                            className="text-blue-600 hover:underline cursor-pointer"
+                          >
+                            Get code via email
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

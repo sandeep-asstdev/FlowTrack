@@ -7,7 +7,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { GoogleAuthService } from './google-auth.service';
 import { AuthorizationService } from './authorization.service';
 import { AutoBootstrapService } from './auto-bootstrap.service';
-import { OtpService } from './sms/otp.service';
+import { OtpService } from './otp/otp.service';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({

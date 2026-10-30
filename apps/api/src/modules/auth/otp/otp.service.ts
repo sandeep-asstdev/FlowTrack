@@ -7,26 +7,28 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SmsProvider } from './sms-provider.interface';
-import { ConsoleProvider } from './console.provider';
-import { Msg91Provider } from './msg91.provider';
+import { OtpChannel, SendOtpResult } from '../channels/otp-channel.interface';
+import { ConsoleChannel } from '../channels/console.channel';
+import { ReltigrowWhatsAppChannel } from '../channels/reltigrow-whatsapp.channel';
+import { EmailChannel } from '../channels/email.channel';
 import { INDIAN_PHONE_REGEX } from '@flowtrack/shared';
 
 @Injectable()
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
-  private smsProvider: SmsProvider;
+  private primaryChannel: OtpChannel;
+  private emailChannel: OtpChannel;
 
   // In-memory sliding window rate-limit trackers
   private phoneHourlySends = new Map<string, number[]>();
   private ipHourlySends = new Map<string, number[]>();
-  private dailySmsCounter = { date: new Date().toISOString().slice(0, 10), count: 0 };
+  private dailyOtpCounter = { date: new Date().toISOString().slice(0, 10), count: 0 };
 
   private static readonly MAX_HOURLY_PER_PHONE = 5;
   private static readonly MAX_HOURLY_PER_IP = 10;
   private static readonly GLOBAL_DAILY_CAP = 500;
   private static readonly RESEND_COOLDOWN_SECONDS = 45;
-  private static readonly OTP_EXPIRY_MINUTES = 10;
+  private static readonly OTP_EXPIRY_MINUTES = 5;
   private static readonly PROOF_EXPIRY_MINUTES = 15;
   private static readonly MAX_ATTEMPTS = 5;
 
@@ -36,29 +38,53 @@ export class OtpService {
 
   constructor(
     private readonly prisma: PrismaService,
-    customProvider?: SmsProvider
+    customChannel?: OtpChannel,
+    customEmailChannel?: OtpChannel
   ) {
-    if (customProvider) {
-      this.smsProvider = customProvider;
-    } else if (process.env.SMS_PROVIDER === 'msg91' || process.env.MSG91_AUTH_KEY) {
-      this.smsProvider = new Msg91Provider();
+    this.emailChannel = customEmailChannel || new EmailChannel();
+
+    if (customChannel) {
+      this.primaryChannel = customChannel;
+    } else if (
+      process.env.RELTIGROW_API_KEY &&
+      process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here'
+    ) {
+      try {
+        this.primaryChannel = new ReltigrowWhatsAppChannel();
+      } catch (err: any) {
+        this.logger.warn(`Failed to initialize ReltigrowWhatsAppChannel: ${err.message}. Defaulting to ConsoleChannel.`);
+        this.primaryChannel = new ConsoleChannel();
+      }
     } else {
-      this.smsProvider = new ConsoleProvider();
+      this.primaryChannel = new ConsoleChannel();
     }
   }
 
-  setSmsProvider(provider: SmsProvider) {
-    this.smsProvider = provider;
+  setChannel(channel: OtpChannel) {
+    this.primaryChannel = channel;
   }
 
-  getSmsProvider(): SmsProvider {
-    return this.smsProvider;
+  getChannel(): OtpChannel {
+    return this.primaryChannel;
+  }
+
+  setEmailChannel(channel: OtpChannel) {
+    this.emailChannel = channel;
+  }
+
+  getEmailChannel(): OtpChannel {
+    return this.emailChannel;
   }
 
   /**
-   * Generates and dispatches a 6-digit OTP with strict rate limiting and bot protection.
+   * Generates and dispatches a 6-digit OTP code via WhatsApp (with email fallback) and strict rate limiting.
    */
-  async requestOtp(phone: string, purpose = 'SIGNUP', ipAddress?: string) {
+  async requestOtp(
+    phone: string,
+    purpose = 'SIGNUP',
+    ipAddress?: string,
+    options?: { channel?: 'whatsapp' | 'email'; email?: string }
+  ) {
     const cleanPhone = phone?.trim() || '';
 
     // 1. Strict Indian phone number regex: +91 followed by 10 digits starting with 6, 7, 8, or 9
@@ -70,15 +96,17 @@ export class OtpService {
 
     const now = Date.now();
 
-    // 2. Global daily SMS cap check (prevents SMS pumping attacks and unexpected telecom charges)
+    // 2. Global daily OTP cap check (prevents pumping attacks and gateway abuse)
     const today = new Date().toISOString().slice(0, 10);
-    if (this.dailySmsCounter.date !== today) {
-      this.dailySmsCounter = { date: today, count: 0 };
+    if (this.dailyOtpCounter.date !== today) {
+      this.dailyOtpCounter = { date: today, count: 0 };
     }
-    if (this.dailySmsCounter.count >= OtpService.GLOBAL_DAILY_CAP) {
-      this.logger.warn(`GLOBAL DAILY SMS CAP REACHED (${this.dailySmsCounter.count}/${OtpService.GLOBAL_DAILY_CAP})`);
+    if (this.dailyOtpCounter.count >= OtpService.GLOBAL_DAILY_CAP) {
+      this.logger.warn(
+        `GLOBAL DAILY OTP CAP REACHED (${this.dailyOtpCounter.count}/${OtpService.GLOBAL_DAILY_CAP})`
+      );
       throw new HttpException(
-        'Daily SMS dispatch threshold exceeded. Please try again tomorrow or contact support.',
+        'Daily verification code dispatch threshold exceeded. Please try again tomorrow or contact support.',
         HttpStatus.TOO_MANY_REQUESTS
       );
     }
@@ -199,17 +227,45 @@ export class OtpService {
       ipHistory.push(now);
       this.ipHourlySends.set(ipAddress, ipHistory);
     }
-    this.dailySmsCounter.count += 1;
+    this.dailyOtpCounter.count += 1;
 
-    // 10. Dispatch SMS via configured provider (NEVER log OTP directly in audit trail)
-    const sendResult = await this.smsProvider.sendOtp(cleanPhone, rawOtp, purpose);
+    // 10. Dispatch OTP via WhatsApp (or fallback to email if requested)
+    let sendResult: SendOtpResult;
+    let channelUsed = 'whatsapp';
+
+    if (options?.channel === 'email' && options?.email) {
+      channelUsed = 'email';
+      sendResult = await this.emailChannel.send(options.email, rawOtp, purpose);
+    } else {
+      sendResult = await this.primaryChannel.send(cleanPhone, rawOtp, purpose);
+
+      // If delivery failed and email fallback is available
+      if (!sendResult.success && options?.email) {
+        this.logger.warn(`WhatsApp dispatch failed, triggering email fallback for ${cleanPhone}`);
+        sendResult = await this.emailChannel.send(options.email, rawOtp, purpose);
+        channelUsed = 'email';
+      }
+    }
+
     if (!sendResult.success) {
-      this.logger.error(`Failed to dispatch OTP to ${cleanPhone}: ${sendResult.error}`);
+      this.logger.error(`Failed to dispatch OTP: ${sendResult.error}`);
+      return {
+        success: false,
+        message: sendResult.error || 'Failed to dispatch verification code.',
+        errorCode: sendResult.errorCode,
+        canFallbackToEmail: sendResult.canFallbackToEmail || false,
+        resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
+        phone: cleanPhone,
+      };
     }
 
     return {
       success: true,
-      message: 'OTP sent successfully. Verification code sent.',
+      channel: channelUsed,
+      message:
+        channelUsed === 'email'
+          ? 'Verification code sent to your email.'
+          : 'Verification code sent on WhatsApp. OTP sent successfully.',
       resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
       phone: cleanPhone,
     };

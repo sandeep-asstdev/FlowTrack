@@ -31,3 +31,4 @@ export function isCommonPassword(password: string): boolean {
   const clean = password.toLowerCase().trim();
   return COMMON_PASSWORDS.has(clean);
 }
+

@@ -625,12 +625,12 @@ describe('FlowTrack — Complete User Management & Authentication Suite', () => 
       ).rejects.toThrow(/Invalid OTP/i);
     });
 
-    it('marks real external SMTP / SMS carrier delivery as NOT RUN when unconfigured', () => {
+    it('marks real external SMTP / WhatsApp carrier delivery as NOT RUN when unconfigured', () => {
       const hasSmtpConfigured = Boolean(process.env.SMTP_HOST || process.env.SENDGRID_API_KEY);
-      const hasSmsCarrierConfigured = Boolean(process.env.TWILIO_AUTH_TOKEN || process.env.MSG91_AUTH_KEY);
+      const hasWhatsAppCarrierConfigured = Boolean(process.env.RELTIGROW_API_KEY && process.env.RELTIGROW_API_KEY !== 'your_reltigrow_api_key_here');
 
       expect(hasSmtpConfigured).toBe(false);
-      expect(hasSmsCarrierConfigured).toBe(false);
+      expect(hasWhatsAppCarrierConfigured).toBe(false);
     });
   });
 

@@ -36,6 +36,8 @@ export const requestOtpSchema = z.object({
     .string()
     .regex(INDIAN_PHONE_REGEX, 'Must be a valid Indian mobile number with +91 prefix and 10 digits starting with 6, 7, 8, or 9'),
   purpose: z.enum(['SIGNUP', 'LOGIN', 'PHONE_VERIFICATION']).optional().default('SIGNUP'),
+  channel: z.enum(['whatsapp', 'email']).optional().default('whatsapp'),
+  email: z.string().email().optional(),
 });
 
 export const verifyOtpSchema = z.object({

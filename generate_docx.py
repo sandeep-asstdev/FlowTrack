@@ -414,7 +414,7 @@ def generate_report():
 
     schema_rows = [
         ("Workspace", "id, name, slug, logoUrl, themeSettings, timestamps", "Multi-tenant root container. Owns all users, projects, templates, and rules."),
-        ("User", "id, email, phone, passwordHash, fullName, avatarUrl, locale", "System user entity supporting email/password and SMS OTP authentication."),
+        ("User", "id, email, phone, passwordHash, fullName, avatarUrl, locale", "System user entity supporting email/password and WhatsApp OTP authentication."),
         ("Membership", "id, workspaceId, userId, role, projectPermissions", "Associates users with workspaces and defines their RBAC tier (ADMIN, MANAGER, etc.)."),
         ("Project", "id, workspaceId, name, description, status, settings, version", "Project container holding the directed workflow graphs and project-level chats."),
         ("NodeType", "id, workspaceId, key, name, icon, colour, isGroup, isSystem", "Defines node categories (Task, Stage, Approval Gate, Document Request, Milestone, Note)."),
@@ -491,7 +491,7 @@ def generate_report():
         ("Super Admin: admin@flowtrack.dev | Password: Password123!", {"bold": False, "size": 9.5}),
         ("Project Manager: suresh@flowtrack.dev | Password: Password123!", {"bold": False, "size": 9.5}),
         ("Team Member: ramesh@flowtrack.dev | Password: Password123!", {"bold": False, "size": 9.5}),
-        ("Dev SMS OTP Bypass: Enter phone number and use code '123456'", {"bold": False, "size": 9.5})
+        ("Dev WhatsApp OTP Simulation: Enter phone number and use code '123456'", {"bold": False, "size": 9.5})
     ], border_color="10B981", bg_color="ECFDF5")
 
     # Output file path

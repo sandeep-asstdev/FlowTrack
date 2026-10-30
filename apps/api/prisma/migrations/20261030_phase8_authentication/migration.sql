@@ -111,3 +111,4 @@ CREATE TABLE IF NOT EXISTS "pending_google_signups" (
 );
 
 CREATE INDEX IF NOT EXISTS "pending_google_signups_email_idx" ON "pending_google_signups"("email");
+

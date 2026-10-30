@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuthService } from './auth.service';
-import { OtpService } from './sms/otp.service';
+import { OtpService } from './otp/otp.service';
 import { GoogleAuthService } from './google-auth.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { BadRequestException, UnauthorizedException, ForbiddenException, ConflictException } from '@nestjs/common';

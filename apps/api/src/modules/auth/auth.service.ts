@@ -22,7 +22,7 @@ import {
 } from '@flowtrack/shared';
 import { Role } from '@prisma/client';
 import { GoogleAuthService } from './google-auth.service';
-import { OtpService } from './sms/otp.service';
+import { OtpService } from './otp/otp.service';
 import { AuditService } from '../audit/audit.service';
 import { isCommonPassword } from './common-passwords';
 
@@ -273,7 +273,10 @@ export class AuthService {
   async requestOtp(dto: RequestOtpDto, ipAddress?: string) {
     const cleanPhone = dto.phone?.trim() || '';
     const purpose = dto.purpose || 'SIGNUP';
-    return this.otpService.requestOtp(cleanPhone, purpose, ipAddress);
+    return this.otpService.requestOtp(cleanPhone, purpose, ipAddress, {
+      channel: dto.channel as any,
+      email: dto.email,
+    });
   }
 
   /**

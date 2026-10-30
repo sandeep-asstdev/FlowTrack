@@ -72,7 +72,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const handleGoogleSuccess = useCallback((authData: any) => {
+  const handleGoogleSuccess = (authData: any) => {
     if (authData.status === 'PENDING_REGISTRATION') {
       setGooglePendingData({
         signupToken: authData.signupToken,
@@ -87,11 +87,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
     setAuth(authData.user, authData.accessToken, authData.activeWorkspaceId, authData.workspaces);
     onClose();
-  }, [setAuth, onClose]);
+  };
 
-  const handleGoogleError = useCallback((errorMessage: string) => {
+  const handleGoogleError = (errorMessage: string) => {
     setError(errorMessage);
-  }, []);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

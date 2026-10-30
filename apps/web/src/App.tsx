@@ -367,7 +367,7 @@ export function App() {
       </main>
 
       {/* Modals */}
-      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+      {authModalOpen && <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />}
       <CreateWorkspaceModal
         isOpen={createWsModalOpen}
         onClose={() => setCreateWsModalOpen(false)}

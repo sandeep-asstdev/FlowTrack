@@ -244,7 +244,12 @@ export class NodesService {
     const workspaceMembership = await this.prisma.membership.findUnique({
       where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
     });
-    const isWorkspaceAdmin = workspaceMembership?.role === Role.ADMIN;
+    const userAdminMembership = await this.prisma.membership.findFirst({
+      where: { userId: actorId, role: Role.ADMIN },
+    });
+    const isPlatformAdmin = Boolean(userAdminMembership);
+    const isWorkspaceAdmin = workspaceMembership?.role === Role.ADMIN || isPlatformAdmin;
+    const isWorkspaceMember = Boolean(workspaceMembership) || isPlatformAdmin;
 
     // Team lead check if task is assigned to a team
     let isTeamLeadInScope = false;
@@ -262,11 +267,7 @@ export class NodesService {
     const isProjectManager = isProjectOwner || isResponsibleManager || Boolean(isProjectMemberManager);
     const canManage = isProjectManager || isTeamLeadInScope || isWorkspaceAdmin;
 
-    // Project membership check: a user sees only tasks and projects they are a member of
-    const isProjectMember = Boolean(projectMemberRecord) || isProjectOwner || isResponsibleManager || isWorkspaceAdmin;
-
     // Confidentiality check
-    let canView = isProjectMember;
     const isConfidential =
       node.classification === 'RESTRICTED' ||
       node.classification === 'CONFIDENTIAL' ||
@@ -275,17 +276,21 @@ export class NodesService {
       node.project?.classification === 'CONFIDENTIAL' ||
       node.project?.classification === 'HIGHLY_CONFIDENTIAL';
 
+    let canView = false;
     if (isConfidential) {
       const isAssociated = canWork || isReviewer || isProjectOwner || isResponsibleManager;
-      if (!isAssociated) {
+      if (isAssociated) {
+        canView = true;
+      } else {
         // Platform admin alone does NOT get business content access to confidential tasks!
         const hasGrant = this.authService
           ? await this.authService.hasValidAccessGrant({ id: actorId, workspaceId: node.workspaceId }, node.projectId)
           : null;
-        if (!hasGrant) {
-          canView = false;
-        }
+        canView = Boolean(hasGrant);
       }
+    } else {
+      // Non-confidential: Any workspace member, project member, project owner/manager, assignee, collaborator, or reviewer can view
+      canView = isWorkspaceMember || Boolean(projectMemberRecord) || isProjectOwner || isResponsibleManager || canWork || isReviewer;
     }
 
     const can = {

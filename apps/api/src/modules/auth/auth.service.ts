@@ -175,38 +175,72 @@ export class AuthService {
     }
 
     // Also join user to the primary organization workspace as MEMBER so they are in the team workspace
+    let primaryWs: any = null;
     try {
-      const primaryWs = await this.prisma.workspace.findFirst({
-        where: { id: { not: workspace.id } },
-        orderBy: { createdAt: 'asc' },
-      });
-      if (primaryWs) {
-        await this.prisma.membership.upsert({
-          where: { workspaceId_userId: { workspaceId: primaryWs.id, userId: user.id } },
-          create: { workspaceId: primaryWs.id, userId: user.id, role: assignedRole },
-          update: {},
+      if (this.prisma.workspace?.findFirst && this.prisma.membership?.upsert) {
+        primaryWs = await this.prisma.workspace.findFirst({
+          where: { id: { not: workspace.id }, deletedAt: null },
+          orderBy: { createdAt: 'asc' },
         });
-        if (this.auditService?.log) {
-          await this.auditService.log({
-            workspaceId: primaryWs.id,
-            entityName: 'User',
-            entityId: user.id,
-            actorId: user.id,
-            action: 'AUTH_SIGNUP',
-            newValues: {
-              email: user.email,
-              phone: user.phone,
-              fullName: user.fullName,
-              assignedRole,
-            },
+        if (primaryWs) {
+          await this.prisma.membership.upsert({
+            where: { workspaceId_userId: { workspaceId: primaryWs.id, userId: user.id } },
+            create: { workspaceId: primaryWs.id, userId: user.id, role: assignedRole },
+            update: {},
           });
+          if (this.auditService?.log) {
+            await this.auditService.log({
+              workspaceId: primaryWs.id,
+              entityName: 'User',
+              entityId: user.id,
+              actorId: user.id,
+              action: 'AUTH_SIGNUP',
+              newValues: {
+                email: user.email,
+                phone: user.phone,
+                fullName: user.fullName,
+                assignedRole,
+              },
+            });
+          }
         }
       }
     } catch {
       // non-blocking
     }
 
-    const token = this.generateToken(user.id, user.email, workspace.id, user.tokenVersion || 1);
+    const defaultWsId = primaryWs?.id || workspace.id;
+    const token = this.generateToken(user.id, user.email, defaultWsId, user.tokenVersion || 1);
+
+    let workspacesList: any[] = [
+      {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+        role: assignedRole,
+      },
+    ];
+
+    if (this.prisma.membership?.findMany) {
+      try {
+        const userMemberships = await this.prisma.membership.findMany({
+          where: { userId: user.id },
+          include: { workspace: true },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (userMemberships.length > 0) {
+          workspacesList = userMemberships.map((m: any) => ({
+            id: m.workspace?.id || m.workspaceId,
+            name: m.workspace?.name || 'Workspace',
+            slug: m.workspace?.slug || 'workspace',
+            role: m.role || assignedRole,
+            logoUrl: m.workspace?.logoUrl,
+          }));
+        }
+      } catch {
+        // fallback to workspacesList
+      }
+    }
 
     return {
       user: {
@@ -215,7 +249,8 @@ export class AuthService {
         fullName: user.fullName,
         phone: user.phone,
       },
-      activeWorkspaceId: workspace.id,
+      workspaces: workspacesList,
+      activeWorkspaceId: defaultWsId,
       accessToken: token,
       role: assignedRole,
     };
@@ -263,6 +298,34 @@ export class AuthService {
         });
       }
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Ensure member has access to the primary workspace
+    try {
+      if (this.prisma.workspace?.findFirst && this.prisma.membership?.create) {
+        const primaryWs = await this.prisma.workspace.findFirst({
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (primaryWs && !user.memberships?.some((m: any) => m.workspaceId === primaryWs.id)) {
+          await this.prisma.membership.create({
+            data: {
+              workspaceId: primaryWs.id,
+              userId: user.id,
+              role: Role.MEMBER,
+            },
+          });
+          if (this.prisma.membership?.findMany) {
+            user.memberships = await this.prisma.membership.findMany({
+              where: { userId: user.id },
+              include: { workspace: true },
+              orderBy: { createdAt: 'asc' },
+            });
+          }
+        }
+      }
+    } catch {
+      // non-blocking
     }
 
     const defaultWorkspaceId = user.memberships[0]?.workspaceId;
@@ -941,6 +1004,31 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
+    try {
+      if (this.prisma.workspace?.findFirst && this.prisma.membership?.findUnique && this.prisma.membership?.create) {
+        const primaryWs = await this.prisma.workspace.findFirst({
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (primaryWs) {
+          const existing = await this.prisma.membership.findUnique({
+            where: { workspaceId_userId: { workspaceId: primaryWs.id, userId } },
+          });
+          if (!existing) {
+            await this.prisma.membership.create({
+              data: {
+                workspaceId: primaryWs.id,
+                userId,
+                role: Role.MEMBER,
+              },
+            });
+          }
+        }
+      }
+    } catch {
+      // non-blocking
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -948,6 +1036,7 @@ export class AuthService {
           include: {
             workspace: true,
           },
+          orderBy: { createdAt: 'asc' },
         },
       },
     });

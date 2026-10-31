@@ -218,14 +218,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         phoneProof,
       });
 
-      setAuth(res.user, res.accessToken, res.activeWorkspaceId, [
-        {
-          id: res.activeWorkspaceId,
-          name: `${res.user.fullName}'s Workspace`,
-          slug: 'my-workspace',
-          role: res.role || 'MEMBER',
-        },
-      ]);
+      setAuth(
+        res.user,
+        res.accessToken,
+        res.activeWorkspaceId,
+        res.workspaces && res.workspaces.length > 0
+          ? res.workspaces
+          : [
+              {
+                id: res.activeWorkspaceId,
+                name: `${res.user.fullName}'s Workspace`,
+                slug: 'my-workspace',
+                role: res.role || 'MEMBER',
+              },
+            ]
+      );
       onClose();
     } catch (err: any) {
       setError(err.message || 'Registration failed');

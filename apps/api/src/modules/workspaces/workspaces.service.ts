@@ -7,7 +7,33 @@ import { Role } from '@prisma/client';
 export class WorkspacesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async ensurePrimaryMembership(userId: string) {
+    try {
+      const primaryWs = await this.prisma.workspace.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (primaryWs) {
+        const existingMembership = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId: primaryWs.id, userId } },
+        });
+        if (!existingMembership) {
+          await this.prisma.membership.create({
+            data: {
+              workspaceId: primaryWs.id,
+              userId,
+              role: Role.MEMBER,
+            },
+          });
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+  }
+
   async listUserWorkspaces(userId: string) {
+    await this.ensurePrimaryMembership(userId);
     const memberships = await this.prisma.membership.findMany({
       where: { userId },
       include: {

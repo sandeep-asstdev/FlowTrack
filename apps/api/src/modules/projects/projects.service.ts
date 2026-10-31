@@ -52,10 +52,12 @@ export class ProjectsService {
         ...visibilityFilter,
       },
       include: {
+        owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
         _count: {
           select: {
             nodes: { where: { deletedAt: null } },
             edges: { where: { deletedAt: null } },
+            members: true,
           },
         },
       },

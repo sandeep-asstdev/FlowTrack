@@ -290,6 +290,7 @@ export function App() {
               }
             }}
             loading={loadingProjects}
+            onRefresh={fetchProjects}
           />
         ) : currentView === 'reports' ? (
           <div className="flex-1 flex flex-col">

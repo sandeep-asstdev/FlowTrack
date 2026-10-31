@@ -106,6 +106,24 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const isNodeLocked = Boolean(node?.customData?.isLocked);
   const isConfidentialHidden = isNodeLocked && !permissions.canViewConfidential;
 
+  // Server-driven capabilities from API response (default deny if not loaded)
+  const can = {
+    view: Boolean(node?.can?.view ?? true),
+    edit: Boolean(node?.can?.edit),
+    manage: Boolean(node?.can?.manage),
+    work: Boolean(node?.can?.work),
+    tickChecklist: Boolean(node?.can?.tickChecklist),
+    editChecklist: Boolean(node?.can?.editChecklist),
+    submit: Boolean(node?.can?.submit),
+    approve: Boolean(node?.can?.approve),
+    changeDates: Boolean(node?.can?.changeDates),
+    uploadEvidence: Boolean(node?.can?.uploadEvidence),
+    delete: Boolean(node?.can?.delete),
+    reportBlocker: Boolean(node?.can?.reportBlocker),
+  };
+
+  const [accessDenied, setAccessDenied] = useState(false);
+
   // Form Fields (Persistent across tab switches)
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -145,19 +163,66 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   // Subtasks / Checklist
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [creatingSubtask, setCreatingSubtask] = useState(false);
+  const [newChecklistText, setNewChecklistText] = useState('');
+  const [isSavingChecklist, setIsSavingChecklist] = useState(false);
 
   const handleToggleChecklistItem = async (itemId: string) => {
-    if (!nodeId) return;
+    if (!nodeId || isSavingChecklist) return;
     const nextChecklist = checklist.map((item) =>
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
-    setChecklist(nextChecklist);
+    setIsSavingChecklist(true);
     try {
       await ApiClient.updateChecklist(nodeId, nextChecklist);
+      setChecklist(nextChecklist);
       onNodeUpdated?.();
+      await loadNode(nodeId);
     } catch (err: any) {
       console.error('Failed to update checklist:', err);
-      setChecklist(checklist);
+      alert(err.message || 'Failed to update checklist item');
+    } finally {
+      setIsSavingChecklist(false);
+    }
+  };
+
+  const handleAddChecklistItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nodeId || !newChecklistText.trim() || isSavingChecklist) return;
+    const newItem = {
+      id: `chk-${Date.now()}-${checklist.length}`,
+      text: newChecklistText.trim(),
+      completed: false,
+    };
+    const nextChecklist = [...checklist, newItem];
+    setIsSavingChecklist(true);
+    try {
+      await ApiClient.updateChecklist(nodeId, nextChecklist);
+      setChecklist(nextChecklist);
+      setNewChecklistText('');
+      onNodeUpdated?.();
+      await loadNode(nodeId);
+    } catch (err: any) {
+      console.error('Failed to add checklist item:', err);
+      alert(err.message || 'Failed to add checklist item');
+    } finally {
+      setIsSavingChecklist(false);
+    }
+  };
+
+  const handleDeleteChecklistItem = async (itemId: string) => {
+    if (!nodeId || isSavingChecklist) return;
+    const nextChecklist = checklist.filter((item) => item.id !== itemId);
+    setIsSavingChecklist(true);
+    try {
+      await ApiClient.updateChecklist(nodeId, nextChecklist);
+      setChecklist(nextChecklist);
+      onNodeUpdated?.();
+      await loadNode(nodeId);
+    } catch (err: any) {
+      console.error('Failed to delete checklist item:', err);
+      alert(err.message || 'Failed to delete checklist item');
+    } finally {
+      setIsSavingChecklist(false);
     }
   };
 
@@ -255,7 +320,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const loadNode = useCallback(async (id: string) => {
     try {
       setLoading(true);
+      setAccessDenied(false);
       const data = await ApiClient.getNode(id);
+      if (!data || (data.can && data.can.view === false)) {
+        setAccessDenied(true);
+        return;
+      }
       setNode(data);
       setTitle(data.title || '');
       setDescription(data.description || '');
@@ -309,8 +379,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         const audits = await ApiClient.getNodeAuditEvents(id);
         setAuditEvents(audits || []);
       } catch {}
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load node details', e);
+      const status = e?.status || e?.statusCode;
+      if (status === 403 || status === 404) {
+        setAccessDenied(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -412,6 +486,37 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       { id: 'done', name: 'Done', labelI18n: { en: 'Done' }, category: 'done', colour: '#10b981' },
     ];
   }, [node, activeNodeTypesList]);
+
+  if (accessDenied || (node && node.can && node.can.view === false)) {
+    return (
+      <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4 text-rose-500" />
+              Access Denied
+            </span>
+            <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="p-6 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-center space-y-3">
+            <ShieldAlert className="w-10 h-10 text-rose-500 mx-auto" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">You don't have access to this task</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              This task belongs to another team member or confidential project. You do not have permission to view or modify its contents.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors"
+        >
+          Close Panel
+        </button>
+      </div>
+    );
+  }
 
   if (!nodeId || !node) return null;
 
@@ -739,7 +844,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onBlur={() => saveNodeUpdates({ title })}
-              disabled={!permissions.canEditProject}
+              disabled={!can.edit}
               className="w-full text-sm font-bold text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-none line-clamp-2"
               placeholder="Task Name"
             />
@@ -817,9 +922,9 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         >
           <Paperclip className="w-3.5 h-3.5 shrink-0" />
           <span>Work</span>
-          {(documents.length > 0 || (node.children?.length || 0) > 0) && (
+          {(checklist.length > 0 || documents.length > 0) && (
             <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
-              {documents.length + (node.children?.length || 0)}
+              {checklist.length > 0 ? checklist.length : documents.length}
             </span>
           )}
         </button>
@@ -1181,7 +1286,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     </span>
                   )}
                 </label>
-                {permissions.canAssignTasks ? (
+                {can.manage ? (
                   <select
                     value={ownerId}
                     onChange={(e) => {
@@ -1232,7 +1337,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                   Designated Reviewer
                 </label>
-                {permissions.canAssignTasks ? (
+                {can.manage ? (
                   <select
                     value={reviewerId}
                     onChange={(e) => {
@@ -1277,7 +1382,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between mb-1">
                   <span>Additional Collaborators ({collaboratorIds.length})</span>
                 </label>
-                {permissions.canAssignTasks ? (
+                {can.manage ? (
                   <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 max-h-28 overflow-y-auto">
                     {workspaceMembers.map((m: any) => {
                       const u = m.user || {};
@@ -1378,7 +1483,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                         customData: { ...customData, durationDays, fixedStartDate: parsed ? parsed.slice(0, 10) : undefined },
                       });
                     }}
-                    disabled={!permissions.canEditProject}
+                    disabled={!can.changeDates}
                     className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1416,7 +1521,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                         customData: updatedCustom,
                       });
                     }}
-                    disabled={!permissions.canEditProject}
+                    disabled={!can.changeDates}
                     className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1445,7 +1550,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                       }
                       saveNodeUpdates({ dueDate: parsed });
                     }}
-                    disabled={!permissions.canEditProject}
+                    disabled={!can.changeDates}
                     className={`w-full p-2 text-xs rounded-xl border ${
                       countdown.isOverdue ? 'border-rose-400 text-rose-600' : 'border-slate-200 dark:border-slate-700'
                     } bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500`}
@@ -1580,7 +1685,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 onChange={(e) => setProgressPct(Number(e.target.value))}
                 onMouseUp={() => saveNodeUpdates({ progressPct })}
                 onTouchEnd={() => saveNodeUpdates({ progressPct })}
-                disabled={!permissions.canEditProject}
+                disabled={!can.work && !can.manage}
                 className="w-full accent-blue-600 cursor-pointer"
               />
             </div>
@@ -1607,7 +1712,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       onBlur={() => saveNodeUpdates({ description })}
-                      disabled={!permissions.canEditProject}
+                      disabled={!can.edit}
                       rows={3}
                       className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                       placeholder="Detailed instructions or specifications for the assignee..."
@@ -1626,13 +1731,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                       value={weight}
                       onChange={(e) => setWeight(Number(e.target.value))}
                       onBlur={() => saveNodeUpdates({ weight: Number(weight) })}
-                      disabled={!permissions.canEditProject}
+                      disabled={!can.edit}
                       className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                     />
                   </div>
 
                   {/* Danger Zone: Delete Task */}
-                  {onDeleteNode && permissions.canEditProject && (
+                  {onDeleteNode && can.delete && (
                     <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
                       <div>
                         <span className="text-xs font-bold text-rose-600 block">Delete Task</span>
@@ -1663,107 +1768,139 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         {/* ============================================================== */}
         {activeTab === 'work' && (
           <div className="space-y-5">
-            {/* 1. Checklist & Subtasks */}
+            {/* 1. Task Checklist */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Checklist &amp; Subtasks ({node.children?.length || 0})</span>
+                  <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
+                  <span>
+                    Checklist {checklist.length > 0 ? `(${checklist.filter((c) => c.completed).length}/${checklist.length})` : '(0)'}
+                  </span>
                 </h4>
-                <button
-                  type="button"
-                  onClick={() => onDrillDown({ id: node.id, title: node.title })}
-                  className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
-                >
-                  <span>Open Sub-Canvas</span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
+                {isSavingChecklist && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-500 font-semibold">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Saving...
+                  </span>
+                )}
               </div>
 
-              {/* Add Subtask Input */}
-              {permissions.canCreateChildNodes && (
-                <form onSubmit={handleCreateSubtask} className="flex gap-2">
+              {/* Add Checklist Item Form */}
+              {can.editChecklist && (
+                <form onSubmit={handleAddChecklistItem} className="flex gap-2">
                   <input
                     type="text"
-                    value={newSubtaskTitle}
-                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                    placeholder="Add step or subtask..."
-                    className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={newChecklistText}
+                    onChange={(e) => setNewChecklistText(e.target.value)}
+                    placeholder="Add step or acceptance criteria..."
+                    disabled={isSavingChecklist}
+                    className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px]"
                   />
                   <button
                     type="submit"
-                    disabled={creatingSubtask || !newSubtaskTitle.trim()}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm"
+                    disabled={isSavingChecklist || !newChecklistText.trim()}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm min-h-[44px] transition-colors cursor-pointer"
                   >
                     + Add
                   </button>
                 </form>
               )}
 
-              {/* Subtasks List */}
+              {/* Checklist Items List */}
               <div className="space-y-1.5">
-                {(node.children || []).length === 0 ? (
-                  <p className="text-xs text-slate-400 py-2 text-center">
-                    No subtasks yet. Add step-by-step checklist items above.
+                {checklist.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3 text-center">
+                    No checklist required
                   </p>
                 ) : (
-                  node.children.map((sub: any) => {
-                    const isDone = sub.status?.category === 'done';
-                    return (
+                  checklist.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 min-h-[44px]"
+                    >
+                      <label className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(item.completed)}
+                          disabled={!can.tickChecklist || isSavingChecklist}
+                          onChange={() => handleToggleChecklistItem(item.id)}
+                          className="w-5 h-5 rounded text-blue-600 accent-blue-600 disabled:cursor-not-allowed cursor-pointer"
+                        />
+                        <span
+                          className={`text-xs font-medium leading-relaxed truncate ${
+                            item.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-200'
+                          }`}
+                        >
+                          {item.text}
+                        </span>
+                      </label>
+                      {can.editChecklist && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteChecklistItem(item.id)}
+                          disabled={isSavingChecklist}
+                          className="p-2 text-slate-400 hover:text-rose-500 rounded min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"
+                          title="Delete checklist item"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 2. Child Subtasks / Hierarchy */}
+            {((node.children || []).length > 0 || onDrillDown) && (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Child Subtasks / Hierarchy ({(node.children || []).length})</span>
+                  </h4>
+                  {onDrillDown && (
+                    <button
+                      type="button"
+                      onClick={() => onDrillDown({ id: node.id, title: node.title })}
+                      className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <span>Open Sub-Canvas</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Subtasks List */}
+                <div className="space-y-1.5">
+                  {(node.children || []).length === 0 ? (
+                    <p className="text-xs text-slate-400 py-2 text-center italic">
+                      No nested child nodes in hierarchy
+                    </p>
+                  ) : (
+                    node.children.map((sub: any) => (
                       <div
                         key={sub.id}
                         className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={isDone}
-                            onChange={async (e) => {
-                              const doneStatus = sub.nodeType?.statusSet?.statuses?.find(
-                                (s: any) => s.category === 'done' || s.key === 'done'
-                              );
-                              const activeStatus = sub.nodeType?.statusSet?.statuses?.find(
-                                (s: any) => s.category === 'active' || s.key === 'in_progress'
-                              );
-                              const targetStatus = e.target.checked ? doneStatus : activeStatus;
-                              if (targetStatus) {
-                                await ApiClient.updateNode(sub.id, {
-                                  statusId: targetStatus.id,
-                                  progressPct: e.target.checked ? 100 : 0,
-                                });
-                                await loadNode(node.id);
-                                onNodeUpdated();
-                              }
-                            }}
-                            className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer"
-                          />
                           <span
-                            className={`text-xs font-medium truncate ${
-                              isDone ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'
+                            className={`w-2 h-2 rounded-full ${
+                              sub.status?.category === 'done' ? 'bg-emerald-500' : 'bg-blue-500'
                             }`}
-                          >
+                          />
+                          <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
                             {sub.title}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (window.confirm(`Delete subtask "${sub.title}"?`)) {
-                              await ApiClient.deleteNode(sub.id);
-                              await loadNode(node.id);
-                              onNodeUpdated();
-                            }
-                          }}
-                          className="p-1 text-slate-400 hover:text-rose-500 rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                          {sub.status?.labelI18n?.en || sub.status?.name || sub.progressPct + '%'}
+                        </span>
                       </div>
-                    );
-                  })
-                )}
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 2. Dependencies & Blockers */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
@@ -2286,16 +2423,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             Start Task
           </button>
         ) : node.state === 'In Progress' ? (
-          <button
-            id="mobile-drawer-primary-action"
-            type="button"
-            onClick={() => setIsSubmittingModalOpen(true)}
-            className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
-          >
-            Submit for Review
-          </button>
+          can.submit ? (
+            <button
+              id="mobile-drawer-primary-action"
+              type="button"
+              onClick={() => setIsSubmittingModalOpen(true)}
+              className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 cursor-pointer"
+            >
+              Submit for Review
+            </button>
+          ) : (
+            <span className="text-[11px] text-slate-400 italic">Work in progress by assignee</span>
+          )
         ) : node.state === 'UnderReview' || node.state === 'Ready for Review' || node.state === 'In Review' ? (
-          approvalAuth.allowed ? (
+          (can.approve || approvalAuth.allowed) ? (
             <div className="flex gap-2">
               <button
                 type="button"

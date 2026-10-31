@@ -370,6 +370,23 @@ export class TaskLifecycleService {
       throw new NotFoundException('Task not found');
     }
 
+    const isOwner = node.ownerId === actorId;
+    const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
+    if (!isOwner && !isCollaborator) {
+      if (this.auditService) {
+        await this.auditService.recordAuditEvent({
+          workspaceId: node.workspaceId,
+          actorId,
+          action: 'SECURITY_VIOLATION',
+          targetType: 'task',
+          targetId: nodeId,
+          reason: `Unauthorized submission attempt: User ${actorId} is not an assignee or collaborator on task "${node.title}".`,
+          outcome: 'BLOCKED',
+        });
+      }
+      throw new ForbiddenException('Forbidden: Only the task assignee or collaborators can submit work.');
+    }
+
     const latest = await this.prisma.workSubmission.findFirst({
       where: { nodeId },
       orderBy: { version: 'desc' },
@@ -517,6 +534,23 @@ export class TaskLifecycleService {
       throw new NotFoundException('Task not found');
     }
 
+    const isOwner = node.ownerId === actorId;
+    const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
+    if (!isOwner && !isCollaborator) {
+      if (this.auditService) {
+        await this.auditService.recordAuditEvent({
+          workspaceId: node.workspaceId,
+          actorId,
+          action: 'SECURITY_VIOLATION',
+          targetType: 'task',
+          targetId: nodeId,
+          reason: `Unauthorized work update attempt: User ${actorId} is not an assignee or collaborator on task "${node.title}".`,
+          outcome: 'BLOCKED',
+        });
+      }
+      throw new ForbiddenException('Forbidden: Only the task assignee or collaborators can submit work updates.');
+    }
+
     const workUpdate = await this.prisma.workUpdate.create({
       data: {
         workspaceId: node.workspaceId,
@@ -597,6 +631,23 @@ export class TaskLifecycleService {
     });
     if (!node || node.deletedAt) {
       throw new NotFoundException('Task not found');
+    }
+
+    const isOwner = node.ownerId === actorId;
+    const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
+    if (!isOwner && !isCollaborator) {
+      if (this.auditService) {
+        await this.auditService.recordAuditEvent({
+          workspaceId: node.workspaceId,
+          actorId,
+          action: 'SECURITY_VIOLATION',
+          targetType: 'task',
+          targetId: nodeId,
+          reason: `Unauthorized evidence attachment: User ${actorId} is not an assignee or collaborator on task "${node.title}".`,
+          outcome: 'BLOCKED',
+        });
+      }
+      throw new ForbiddenException('Forbidden: Only the task assignee or collaborators can attach evidence.');
     }
 
     // Rigorous file validation and content sniffing

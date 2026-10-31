@@ -179,7 +179,152 @@ export class NodesService {
     });
   }
 
+  async resolveTaskPermissions(nodeId: string, actorId?: string, actorWorkspaceId?: string) {
+    const node = await this.prisma.node.findUnique({
+      where: { id: nodeId },
+      include: {
+        project: {
+          include: {
+            members: true,
+          },
+        },
+      },
+    });
+
+    if (!node || node.deletedAt) {
+      throw new NotFoundException('Task not found');
+    }
+
+    if (actorWorkspaceId && node.workspaceId !== actorWorkspaceId) {
+      throw new NotFoundException('Task not found');
+    }
+
+    if (!actorId) {
+      return {
+        node,
+        project: node.project,
+        isAssignee: false,
+        isCollaborator: false,
+        isReviewer: false,
+        canWork: false,
+        canManage: false,
+        isProjectOwner: false,
+        isProjectManager: false,
+        isTeamLeadInScope: false,
+        canView: false,
+        can: {
+          view: false,
+          edit: false,
+          manage: false,
+          work: false,
+          tickChecklist: false,
+          editChecklist: false,
+          submit: false,
+          approve: false,
+          changeDates: false,
+          uploadEvidence: false,
+          delete: false,
+          reportBlocker: false,
+        },
+      };
+    }
+
+    const isAssignee = node.ownerId === actorId;
+    const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
+    const isReviewer = node.reviewerId === actorId || node.backupReviewerId === actorId;
+    const canWork = isAssignee || isCollaborator;
+
+    // Check project ownership and manager role specifically on this project
+    const isProjectOwner = node.project?.ownerId === actorId;
+    const isResponsibleManager = node.project?.responsibleManagerId === actorId;
+    const projectMemberRecord = node.project?.members?.find((m: any) => m.userId === actorId);
+    const isProjectMemberManager = projectMemberRecord && (projectMemberRecord.role === Role.MANAGER || projectMemberRecord.role === Role.ADMIN);
+
+    // Workspace membership
+    const workspaceMembership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
+    });
+    const isWorkspaceAdmin = workspaceMembership?.role === Role.ADMIN;
+
+    // Team lead check if task is assigned to a team
+    let isTeamLeadInScope = false;
+    if (node.teamId) {
+      const teamLeadMember = await this.prisma.teamMember.findFirst({
+        where: { teamId: node.teamId, userId: actorId, role: 'lead' },
+      });
+      if (teamLeadMember) {
+        isTeamLeadInScope = true;
+      }
+    }
+
+    // A manager must be in scope of this project!
+    // Unrelated managers have NO management rights on this project's tasks!
+    const isProjectManager = isProjectOwner || isResponsibleManager || Boolean(isProjectMemberManager);
+    const canManage = isProjectManager || isTeamLeadInScope || isWorkspaceAdmin;
+
+    // Project membership check: a user sees only tasks and projects they are a member of
+    const isProjectMember = Boolean(projectMemberRecord) || isProjectOwner || isResponsibleManager || isWorkspaceAdmin;
+
+    // Confidentiality check
+    let canView = isProjectMember;
+    const isConfidential =
+      node.classification === 'RESTRICTED' ||
+      node.classification === 'CONFIDENTIAL' ||
+      node.classification === 'HIGHLY_CONFIDENTIAL' ||
+      node.project?.classification === 'RESTRICTED' ||
+      node.project?.classification === 'CONFIDENTIAL' ||
+      node.project?.classification === 'HIGHLY_CONFIDENTIAL';
+
+    if (isConfidential) {
+      const isAssociated = canWork || isReviewer || isProjectOwner || isResponsibleManager;
+      if (!isAssociated) {
+        // Platform admin alone does NOT get business content access to confidential tasks!
+        const hasGrant = this.authService
+          ? await this.authService.hasValidAccessGrant({ id: actorId, workspaceId: node.workspaceId }, node.projectId)
+          : null;
+        if (!hasGrant) {
+          canView = false;
+        }
+      }
+    }
+
+    const can = {
+      view: canView,
+      edit: canManage,
+      manage: canManage,
+      work: canWork,
+      tickChecklist: canWork,
+      editChecklist: canWork || canManage,
+      submit: canWork,
+      approve: isReviewer && !isAssignee,
+      changeDates: canManage,
+      uploadEvidence: canWork,
+      delete: canManage,
+      reportBlocker: canWork || canManage,
+    };
+
+    return {
+      node,
+      project: node.project,
+      isAssignee,
+      isCollaborator,
+      isReviewer,
+      canWork,
+      canManage,
+      isProjectOwner,
+      isProjectManager,
+      isTeamLeadInScope,
+      canView,
+      can,
+    };
+  }
+
   async getNode(id: string, actorId?: string, userRole?: string) {
+    const auth = await this.resolveTaskPermissions(id, actorId);
+    if (!auth.canView) {
+      throw new NotFoundException('Node not found');
+    }
+
     const node = await this.prisma.node.findUnique({
       where: { id },
       include: {
@@ -223,7 +368,20 @@ export class NodesService {
         },
         children: {
           where: { deletedAt: null },
-          include: { status: true },
+          include: {
+            status: true,
+            nodeType: {
+              include: {
+                statusSet: {
+                  include: {
+                    statuses: {
+                      orderBy: { displayOrder: 'asc' },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
         targetEdges: {
           where: { deletedAt: null },

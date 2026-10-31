@@ -99,8 +99,8 @@ export class NodesController {
   }
 
   @Patch('batch-positions')
-  batchPositions(@Body() dto: BatchUpdateNodePositionsDto) {
-    return this.nodesService.batchUpdatePositions(dto);
+  batchPositions(@Req() req: any, @Body() dto: BatchUpdateNodePositionsDto) {
+    return this.nodesService.batchUpdatePositions(dto, req.user?.id);
   }
 
   @Patch(':id')
@@ -250,7 +250,7 @@ export class NodesController {
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.nodesService.deleteNode(id);
+  delete(@Req() req: any, @Param('id') id: string) {
+    return this.nodesService.deleteNode(id, req.user?.id);
   }
 }

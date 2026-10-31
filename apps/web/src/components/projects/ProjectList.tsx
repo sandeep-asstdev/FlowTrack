@@ -15,7 +15,9 @@ import {
   Filter,
   ArrowUpDown,
   User as UserIcon,
+  Sparkles,
 } from 'lucide-react';
+import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { getRolePermissions } from '../../utils/permissions';
 import { ProjectDeleteImpactModal } from './ProjectDeleteImpactModal';
@@ -46,6 +48,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'WAITING' | 'OVERDUE' | 'COMPLETED'>('ALL');
   const [sortBy, setSortBy] = useState<'updated' | 'name' | 'progress' | 'targetDate'>('updated');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadingDemo, setLoadingDemo] = useState(false);
 
   const activeWorkspaceId = useAuthStore((s) => s.activeWorkspaceId);
   const workspaces = useAuthStore((s) => s.workspaces);
@@ -66,6 +69,22 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       } finally {
         setTimeout(() => setIsRefreshing(false), 500);
       }
+    }
+  };
+
+  const handleLoadDemo = async () => {
+    if (!activeWorkspaceId) return;
+    setLoadingDemo(true);
+    try {
+      await ApiClient.seedHeroDemo(activeWorkspaceId);
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (err: any) {
+      console.error('Failed to load demo project:', err);
+      alert('Failed to load demo project: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoadingDemo(false);
     }
   };
 
@@ -165,6 +184,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           >
             <Trash2 className="w-3.5 h-3.5 text-slate-400" />
             <span>Trash</span>
+          </button>
+
+          <button
+            onClick={handleLoadDemo}
+            disabled={loadingDemo}
+            className="flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors disabled:opacity-50"
+            title="Load Hero Showroom Building demo project"
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${loadingDemo ? 'animate-spin' : 'text-amber-500'}`} />
+            <span>{loadingDemo ? 'Loading...' : '⚡ Demo Project'}</span>
           </button>
 
           {permissions.canCreateProject && (
@@ -324,18 +353,24 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 mb-4">
             Create your first project canvas to start tracking tasks and dependencies.
           </p>
-          {permissions.canCreateProject ? (
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {permissions.canCreateProject && (
+              <button
+                onClick={onOpenCreateModal}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02]"
+              >
+                + Create New Project
+              </button>
+            )}
             <button
-              onClick={onOpenCreateModal}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20"
+              onClick={handleLoadDemo}
+              disabled={loadingDemo}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-500/20 transition-all hover:scale-[1.02] disabled:opacity-50"
             >
-              + Create New Project
+              <Sparkles className={`w-4 h-4 ${loadingDemo ? 'animate-spin' : ''}`} />
+              <span>{loadingDemo ? 'Creating Demo Canvas...' : '⚡ Load Demo Project (Hero Showroom)'}</span>
             </button>
-          ) : (
-            <div className="text-xs text-slate-400 italic">
-              Contact your Manager or Super Admin to create a project.
-            </div>
-          )}
+          </div>
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="text-center py-16 border border-slate-200 dark:border-slate-800 rounded-2xl bg-white dark:bg-slate-900 p-8">

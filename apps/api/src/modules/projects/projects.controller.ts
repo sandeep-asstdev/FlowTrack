@@ -55,6 +55,16 @@ export class ProjectsController {
     return this.projectsService.createProject(wsId, dto, actorId, req.user?.role);
   }
 
+  @Post('seed-demo')
+  seedDemo(
+    @Req() req: any,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.seedHeroDemo(wsId, actorId);
+  }
+
   @Get(':id')
   get(
     @Req() req: any,

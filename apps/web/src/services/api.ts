@@ -215,6 +215,14 @@ export class ApiClient {
     return this.request('/projects', { method: 'POST', body: JSON.stringify(body) });
   }
 
+  static seedHeroDemo(workspaceId?: string) {
+    const wsId = workspaceId || this.activeWorkspaceId;
+    return this.request('/projects/seed-demo', {
+      method: 'POST',
+      headers: wsId ? { 'X-Workspace-Id': wsId } : undefined,
+    });
+  }
+
   static updateProject(projectId: string, body: any) {
     return this.request(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) });
   }

@@ -12,7 +12,7 @@ import {
   ProjectRestoreDto,
   ProjectPurgeDto,
 } from '@flowtrack/shared';
-import { Role } from '@prisma/client';
+import { Role, Priority, ConfidentialityLevel } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
@@ -1278,6 +1278,318 @@ export class ProjectsService {
     }).catch(() => null);
 
     return { success: true };
+  }
+
+  async seedHeroDemo(workspaceId: string, actorUserId: string) {
+    // 1. Resolve or Create Statuses for this workspace
+    let defaultStatusSet = await this.prisma.statusSet.findFirst({
+      where: { workspaceId, isDefault: true },
+      include: { statuses: true },
+    });
+    if (!defaultStatusSet || defaultStatusSet.statuses.length === 0) {
+      defaultStatusSet = await this.prisma.statusSet.create({
+        data: {
+          workspaceId,
+          name: 'Default Status Set',
+          isDefault: true,
+          statuses: {
+            create: [
+              { key: 'not_started', labelI18n: { en: 'Not Started' }, colour: '#94a3b8', category: 'not_started', displayOrder: 0 },
+              { key: 'in_progress', labelI18n: { en: 'In Progress' }, colour: '#3b82f6', category: 'active', displayOrder: 1 },
+              { key: 'waiting', labelI18n: { en: 'Waiting' }, colour: '#f59e0b', category: 'blocked', displayOrder: 2 },
+              { key: 'done', labelI18n: { en: 'Done' }, colour: '#10b981', category: 'done', displayOrder: 3 },
+            ],
+          },
+        },
+        include: { statuses: true },
+      });
+    }
+
+    const statuses = defaultStatusSet.statuses;
+    const statusDone = statuses.find((s) => s.category === 'done') || statuses[0];
+    const statusActive = statuses.find((s) => s.category === 'active') || statuses[0];
+    const statusNotStarted = statuses.find((s) => s.category === 'not_started') || statuses[0];
+
+    // 2. Resolve Node Types
+    let taskType = await this.prisma.nodeType.findFirst({
+      where: { workspaceId, key: 'task' },
+    });
+    if (!taskType) {
+      taskType = await this.prisma.nodeType.create({
+        data: {
+          workspaceId,
+          key: 'task',
+          name: 'Task',
+          icon: 'CheckSquare',
+          colour: '#3b82f6',
+          defaultStatusSetId: defaultStatusSet.id,
+        },
+      });
+    }
+
+    let milestoneType = await this.prisma.nodeType.findFirst({
+      where: { workspaceId, key: 'milestone' },
+    });
+    if (!milestoneType) {
+      milestoneType = await this.prisma.nodeType.create({
+        data: {
+          workspaceId,
+          key: 'milestone',
+          name: 'Milestone',
+          icon: 'Flag',
+          colour: '#8b5cf6',
+          defaultStatusSetId: defaultStatusSet.id,
+        },
+      });
+    }
+
+    // 3. Clean up any existing HERO-01 in this workspace
+    const existing = await this.prisma.project.findFirst({
+      where: { workspaceId, key: 'HERO-01' },
+    });
+    if (existing) {
+      await this.prisma.edge.deleteMany({ where: { projectId: existing.id } });
+      await this.prisma.node.deleteMany({ where: { projectId: existing.id } });
+      await this.prisma.projectMember.deleteMany({ where: { projectId: existing.id } });
+      await this.prisma.project.delete({ where: { id: existing.id } });
+    }
+
+    // 4. Resolve sandeep user
+    const sandeep = await this.prisma.user.findFirst({
+      where: { email: 'sandeep@gmail.com' },
+    });
+    const mainOwnerId = actorUserId || sandeep?.id;
+
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + 2, 15);
+
+    const project = await this.prisma.project.create({
+      data: {
+        workspaceId,
+        name: 'Hero MotoCorp 3S Showroom Construction & Launch',
+        key: 'HERO-01',
+        description: 'Turnkey development of an authorized Hero MotoCorp Dealership & Service Workshop on National Highway (NH-44). Includes commercial land purchase, steel pre-fab structure, showroom glass facade, 6-bay hydraulic workshop, and launch event.',
+        objectives: 'Establish a premier 3S (Sales, Service, Spares) motorcycle showroom to deliver 150+ units monthly with full Hero brand compliance.',
+        scope: 'Plot registration, municipal sanctions, civil structure, Hero CI branding, and inaugural customer deliveries.',
+        ownerId: mainOwnerId,
+        responsibleManagerId: sandeep?.id || mainOwnerId,
+        status: 'ACTIVE',
+        classification: ConfidentialityLevel.INTERNAL,
+        startDate,
+        targetDate,
+        settings: {
+          industry: 'construction_real_estate',
+          currency: 'INR',
+          financials: {
+            isConfigured: true,
+            approvedBudget: 18500000,
+            actualExpenditure: 11800000,
+            currencyCode: 'INR',
+            currencySymbol: '₹',
+          },
+        },
+      },
+    });
+
+    if (mainOwnerId) {
+      await this.prisma.projectMember.create({
+        data: { projectId: project.id, userId: mainOwnerId, role: Role.ADMIN },
+      }).catch(() => null);
+    }
+    if (sandeep && sandeep.id !== mainOwnerId) {
+      await this.prisma.projectMember.create({
+        data: { projectId: project.id, userId: sandeep.id, role: Role.MANAGER },
+      }).catch(() => null);
+    }
+
+    const milestonesData = [
+      {
+        title: 'Phase 1: Land Acquisition & Legal Registry',
+        desc: 'Commercial plot selection on NH-44 highway, revenue title clearance, registration with sub-registrar, and Hero dealership NOC.',
+        posX: 80,
+        posY: 180,
+        status: statusDone,
+        progressPct: 100,
+        priority: Priority.HIGH,
+        estimatedCost: 4500000,
+        actualCost: 4450000,
+        allocatedHours: 120,
+        actualHours: 115,
+        subtasks: [
+          { title: 'NH-44 Highway Plot Identification & Survey', done: true, progress: 100 },
+          { title: 'Title Deed Verification & Sub-Registrar Stamping', done: true, progress: 100 },
+          { title: 'Hero MotoCorp Corporate Location NOC Grant', done: true, progress: 100 },
+        ],
+      },
+      {
+        title: 'Phase 2: Architectural Blueprints & Approvals',
+        desc: 'Standardized Hero 3S showroom architectural drawings, structural engineering, municipal sanction, and Fire/PHE clearances.',
+        posX: 440,
+        posY: 180,
+        status: statusDone,
+        progressPct: 100,
+        priority: Priority.MEDIUM,
+        estimatedCost: 1200000,
+        actualCost: 1180000,
+        allocatedHours: 90,
+        actualHours: 85,
+        subtasks: [
+          { title: 'Hero 3S Showroom & Service Bay Floorplan CAD', done: true, progress: 100 },
+          { title: 'Municipal Commercial Building Sanction & Fire NOC', done: true, progress: 100 },
+          { title: '3-Phase Industrial Electric Connection Sanction', done: true, progress: 100 },
+        ],
+      },
+      {
+        title: 'Phase 3: Civil Construction & Workshop Bays',
+        desc: 'RCC foundation, structural steel framing, composite roof sheeting, toughened glass display facade, and 6 service bays with lift pits.',
+        posX: 800,
+        posY: 180,
+        status: statusActive,
+        progressPct: 65,
+        priority: Priority.URGENT,
+        estimatedCost: 7500000,
+        actualCost: 5020000,
+        allocatedHours: 320,
+        actualHours: 210,
+        subtasks: [
+          { title: 'Foundation Piling & Steel Pre-Engineered Structure', done: true, progress: 100 },
+          { title: 'Toughened Glass Display Facade & Brick Masonry', done: false, progress: 70 },
+          { title: '6-Bay Hydraulic Lift Installation & Trenching', done: false, progress: 25 },
+        ],
+      },
+      {
+        title: 'Phase 4: Interior Fit-out & Brand Identity Branding',
+        desc: 'Hero corporate identity red/black wall panelling, outdoor 3D LED pylon, AC customer lounge, spare parts racks, and dealer DMS IT system.',
+        posX: 1160,
+        posY: 180,
+        status: statusActive,
+        progressPct: 20,
+        priority: Priority.HIGH,
+        estimatedCost: 3000000,
+        actualCost: 1150000,
+        allocatedHours: 160,
+        actualHours: 35,
+        subtasks: [
+          { title: 'Exterior 3D Hero Corporate Pylon & Illuminated Facia', done: false, progress: 40 },
+          { title: 'Customer Lounge, Executive Desks & Billing Counters', done: false, progress: 15 },
+          { title: 'Hero Dealer Management System (DMS) & Server Setup', done: false, progress: 0 },
+        ],
+      },
+      {
+        title: 'Phase 5: Stocking & Grand Showroom Opening',
+        desc: 'Delivery of initial 50 bikes stock, service technician training, inaugural pooja ceremony, and first 15 customer keys handover.',
+        posX: 1520,
+        posY: 180,
+        status: statusNotStarted,
+        progressPct: 0,
+        priority: Priority.HIGH,
+        estimatedCost: 2300000,
+        actualCost: 0,
+        allocatedHours: 100,
+        actualHours: 0,
+        subtasks: [
+          { title: 'Initial 50 Bikes Stocking (Splendor, HF Deluxe, Vida EV)', done: false, progress: 0 },
+          { title: 'Hero Certified Sales & Technical Staff Onboarding', done: false, progress: 0 },
+          { title: 'Grand Ribbon-Cutting Ceremony & 15 Bike Deliveries', done: false, progress: 0 },
+        ],
+      },
+    ];
+
+    const createdMainNodes = [];
+
+    for (let i = 0; i < milestonesData.length; i++) {
+      const data = milestonesData[i];
+      const nodeDate = new Date(startDate.getTime() + i * 20 * 24 * 60 * 60 * 1000);
+      const dueDate = new Date(nodeDate.getTime() + 18 * 24 * 60 * 60 * 1000);
+
+      const checklist = data.subtasks.map((st, idx) => ({
+        id: `check-${i + 1}-${idx + 1}`,
+        text: st.title,
+        completed: st.done,
+      }));
+
+      const mainNode = await this.prisma.node.create({
+        data: {
+          workspaceId,
+          projectId: project.id,
+          nodeTypeId: milestoneType.id,
+          statusId: data.status.id,
+          ownerId: mainOwnerId,
+          title: data.title,
+          description: data.desc,
+          positionX: data.posX,
+          positionY: data.posY,
+          width: 300,
+          height: 170,
+          priority: data.priority,
+          isMilestone: true,
+          progressPct: data.progressPct,
+          startDate: nodeDate,
+          dueDate: dueDate,
+          estimatedCost: data.estimatedCost,
+          actualCost: data.actualCost,
+          allocatedHours: data.allocatedHours,
+          actualHours: data.actualHours,
+          currency: 'INR',
+          checklist,
+          depth: 1,
+          path: `/${i + 1}`,
+          approvalStatus: data.progressPct === 100 ? 'approved' : 'not_required',
+        },
+      });
+      createdMainNodes.push(mainNode);
+
+      for (let c = 0; c < data.subtasks.length; c++) {
+        const child = data.subtasks[c];
+        const childStatus = child.done ? statusDone : child.progress > 0 ? statusActive : statusNotStarted;
+
+        await this.prisma.node.create({
+          data: {
+            workspaceId,
+            projectId: project.id,
+            parentNodeId: mainNode.id,
+            nodeTypeId: taskType.id,
+            statusId: childStatus.id,
+            ownerId: mainOwnerId,
+            title: child.title,
+            description: `Deliverable ${i + 1}.${c + 1} under ${mainNode.title}`,
+            positionX: data.posX,
+            positionY: data.posY + 220 + c * 140,
+            width: 280,
+            height: 120,
+            priority: data.priority,
+            isMilestone: false,
+            progressPct: child.progress,
+            startDate: nodeDate,
+            dueDate: dueDate,
+            depth: 2,
+            path: `/${mainNode.id}/${c + 1}`,
+            approvalStatus: child.done ? 'approved' : 'not_required',
+          },
+        });
+      }
+    }
+
+    for (let i = 0; i < createdMainNodes.length - 1; i++) {
+      await this.prisma.edge.create({
+        data: {
+          workspaceId,
+          projectId: project.id,
+          sourceNodeId: createdMainNodes[i].id,
+          targetNodeId: createdMainNodes[i + 1].id,
+          kind: 'sequence',
+          label: `Stage ${i + 1} ➔ Stage ${i + 2}`,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Demo project seeded successfully',
+      projectId: project.id,
+      project,
+    };
   }
 }
 

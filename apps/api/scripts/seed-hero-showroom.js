@@ -3,46 +3,8 @@ const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
-async function seedHeroProject() {
-  console.log('🚀 Seeding "Hero Bike Showroom Building" demo project...');
-
-  // 1. Resolve or Create Primary Workspace
-  let workspace = await prisma.workspace.findFirst({
-    where: { name: 'Acme Developments', deletedAt: null },
-  });
-  if (!workspace) {
-    workspace = await prisma.workspace.findFirst({ where: { deletedAt: null } });
-  }
-  if (!workspace) {
-    workspace = await prisma.workspace.create({
-      data: {
-        name: 'Acme Developments',
-        slug: 'acme-developments',
-      },
-    });
-  }
-  console.log(`🏢 Using Workspace: "${workspace.name}" (${workspace.id})`);
-
-  // 2. Ensure sandeep@gmail.com exists with password sandeep@1234
-  const sandeepPasswordHash = await bcrypt.hash('sandeep@1234', 10);
-  const sandeepUser = await prisma.user.upsert({
-    where: { email: 'sandeep@gmail.com' },
-    update: {
-      fullName: 'Sandeep Raichur',
-      phone: '+919606019427',
-      passwordHash: sandeepPasswordHash,
-      isActive: true,
-      phoneVerified: true,
-    },
-    create: {
-      email: 'sandeep@gmail.com',
-      fullName: 'Sandeep Raichur',
-      phone: '+919606019427',
-      passwordHash: sandeepPasswordHash,
-      isActive: true,
-      phoneVerified: true,
-    },
-  });
+async function seedForWorkspace(workspace, sandeepUser, adminUser, managerUser, leadUser, member1, member4) {
+  console.log(`\n🏢 Seeding HERO-01 for Workspace: "${workspace.name}" (${workspace.id})`);
 
   // Ensure sandeep is a Manager in this workspace
   await prisma.membership.upsert({
@@ -50,46 +12,80 @@ async function seedHeroProject() {
     update: { role: Role.MANAGER },
     create: { workspaceId: workspace.id, userId: sandeepUser.id, role: Role.MANAGER },
   });
-  console.log(`👤 Ensured Sandeep Raichur (sandeep@gmail.com) is MANAGER in ${workspace.name}`);
 
-  // 3. Find existing users to assign
-  const adminUser = (await prisma.user.findFirst({ where: { email: 'admin@flowtrack.dev' } })) || sandeepUser;
-  const managerUser = (await prisma.user.findFirst({ where: { email: 'manager1@flowtrack.dev' } })) || sandeepUser;
-  const leadUser = (await prisma.user.findFirst({ where: { email: 'lead3@flowtrack.dev' } })) || sandeepUser;
-  const member1 = (await prisma.user.findFirst({ where: { email: 'member1@flowtrack.dev' } })) || sandeepUser;
-  const member4 = (await prisma.user.findFirst({ where: { email: 'member4@flowtrack.dev' } })) || sandeepUser;
-
-  // 4. Resolve Node Types & Statuses
-  const taskType = await prisma.nodeType.findFirst({
-    where: { workspaceId: workspace.id, key: 'task' },
-  });
-  const milestoneType = (await prisma.nodeType.findFirst({
-    where: { workspaceId: workspace.id, key: 'milestone' },
-  })) || taskType;
-
-  const defaultStatusSet = await prisma.statusSet.findFirst({
+  // Ensure default status set exists
+  let defaultStatusSet = await prisma.statusSet.findFirst({
     where: { workspaceId: workspace.id, isDefault: true },
     include: { statuses: true },
   });
+  if (!defaultStatusSet || defaultStatusSet.statuses.length === 0) {
+    defaultStatusSet = await prisma.statusSet.create({
+      data: {
+        workspaceId: workspace.id,
+        name: 'Default Status Set',
+        isDefault: true,
+        statuses: {
+          create: [
+            { key: 'not_started', labelI18n: { en: 'Not Started' }, colour: '#94a3b8', category: 'not_started', displayOrder: 0 },
+            { key: 'in_progress', labelI18n: { en: 'In Progress' }, colour: '#3b82f6', category: 'active', displayOrder: 1 },
+            { key: 'waiting', labelI18n: { en: 'Waiting' }, colour: '#f59e0b', category: 'blocked', displayOrder: 2 },
+            { key: 'done', labelI18n: { en: 'Done' }, colour: '#10b981', category: 'done', displayOrder: 3 },
+          ],
+        },
+      },
+      include: { statuses: true },
+    });
+  }
 
-  const statuses = defaultStatusSet?.statuses || [];
+  const statuses = defaultStatusSet.statuses;
   const statusDone = statuses.find((s) => s.category === 'done') || statuses[0];
   const statusActive = statuses.find((s) => s.category === 'active') || statuses[0];
   const statusNotStarted = statuses.find((s) => s.category === 'not_started') || statuses[0];
 
-  // 5. Delete existing Hero demo project if it exists (for clean idempotency)
+  // Resolve Node Types
+  let taskType = await prisma.nodeType.findFirst({
+    where: { workspaceId: workspace.id, key: 'task' },
+  });
+  if (!taskType) {
+    taskType = await prisma.nodeType.create({
+      data: {
+        workspaceId: workspace.id,
+        key: 'task',
+        name: 'Task',
+        icon: 'CheckSquare',
+        colour: '#3b82f6',
+        defaultStatusSetId: defaultStatusSet.id,
+      },
+    });
+  }
+
+  let milestoneType = await prisma.nodeType.findFirst({
+    where: { workspaceId: workspace.id, key: 'milestone' },
+  });
+  if (!milestoneType) {
+    milestoneType = await prisma.nodeType.create({
+      data: {
+        workspaceId: workspace.id,
+        key: 'milestone',
+        name: 'Milestone',
+        icon: 'Flag',
+        colour: '#8b5cf6',
+        defaultStatusSetId: defaultStatusSet.id,
+      },
+    });
+  }
+
+  // Delete previous HERO-01 in this workspace for clean reset
   const existingProject = await prisma.project.findFirst({
     where: { workspaceId: workspace.id, key: 'HERO-01' },
   });
   if (existingProject) {
-    console.log('♻ Cleaning up previous HERO-01 project for clean demonstration...');
     await prisma.edge.deleteMany({ where: { projectId: existingProject.id } });
     await prisma.node.deleteMany({ where: { projectId: existingProject.id } });
     await prisma.projectMember.deleteMany({ where: { projectId: existingProject.id } });
     await prisma.project.delete({ where: { id: existingProject.id } });
   }
 
-  // 6. Create Hero Bike Showroom Project
   const now = new Date();
   const startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
   const targetDate = new Date(now.getFullYear(), now.getMonth() + 2, 15);
@@ -102,7 +98,7 @@ async function seedHeroProject() {
       description: 'Turnkey development of an authorized Hero MotoCorp Dealership & Service Workshop on National Highway (NH-44). Includes commercial land purchase, steel pre-fab structure, showroom glass facade, 6-bay hydraulic workshop, and launch event.',
       objectives: 'Establish a premier 3S (Sales, Service, Spares) motorcycle showroom to deliver 150+ units monthly with full Hero brand compliance.',
       scope: 'Plot registration, municipal sanctions, civil structure, Hero CI branding, and inaugural customer deliveries.',
-      ownerId: adminUser.id,
+      ownerId: sandeepUser.id,
       responsibleManagerId: sandeepUser.id,
       status: 'ACTIVE',
       classification: ConfidentialityLevel.INTERNAL,
@@ -121,19 +117,17 @@ async function seedHeroProject() {
       },
       members: {
         create: [
-          { userId: adminUser.id, role: 'ADMIN' },
           { userId: sandeepUser.id, role: 'MANAGER' },
-          { userId: managerUser.id, role: 'MANAGER' },
-          { userId: leadUser.id, role: 'TEAM_LEAD' },
-          { userId: member1.id, role: 'MEMBER' },
-          { userId: member4.id, role: 'MEMBER' },
+          ...(adminUser.id !== sandeepUser.id ? [{ userId: adminUser.id, role: 'ADMIN' }] : []),
+          ...(managerUser.id !== sandeepUser.id ? [{ userId: managerUser.id, role: 'MANAGER' }] : []),
+          ...(leadUser.id !== sandeepUser.id ? [{ userId: leadUser.id, role: 'TEAM_LEAD' }] : []),
+          ...(member1.id !== sandeepUser.id ? [{ userId: member1.id, role: 'MEMBER' }] : []),
+          ...(member4.id !== sandeepUser.id ? [{ userId: member4.id, role: 'MEMBER' }] : []),
         ],
       },
     },
   });
-  console.log(`🏍 Created Project: "${heroProject.name}" (ID: ${heroProject.id})`);
 
-  // 7. Seed exactly 5 Main Milestone Nodes with max 3 child nodes each
   const milestonesData = [
     {
       title: 'Phase 1: Land Acquisition & Legal Registry',
@@ -239,14 +233,12 @@ async function seedHeroProject() {
     const nodeDate = new Date(startDate.getTime() + i * 20 * 24 * 60 * 60 * 1000);
     const dueDate = new Date(nodeDate.getTime() + 18 * 24 * 60 * 60 * 1000);
 
-    // Format checklist for UI task details
     const checklist = data.subtasks.map((st, idx) => ({
       id: `check-${i + 1}-${idx + 1}`,
       text: st.title,
       completed: st.done,
     }));
 
-    // 7.1 Create Main Node
     const mainNode = await prisma.node.create({
       data: {
         workspaceId: workspace.id,
@@ -278,9 +270,7 @@ async function seedHeroProject() {
       },
     });
     createdMainNodes.push(mainNode);
-    console.log(`   📌 Node ${i + 1}: ${mainNode.title} (${data.progressPct}% - ${data.status.key})`);
 
-    // 7.2 Create up to 3 Child Nodes for each Main Node
     for (let c = 0; c < data.subtasks.length; c++) {
       const child = data.subtasks[c];
       const childStatus = child.done ? statusDone : child.progress > 0 ? statusActive : statusNotStarted;
@@ -313,30 +303,71 @@ async function seedHeroProject() {
     }
   }
 
-  // 8. Create Sequential Edges connecting Node 1 -> Node 2 -> Node 3 -> Node 4 -> Node 5
-  console.log('🔗 Connecting Sequential Dependency Edges (CPM)...');
   for (let i = 0; i < createdMainNodes.length - 1; i++) {
-    const source = createdMainNodes[i];
-    const target = createdMainNodes[i + 1];
-
     await prisma.edge.create({
       data: {
         workspaceId: workspace.id,
         projectId: heroProject.id,
-        sourceNodeId: source.id,
-        targetNodeId: target.id,
+        sourceNodeId: createdMainNodes[i].id,
+        targetNodeId: createdMainNodes[i + 1].id,
         kind: 'sequence',
         label: `Stage ${i + 1} ➔ Stage ${i + 2}`,
       },
     });
   }
-  console.log(`   ✔ 4 Sequential Edges linked.`);
+
+  console.log(`   ✔ HERO-01 seeded for "${workspace.name}"`);
+}
+
+async function seedHeroProject() {
+  console.log('🚀 Seeding "Hero Bike Showroom Building" demo project...');
+
+  // 1. Ensure sandeep@gmail.com exists with password sandeep@1234
+  const sandeepPasswordHash = await bcrypt.hash('sandeep@1234', 10);
+  const sandeepUser = await prisma.user.upsert({
+    where: { email: 'sandeep@gmail.com' },
+    update: {
+      fullName: 'Sandeep Raichur',
+      phone: '+919606019427',
+      passwordHash: sandeepPasswordHash,
+      isActive: true,
+      phoneVerified: true,
+    },
+    create: {
+      email: 'sandeep@gmail.com',
+      fullName: 'Sandeep Raichur',
+      phone: '+919606019427',
+      passwordHash: sandeepPasswordHash,
+      isActive: true,
+      phoneVerified: true,
+    },
+  });
+
+  const adminUser = (await prisma.user.findFirst({ where: { email: 'admin@flowtrack.dev' } })) || sandeepUser;
+  const managerUser = (await prisma.user.findFirst({ where: { email: 'manager1@flowtrack.dev' } })) || sandeepUser;
+  const leadUser = (await prisma.user.findFirst({ where: { email: 'lead3@flowtrack.dev' } })) || sandeepUser;
+  const member1 = (await prisma.user.findFirst({ where: { email: 'member1@flowtrack.dev' } })) || sandeepUser;
+  const member4 = (await prisma.user.findFirst({ where: { email: 'member4@flowtrack.dev' } })) || sandeepUser;
+
+  // 2. Find ALL non-deleted workspaces (or create Acme Developments if none)
+  let workspaces = await prisma.workspace.findMany({
+    where: { deletedAt: null },
+  });
+
+  if (workspaces.length === 0) {
+    const defaultWs = await prisma.workspace.create({
+      data: { name: 'Acme Developments', slug: 'acme-developments' },
+    });
+    workspaces = [defaultWs];
+  }
+
+  for (const ws of workspaces) {
+    await seedForWorkspace(ws, sandeepUser, adminUser, managerUser, leadUser, member1, member4);
+  }
 
   console.log('\n======================================================');
-  console.log('✨ Demo Project Created Successfully!');
-  console.log(`Project: "${heroProject.name}" (Key: HERO-01)`);
-  console.log(`Workspace: "${workspace.name}"`);
-  console.log(`Nodes: 5 Main Milestone Nodes (with max 3 Child Subtasks each)`);
+  console.log('✨ Demo Project Created Successfully Across All Workspaces!');
+  console.log(`Workspaces seeded: ${workspaces.map((w) => w.name).join(', ')}`);
   console.log(`Demo Credentials:`);
   console.log(`  - Sandeep Raichur: sandeep@gmail.com / sandeep@1234 (MANAGER)`);
   console.log(`  - Platform Admin: admin@flowtrack.dev / Admin@12345 (ADMIN)`);
@@ -351,4 +382,3 @@ seedHeroProject()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

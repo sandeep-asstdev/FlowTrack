@@ -538,6 +538,7 @@ export class NodesService {
       blockingPrerequisites: uncompletedDependencies,
       applicableFields,
       ...(rollup && { rollup }),
+      can: auth.can,
     };
   }
 
@@ -916,30 +917,41 @@ export class NodesService {
         where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
       });
       userRole = membership?.role;
-    }
 
-    // Security Guard (Bug 3): Regular Members can ONLY edit tasks they are the assignee or collaborator on
-    if (userRole === Role.MEMBER) {
-      const isOwner = existing.ownerId === actorId;
-      const isCollaborator = Array.isArray(existing.collaboratorIds) && (existing.collaboratorIds as string[]).includes(actorId || '');
-      if (!isOwner && !isCollaborator) {
+      const auth = await this.resolveTaskPermissions(id, actorId);
+      if (!auth.canManage && !auth.canWork) {
         if (this.auditService) {
           await this.auditService.recordAuditEvent({
             workspaceId: existing.workspaceId,
-            actorId: actorId || 'UNKNOWN',
+            actorId,
             action: 'SECURITY_VIOLATION',
             targetType: 'task',
             targetId: id,
-            reason: `Unauthorized edit attempt: Member ${actorId} is neither the assignee nor a collaborator on task "${existing.title}" (${id}).`,
+            reason: `Unauthorized edit attempt: Actor ${actorId} has neither work rights nor manager rights on task "${existing.title}" (${id}).`,
             outcome: 'BLOCKED',
           });
         }
-        throw new ForbiddenException('Forbidden: You can only update tasks assigned to you or collaborating on.');
+        throw new ForbiddenException('Forbidden: You do not have permission to modify this task.');
       }
 
-      // Members cannot reassign tasks to other users
-      if (dto.ownerId !== undefined && dto.ownerId !== existing.ownerId) {
-        throw new ForbiddenException('Unauthorized: Members cannot reassign tasks.');
+      // If actor has work rights only (not project manager):
+      if (!auth.canManage) {
+        // Members cannot reassign tasks to other users
+        if (dto.ownerId !== undefined && dto.ownerId !== existing.ownerId) {
+          throw new ForbiddenException('Unauthorized: Members cannot reassign tasks.');
+        }
+        // Members cannot change reviewer
+        if (dto.reviewerId !== undefined && dto.reviewerId !== existing.reviewerId) {
+          throw new ForbiddenException('Unauthorized: Members cannot change task reviewer.');
+        }
+        // Members cannot change dates
+        if (dto.startDate !== undefined || dto.dueDate !== undefined) {
+          throw new ForbiddenException('Unauthorized: Members cannot modify task schedule.');
+        }
+        // Members cannot modify scope/title
+        if (dto.title !== undefined && dto.title !== existing.title) {
+          throw new ForbiddenException('Unauthorized: Members cannot modify task title and scope.');
+        }
       }
     }
 
@@ -1603,7 +1615,15 @@ export class NodesService {
     return updated;
   }
 
-  async batchUpdatePositions(dto: BatchUpdateNodePositionsDto) {
+  async batchUpdatePositions(dto: BatchUpdateNodePositionsDto, actorId?: string) {
+    if (actorId && dto.positions.length > 0) {
+      const firstId = dto.positions[0].id;
+      const auth = await this.resolveTaskPermissions(firstId, actorId);
+      if (!auth.can.manage && !auth.can.work) {
+        throw new ForbiddenException('Forbidden: You do not have permission to reposition nodes in this project.');
+      }
+    }
+
     const updates = dto.positions.map((p) =>
       this.prisma.node.update({
         where: { id: p.id },
@@ -1731,10 +1751,28 @@ export class NodesService {
     });
   }
 
-  async deleteNode(id: string) {
+  async deleteNode(id: string, actorId?: string) {
     const existing = await this.prisma.node.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    if (actorId) {
+      const auth = await this.resolveTaskPermissions(id, actorId);
+      if (!auth.can.delete) {
+        if (this.auditService) {
+          await this.auditService.recordAuditEvent({
+            workspaceId: existing.workspaceId,
+            actorId,
+            action: 'SECURITY_VIOLATION',
+            targetType: 'task',
+            targetId: id,
+            reason: `Unauthorized delete attempt: Actor ${actorId} lacks delete permissions on task "${existing.title}" (${id}).`,
+            outcome: 'BLOCKED',
+          });
+        }
+        throw new ForbiddenException('Forbidden: Only authorized project managers or owners can delete tasks.');
+      }
     }
 
     const deleted = await this.prisma.node.update({
@@ -2408,13 +2446,9 @@ export class NodesService {
     const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
     if (!node || node.deletedAt) throw new NotFoundException('Task not found');
 
-    const membership = await this.prisma.membership.findUnique({
-      where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
-    });
-    if (membership?.role === Role.MEMBER) {
-      const isOwner = node.ownerId === actorId;
-      const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
-      if (!isOwner && !isCollaborator) {
+    const auth = await this.resolveTaskPermissions(nodeId, actorId);
+    if (!auth.canWork) {
+      if (!auth.canManage) {
         if (this.auditService) {
           await this.auditService.recordAuditEvent({
             workspaceId: node.workspaceId,
@@ -2427,6 +2461,29 @@ export class NodesService {
           });
         }
         throw new ForbiddenException('Unauthorized: Members can only update checklists on their own tasks.');
+      }
+
+      // If actor has management rights on the project but is NOT the assignee/collaborator:
+      // They can manage scope/steps, but CANNOT tick checklist items (ticking is work done by assignee)
+      const existingChecklist = Array.isArray(node.checklist) ? (node.checklist as any[]) : [];
+      const isAttemptingToTick = checklist.some((item) => {
+        const existingItem = existingChecklist.find((e) => e.id === item.id);
+        return item.completed !== (existingItem ? existingItem.completed : false);
+      });
+
+      if (isAttemptingToTick) {
+        if (this.auditService) {
+          await this.auditService.recordAuditEvent({
+            workspaceId: node.workspaceId,
+            actorId,
+            action: 'SECURITY_VIOLATION',
+            targetType: 'task',
+            targetId: nodeId,
+            reason: `Unauthorized checklist tick attempt on task ${nodeId}: Only assignees and collaborators can tick checklist items.`,
+            outcome: 'BLOCKED',
+          });
+        }
+        throw new ForbiddenException('Unauthorized: Only task assignees and collaborators can tick checklist items.');
       }
     }
 

@@ -251,6 +251,6 @@ export class NodesController {
 
   @Delete(':id')
   delete(@Req() req: any, @Param('id') id: string) {
-    return this.nodesService.deleteNode(id, req.user?.id);
+    return this.nodesService.deleteNode(id, req?.user?.id);
   }
 }

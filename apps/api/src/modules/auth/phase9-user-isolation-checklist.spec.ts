@@ -120,7 +120,7 @@ describe('Phase 9 — User Isolation & Task Checklist Real DB HTTP Verification'
 
     app.delete('/api/v1/nodes/:id', authMiddleware, async (req, res, next) => {
       try {
-        const result = await nodesController.delete(req.params.id);
+        const result = await nodesController.delete(req, req.params.id);
         res.json(result);
       } catch (e) { next(e); }
     });

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Role } from '@prisma/client';
 
@@ -290,6 +290,112 @@ export class AdminService {
     }
 
     return updated;
+  }
+
+  /**
+   * Check if a user has admin membership anywhere.
+   */
+  async hasAdminAccess(userId: string): Promise<boolean> {
+    const adminMembership = await this.prisma.membership.findFirst({
+      where: {
+        userId,
+        role: Role.ADMIN,
+      },
+    });
+    return Boolean(adminMembership);
+  }
+
+  /**
+   * Update role for any user platform-wide or across their memberships.
+   */
+  async updateUserRole(targetUserId: string, newRole: Role, actorId: string, workspaceId?: string) {
+    if (targetUserId === actorId) {
+      throw new ForbiddenException('Self-promotion or altering your own role is not permitted.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: {
+        memberships: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${targetUserId} not found.`);
+    }
+
+    // Protection: Prevent demoting the last active Platform Admin
+    if (newRole !== Role.ADMIN) {
+      const isTargetAdmin = user.memberships?.some((m) => m.role === Role.ADMIN);
+      if (isTargetAdmin) {
+        const totalActiveAdmins = await this.prisma.membership.count({
+          where: {
+            role: Role.ADMIN,
+            user: { isActive: true, deletedAt: null },
+          },
+        });
+        if (totalActiveAdmins <= 1) {
+          throw new BadRequestException('Cannot demote the last active Platform Admin on the platform.');
+        }
+      }
+    }
+
+    // If specific workspaceId is provided and valid, update in that workspace
+    if (workspaceId && workspaceId !== 'platform') {
+      await this.prisma.membership.upsert({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        update: { role: newRole },
+        create: { workspaceId, userId: targetUserId, role: newRole },
+      });
+    } else {
+      // Platform-wide update: update all existing memberships for this user
+      if (user.memberships && user.memberships.length > 0) {
+        await this.prisma.membership.updateMany({
+          where: { userId: targetUserId },
+          data: { role: newRole },
+        });
+      }
+
+      // Also ensure primary organization workspace has this role
+      const primaryWs = await this.prisma.workspace.findFirst({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (primaryWs) {
+        await this.prisma.membership.upsert({
+          where: { workspaceId_userId: { workspaceId: primaryWs.id, userId: targetUserId } },
+          update: { role: newRole },
+          create: { workspaceId: primaryWs.id, userId: targetUserId, role: newRole },
+        });
+      }
+    }
+
+    // Append audit event
+    const auditWs =
+      workspaceId && workspaceId !== 'platform'
+        ? workspaceId
+        : (user.memberships?.[0]?.workspaceId || (await this.prisma.workspace.findFirst())?.id || 'system');
+
+    if (this.prisma.auditEvent?.create) {
+      await this.prisma.auditEvent.create({
+        data: {
+          workspaceId: auditWs,
+          actorId,
+          action: 'USER_ROLE_UPDATED',
+          targetType: 'User',
+          targetId: targetUserId,
+          beforeValues: { role: user.memberships?.[0]?.role || Role.MEMBER },
+          afterValues: { role: newRole },
+          outcome: 'SUCCESS',
+        },
+      }).catch(() => null);
+    }
+
+    return {
+      success: true,
+      userId: targetUserId,
+      newRole,
+    };
   }
 }
 

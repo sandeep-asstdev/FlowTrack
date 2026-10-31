@@ -41,8 +41,11 @@ export interface WorkspaceMember {
 }
 
 export const UserManagementView: React.FC = () => {
-  const { user: currentUser, activeWorkspaceId, getActiveRole } = useAuthStore();
-  const isPlatformAdmin = currentUser?.email === 'admin@flowtrack.dev' || getActiveRole() === 'ADMIN';
+  const { user: currentUser, activeWorkspaceId, getActiveRole, workspaces } = useAuthStore();
+  const isPlatformAdmin =
+    currentUser?.email === 'admin@flowtrack.dev' ||
+    getActiveRole() === 'ADMIN' ||
+    workspaces.some((w) => w.role === 'ADMIN');
 
   // Scope: 'platform' (default for Platform Admin) vs 'workspace'
   const [scope, setScope] = useState<'platform' | 'workspace'>('platform');
@@ -184,7 +187,6 @@ export const UserManagementView: React.FC = () => {
 
   // Handle Role Change
   const handleRoleChange = async (member: WorkspaceMember, newRole: string) => {
-    if (!activeWorkspaceId) return;
     if (member.userId === currentUser?.id) {
       setError('Self-promotion or altering your own role is not permitted.');
       return;
@@ -195,12 +197,30 @@ export const UserManagementView: React.FC = () => {
       return;
     }
 
+    const prevRole = member.role;
+    // Optimistic local state update
+    setMembers((prev) =>
+      prev.map((m) => (m.userId === member.userId ? { ...m, role: newRole as any } : m))
+    );
+
     try {
-      await ApiClient.updateMemberRole(activeWorkspaceId, member.userId, newRole);
-      setActionSuccess(`Updated role for ${member.user.fullName} to ${newRole}`);
+      if (scope === 'platform') {
+        const targetWsId =
+          member.workspaceId && member.workspaceId !== 'platform'
+            ? member.workspaceId
+            : activeWorkspaceId || undefined;
+        await ApiClient.updatePlatformUserRole(member.userId, newRole, targetWsId);
+      } else if (activeWorkspaceId) {
+        await ApiClient.updateMemberRole(activeWorkspaceId, member.userId, newRole);
+      }
+      setActionSuccess(`Updated role for ${member.user.fullName || member.user.email} to ${newRole}`);
       setTimeout(() => setActionSuccess(null), 3500);
       fetchMembers();
     } catch (err: any) {
+      // Revert optimistic update on failure
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === member.userId ? { ...m, role: prevRole } : m))
+      );
       setError(err.message || 'Failed to update member role');
     }
   };

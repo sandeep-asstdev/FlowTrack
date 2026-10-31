@@ -10,6 +10,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @UseGuards(AuthGuard('jwt'))
@@ -17,14 +18,21 @@ import { AdminService } from './admin.service';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  private assertAdmin(req: any) {
+  private async assertAdmin(req: any) {
     const userRole = req.user?.role;
     const isPlatformAdminEmail = req.user?.email === 'admin@flowtrack.dev';
     const hasAdminMembership = req.user?.memberships?.some((m: any) => m.role === 'ADMIN');
 
-    if (userRole !== 'ADMIN' && !isPlatformAdminEmail && !hasAdminMembership) {
-      throw new ForbiddenException('Access denied: Platform Administrator privilege required.');
+    if (userRole === 'ADMIN' || isPlatformAdminEmail || hasAdminMembership) {
+      return;
     }
+
+    if (req.user?.id) {
+      const dbAdmin = await this.adminService.hasAdminAccess(req.user.id);
+      if (dbAdmin) return;
+    }
+
+    throw new ForbiddenException('Access denied: Platform Administrator privilege required.');
   }
 
   @Get('users')
@@ -36,7 +44,7 @@ export class AdminController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     return this.adminService.getPlatformUsers({
       search,
       role,
@@ -55,7 +63,7 @@ export class AdminController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string
   ) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     return this.adminService.getPlatformAudits({
       action,
       actorId,
@@ -67,7 +75,7 @@ export class AdminController {
 
   @Get('stats')
   async getPlatformStats(@Req() req: any) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     return this.adminService.getPlatformStats();
   }
 
@@ -77,8 +85,19 @@ export class AdminController {
     @Param('id') targetUserId: string,
     @Body('isActive') isActive: boolean
   ) {
-    this.assertAdmin(req);
+    await this.assertAdmin(req);
     return this.adminService.updateUserStatus(targetUserId, Boolean(isActive), req.user.id);
+  }
+
+  @Patch('users/:id/role')
+  async updateUserRole(
+    @Req() req: any,
+    @Param('id') targetUserId: string,
+    @Body('role') role: Role,
+    @Body('workspaceId') workspaceId?: string
+  ) {
+    await this.assertAdmin(req);
+    return this.adminService.updateUserRole(targetUserId, role, req.user.id, workspaceId);
   }
 }
 

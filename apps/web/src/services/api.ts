@@ -634,6 +634,13 @@ export class ApiClient {
     });
   }
 
+  static updatePlatformUserRole(userId: string, role: string, workspaceId?: string) {
+    return this.request(`/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role, workspaceId }),
+    });
+  }
+
   static async downloadProjectReportCsv(projectId: string, type: 'tasks' | 'milestones' | 'financials' | 'workload' = 'tasks') {
     if (!this.activeWorkspaceId) throw new Error('No active workspace');
     const res = await fetch(`${API_BASE}/workspaces/${this.activeWorkspaceId}/reports/export/${projectId}?type=${type}`, {

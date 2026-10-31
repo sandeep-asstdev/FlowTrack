@@ -302,7 +302,29 @@ export class WorkspacesService {
     });
 
     if (!targetMembership) {
-      throw new NotFoundException('Target user is not a member of this workspace.');
+      const user = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+      if (!user) {
+        throw new NotFoundException('Target user is not a member of this workspace.');
+      }
+      return this.prisma.membership.create({
+        data: {
+          workspaceId,
+          userId: targetUserId,
+          role: newRole,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              fullName: true,
+              avatarUrl: true,
+              phone: true,
+              isActive: true,
+            },
+          },
+        },
+      });
     }
 
     // Protection: Prevent demoting the last active Platform Admin

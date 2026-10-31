@@ -17,6 +17,7 @@
     "prisma:seed:team": "ts-node prisma/seed-dummy-team.ts",
     "test": "vitest run",
     "test:otp": "ts-node scripts/test-otp-send.ts",
+    "seed:hero": "node scripts/seed-hero-showroom.js",
     "seed:demo": "ts-node prisma/seed-demo.ts",
     "teardown:demo": "ts-node prisma/teardown-demo.ts"
   },

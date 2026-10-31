@@ -351,3 +351,4 @@ seedHeroProject()
   .finally(async () => {
     await prisma.$disconnect();
   });
+

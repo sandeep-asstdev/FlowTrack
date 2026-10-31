@@ -12,6 +12,9 @@ import {
   FileText,
   Calendar,
   AlertCircle,
+  Users,
+  Check,
+  TrendingUp,
 } from 'lucide-react';
 import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
@@ -27,9 +30,11 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'tasks' | 'reviews'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'reviews' | 'team'>('tasks');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'overdue' | 'done'>('all');
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
 
   const fetchDashboard = useCallback(async () => {
     if (!activeWorkspaceId) return;
@@ -50,6 +55,41 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
   }, [fetchDashboard]);
 
   const assigneeWork = data?.assigneeWork;
+  const managerWorkload = data?.managerWorkload;
+  const hasManagerAccess = Boolean(managerWorkload && (data?.role === 'ADMIN' || data?.role === 'MANAGER' || data?.role === 'TEAM_LEAD'));
+
+  const handleQuickComplete = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setUpdatingTaskId(taskId);
+    try {
+      await ApiClient.updateNode(taskId, { progressPct: 100 });
+      setData((prev) => {
+        if (!prev || !prev.assigneeWork) return prev;
+        const updatedTasks = prev.assigneeWork.myTasks.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                progressPct: 100,
+                statusCategory: 'done',
+                statusKey: 'Completed',
+              }
+            : t
+        );
+        return {
+          ...prev,
+          assigneeWork: {
+            ...prev.assigneeWork,
+            myTasks: updatedTasks,
+            assignedCount: updatedTasks.filter((t) => t.statusCategory !== 'done').length,
+          },
+        };
+      });
+    } catch (err: any) {
+      console.error('Failed to mark task as completed:', err);
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
 
   const filteredTasks = (assigneeWork?.myTasks || []).filter((task) => {
     const matchesSearch =
@@ -57,7 +97,17 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
       task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       task.projectName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesPriority = filterPriority === 'all' || task.priority === filterPriority;
-    return matchesSearch && matchesPriority;
+
+    let matchesStatus = true;
+    if (filterStatus === 'active') {
+      matchesStatus = task.statusCategory !== 'done';
+    } else if (filterStatus === 'overdue') {
+      matchesStatus = Boolean(task.isOverdue);
+    } else if (filterStatus === 'done') {
+      matchesStatus = task.statusCategory === 'done' || task.progressPct === 100;
+    }
+
+    return matchesSearch && matchesPriority && matchesStatus;
   });
 
   const reviewItems = assigneeWork?.reviewStatus?.items || [];
@@ -101,7 +151,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
           disabled={refreshing}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all self-start sm:self-auto"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin text-blue-600' : 'text-slate-400'}`} />
           <span>Refresh</span>
         </button>
       </div>
@@ -115,37 +165,71 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+        <button
+          onClick={() => {
+            setActiveTab('tasks');
+            setFilterStatus('active');
+          }}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'tasks' && filterStatus === 'active'
+              ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+          }`}
+        >
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Tasks</div>
           <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
             {assigneeWork?.assignedCount || 0}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">Assigned to you</div>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+        <button
+          onClick={() => {
+            setActiveTab('tasks');
+            setFilterStatus('overdue');
+          }}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'tasks' && filterStatus === 'overdue'
+              ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/20 dark:bg-amber-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+          }`}
+        >
           <div className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">Overdue Tasks</div>
           <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
             {assigneeWork?.overdueCount || 0}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">Requires immediate attention</div>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'reviews'
+              ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+          }`}
+        >
           <div className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">In Review</div>
           <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
             {assigneeWork?.reviewStatus?.pendingCount || 0}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">Awaiting sign-off</div>
-        </div>
+        </button>
 
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'reviews' && changesRequested.length > 0
+              ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/20 dark:bg-rose-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+          }`}
+        >
           <div className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">Changes Requested</div>
           <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
             {assigneeWork?.reviewStatus?.changesRequestedCount || 0}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">Needs rework / feedback</div>
-        </div>
+        </button>
       </div>
 
       {/* Changes Requested High-Priority Banner */}
@@ -203,6 +287,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
         >
           My Tasks ({assigneeWork?.assignedCount || 0})
         </button>
+
         <button
           onClick={() => setActiveTab('reviews')}
           className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
@@ -213,6 +298,20 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
         >
           Review Cycles ({reviewItems.length})
         </button>
+
+        {hasManagerAccess && (
+          <button
+            onClick={() => setActiveTab('team')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 ${
+              activeTab === 'team'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Team Workload ({managerWorkload?.teamWorkload?.length || 0})</span>
+          </button>
+        )}
       </div>
 
       {/* Tab 1: My Tasks */}
@@ -230,13 +329,30 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
               />
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto text-xs font-medium">
-              <span className="text-slate-400 shrink-0">Priority:</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+              {/* Status Filter Buttons */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                {(['all', 'active', 'overdue', 'done'] as const).map((st) => (
+                  <button
+                    key={st}
+                    onClick={() => setFilterStatus(st)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                      filterStatus === st
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    {st === 'done' ? 'Completed' : st}
+                  </button>
+                ))}
+              </div>
+
+              {/* Priority Select */}
               <select
                 value={filterPriority}
                 onChange={(e) => setFilterPriority(e.target.value)}
                 aria-label="Filter tasks by priority"
-                className="w-full sm:w-auto px-3 py-2 min-h-[44px] text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer"
+                className="px-3 py-2 min-h-[44px] text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Priorities</option>
                 <option value="URGENT">Urgent</option>
@@ -250,79 +366,116 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
           {filteredTasks.length === 0 ? (
             <div className="text-center py-12 text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
               <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
-              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No active tasks assigned to you</p>
-              <p className="text-xs text-slate-400 mt-1">You are all caught up on deliverables!</p>
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                {searchQuery || filterStatus !== 'all' || filterPriority !== 'all'
+                  ? 'No tasks match your search or filter'
+                  : 'No active tasks assigned to you'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {searchQuery || filterStatus !== 'all' || filterPriority !== 'all'
+                  ? 'Try clearing your filters.'
+                  : 'You are all caught up on deliverables!'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between hover:border-blue-400 dark:hover:border-blue-600 transition-all"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
-                        {task.projectName}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${
-                          task.priority === 'URGENT'
-                            ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-                            : task.priority === 'HIGH'
-                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        }`}
-                      >
-                        {task.priority}
-                      </span>
+              {filteredTasks.map((task) => {
+                const isTaskDone = task.statusCategory === 'done' || task.progressPct === 100;
+                return (
+                  <div
+                    key={task.id}
+                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between hover:border-blue-400 dark:hover:border-blue-600 transition-all"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
+                          {task.projectName}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${
+                              task.priority === 'URGENT'
+                                ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                : task.priority === 'HIGH'
+                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                            }`}
+                          >
+                            {task.priority}
+                          </span>
+                          {isTaskDone && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                              DONE
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2 break-words-safe">
+                        {task.title}
+                      </h3>
+
+                      {/* Progress Bar & Quick Complete */}
+                      <div className="mt-3">
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+                          <span>{task.statusKey}</span>
+                          <span className={isTaskDone ? 'text-emerald-600 font-bold' : ''}>
+                            {Math.round(task.progressPct)}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              isTaskDone ? 'bg-emerald-500' : 'bg-blue-600'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(0, task.progressPct))}%` }}
+                          />
+                        </div>
+                      </div>
                     </div>
 
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2 break-words-safe">
-                      {task.title}
-                    </h3>
-
-                    {/* Progress Bar */}
-                    <div className="mt-3">
-                      <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
-                        <span>{task.statusKey}</span>
-                        <span>{Math.round(task.progressPct)}%</span>
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span
+                          className={`font-medium ${
+                            task.isOverdue
+                              ? 'text-red-600 font-bold dark:text-red-400'
+                              : 'text-slate-500 dark:text-slate-400'
+                          }`}
+                        >
+                          {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No date'}
+                        </span>
                       </div>
-                      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-600 rounded-full transition-all"
-                          style={{ width: `${Math.min(100, Math.max(0, task.progressPct))}%` }}
-                        />
+
+                      <div className="flex items-center gap-2">
+                        {!isTaskDone && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleQuickComplete(task.id, e)}
+                            disabled={updatingTaskId === task.id}
+                            className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors flex items-center gap-1"
+                            title="Mark as 100% complete"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>Done</span>
+                          </button>
+                        )}
+
+                        {onSelectProject && (
+                          <button
+                            onClick={() => onSelectProject(task.projectId)}
+                            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-bold flex items-center gap-1 text-[11px] min-h-[36px] sm:min-h-[44px]"
+                          >
+                            <span>Open Canvas</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span
-                        className={`font-medium ${
-                          task.isOverdue
-                            ? 'text-red-600 font-bold dark:text-red-400'
-                            : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No date'}
-                      </span>
-                    </div>
-
-                    {onSelectProject && (
-                      <button
-                        onClick={() => onSelectProject(task.projectId)}
-                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-bold flex items-center gap-1 text-[11px] min-h-[36px] sm:min-h-[44px]"
-                      >
-                        <span>Open Canvas</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -408,6 +561,78 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Team Workload (Manager & Admin View) */}
+      {activeTab === 'team' && hasManagerAccess && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
+              Team Member Workload & Capacity
+            </h3>
+            {managerWorkload?.blockedTasksCount ? (
+              <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                <span>{managerWorkload.blockedTasksCount} Blocked Tasks Across Team</span>
+              </span>
+            ) : null}
+          </div>
+
+          {!managerWorkload?.teamWorkload || managerWorkload.teamWorkload.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <Users className="w-10 h-10 text-slate-400 mx-auto mb-2 opacity-60" />
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">No team workload records</p>
+              <p className="text-xs text-slate-400 mt-1">Assign tasks to team members to track team workload and progress.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {managerWorkload.teamWorkload.map((member) => (
+                <div
+                  key={member.userId}
+                  className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                        {member.fullName}
+                      </h4>
+                      <p className="text-xs text-slate-400">{member.email}</p>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400">
+                      {member.role || 'Member'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                    <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                      <div className="text-[10px] font-semibold text-slate-400">Active</div>
+                      <div className="text-base font-black text-slate-800 dark:text-slate-100 mt-0.5">
+                        {member.assignedTasksCount}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                      <div className="text-[10px] font-semibold text-emerald-500">Done</div>
+                      <div className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                        {member.completedTasksCount}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                      <div className="text-[10px] font-semibold text-rose-500">Overdue</div>
+                      <div className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                        {member.overdueTasksCount}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1">
+                    <span>Allocated: {member.allocatedHours}h</span>
+                    <span>Actual: {member.actualHours}h</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

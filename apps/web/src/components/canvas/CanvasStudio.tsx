@@ -1954,7 +1954,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       </div>
 
       {/* Main Canvas Area */}
-      <div className="flex-1 w-full h-full relative">
+      <div className="flex-1 w-full min-h-0 relative overflow-hidden flex flex-col">
         {/* Load Error State */}
         {loadError && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-rose-50 dark:bg-rose-950/90 border border-rose-300 dark:border-rose-800 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-lg max-w-md">

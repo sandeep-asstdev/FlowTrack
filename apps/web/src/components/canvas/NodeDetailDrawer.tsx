@@ -489,32 +489,40 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   if (accessDenied || (node && node.can && node.can.view === false)) {
     return (
-      <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 text-rose-500" />
-              Access Denied
-            </span>
-            <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="p-6 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-center space-y-3">
-            <ShieldAlert className="w-10 h-10 text-rose-500 mx-auto" />
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">You don't have access to this task</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              This task belongs to another team member or confidential project. You do not have permission to view or modify its contents.
-            </p>
-          </div>
-        </div>
-        <button
+      <>
+        <div
+          id="node-detail-drawer-backdrop"
+          className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-40 transition-opacity duration-200"
           onClick={onClose}
-          className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors"
-        >
-          Close Panel
-        </button>
-      </div>
+          aria-hidden="true"
+        />
+        <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-rose-500" />
+                Access Denied
+              </span>
+              <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-center space-y-3">
+              <ShieldAlert className="w-10 h-10 text-rose-500 mx-auto" />
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">You don't have access to this task</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                This task belongs to another team member or confidential project. You do not have permission to view or modify its contents.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors"
+          >
+            Close Panel
+          </button>
+        </div>
+      </>
     );
   }
 
@@ -523,32 +531,40 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   // Confidential Security Guard
   if (isConfidentialHidden) {
     return (
-      <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Lock className="w-4 h-4 text-amber-500" />
-              Confidential Task
-            </span>
-            <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="p-6 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-center space-y-3">
-            <ShieldAlert className="w-10 h-10 text-amber-500 mx-auto" />
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Access Restricted</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              This task has been locked as confidential by a Manager or Administrator. Only authorized leadership may inspect or edit its deliverables.
-            </p>
-          </div>
-        </div>
-        <button
+      <>
+        <div
+          id="node-detail-drawer-backdrop"
+          className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-40 transition-opacity duration-200"
           onClick={onClose}
-          className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors"
-        >
-          Close Panel
-        </button>
-      </div>
+          aria-hidden="true"
+        />
+        <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-50 p-6 flex flex-col justify-between animate-in slide-in-from-right duration-200">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-amber-500" />
+                Confidential Task
+              </span>
+              <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-center space-y-3">
+              <ShieldAlert className="w-10 h-10 text-amber-500 mx-auto" />
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Access Restricted</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                This task has been locked as confidential by a Manager or Administrator. Only authorized leadership may inspect or edit its deliverables.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition-colors"
+          >
+            Close Panel
+          </button>
+        </div>
+      </>
     );
   }
 
@@ -826,12 +842,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   return (
-    <div
-      id="node-detail-drawer"
-      className={`fixed inset-y-0 right-0 z-50 flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl transition-all duration-200 animate-in slide-in-from-right w-full ${
-        isExpanded ? 'sm:w-[760px]' : 'sm:w-[520px]'
-      } pt-safe pb-safe`}
-    >
+    <>
+      {/* Backdrop overlay for dismissing on tap outside */}
+      <div
+        id="node-detail-drawer-backdrop"
+        className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-40 transition-opacity duration-200"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        id="node-detail-drawer"
+        className={`fixed inset-y-0 right-0 z-50 flex flex-col bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl transition-all duration-200 animate-in slide-in-from-right w-full ${
+          isExpanded ? 'sm:w-[760px]' : 'sm:w-[520px]'
+        } pt-safe pb-safe`}
+      >
       {/* 1. TOP HEADER (Sticky, Clean, Never Cut Off by Mobile Browser Bars) */}
       <div className="min-h-16 border-b border-slate-200 dark:border-slate-800 px-4 py-3 sm:px-5 flex items-start justify-between bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shrink-0 gap-3">
         <div className="flex items-start gap-2.5 min-w-0 flex-1">
@@ -2403,10 +2427,10 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       </div>
 
       {/* 4. STICKY BOTTOM ACTION BAR (Mobile-First) */}
-      <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3 px-4 shrink-0 pb-safe z-10 flex items-center justify-between gap-3">
-        <div className="text-xs min-w-0 flex-1">
-          <span className="font-semibold text-slate-500 block truncate">Current Status:</span>
-          <span className="font-bold text-slate-900 dark:text-white truncate block">{node.state || 'Draft'}</span>
+      <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-3 px-4 shrink-0 pb-safe z-10 flex flex-col xs:flex-row items-stretch xs:items-center justify-between gap-2.5">
+        <div className="text-xs min-w-0 flex items-center justify-between xs:block">
+          <span className="font-semibold text-slate-500 mr-2 xs:mr-0 xs:block">Status:</span>
+          <span className="font-bold text-slate-900 dark:text-white truncate">{node.state || 'Draft'}</span>
         </div>
 
         {node.state === 'Draft' || node.state === 'Assigned' ? (
@@ -2418,7 +2442,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               await loadNode(node.id);
               onNodeUpdated();
             }}
-            className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+            className="w-full xs:w-auto px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all text-center justify-center shrink-0"
           >
             Start Task
           </button>
@@ -2428,7 +2452,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               id="mobile-drawer-primary-action"
               type="button"
               onClick={() => setIsSubmittingModalOpen(true)}
-              className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0 cursor-pointer"
+              className="w-full xs:w-auto px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all text-center justify-center shrink-0 cursor-pointer"
             >
               Submit for Review
             </button>
@@ -2437,11 +2461,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           )
         ) : node.state === 'UnderReview' || node.state === 'Ready for Review' || node.state === 'In Review' ? (
           (can.approve || approvalAuth.allowed) ? (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2 flex-1 xs:flex-initial">
               <button
                 type="button"
                 onClick={handleRejectWork}
-                className="px-3 py-2.5 min-h-[44px] bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+                className="flex-1 xs:flex-initial px-3 py-2.5 min-h-[44px] bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all text-center justify-center shrink-0"
               >
                 Request Changes
               </button>
@@ -2449,7 +2473,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 id="mobile-drawer-primary-action"
                 type="button"
                 onClick={handleApproveWork}
-                className="px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+                className="flex-1 xs:flex-initial px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all text-center justify-center shrink-0"
               >
                 Approve Task
               </button>
@@ -2464,7 +2488,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             id="mobile-drawer-primary-action"
             type="button"
             onClick={() => setIsSubmittingModalOpen(true)}
-            className="px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+            className="w-full xs:w-auto px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all text-center justify-center shrink-0"
           >
             Resubmit for Review
           </button>
@@ -2477,7 +2501,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               await loadNode(node.id);
               onNodeUpdated();
             }}
-            className="px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all shrink-0"
+            className="w-full xs:w-auto px-4 py-2.5 min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all text-center justify-center shrink-0"
           >
             Complete Task
           </button>
@@ -2538,5 +2562,6 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         }}
       />
     </div>
+    </>
   );
 };

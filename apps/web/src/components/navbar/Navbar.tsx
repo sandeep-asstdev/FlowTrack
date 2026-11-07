@@ -161,7 +161,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
             <Layers className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 hidden xs:block">
             <div className="font-bold text-sm sm:text-base leading-tight tracking-tight text-slate-900 dark:text-white truncate">
               {t('appName')}
             </div>
@@ -181,7 +181,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="Switch Workspace Organization"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-              <span className="max-w-[70px] xs:max-w-[100px] sm:max-w-[150px] truncate">{activeWs?.name || 'Workspace'}</span>
+              <span className="max-w-[65px] xs:max-w-[95px] sm:max-w-[150px] truncate">{activeWs?.name || 'Workspace'}</span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             </button>
 
@@ -805,8 +805,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         onClose={() => setShowNotifications(false)}
       />
 
-      {/* Fixed Bottom Navigation Bar on Mobile (< md screens) */}
-      {user && (
+      {/* Fixed Bottom Navigation Bar on Mobile (< md screens) - Hidden in 2D canvas view */}
+      {user && currentView !== 'canvas' && (
         <nav
           id="mobile-bottom-nav"
           aria-label="Mobile Navigation"

@@ -299,7 +299,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x pb-1 md:pb-0">
           {(['ALL', 'ACTIVE', 'WAITING', 'OVERDUE', 'COMPLETED'] as const).map((filter) => {
             const isSelected = statusFilter === filter;
             const labels: Record<string, string> = {

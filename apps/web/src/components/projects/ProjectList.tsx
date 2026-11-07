@@ -145,141 +145,144 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+    <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-8 min-w-0 overflow-x-hidden">
       {/* Overview Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 min-w-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               {t('projects')} {t('overview')}
             </h1>
             {currentWorkspace && (
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 truncate max-w-[150px]">
                 {currentWorkspace.name}
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 break-words">
             Visual node canvases across your team • {projects.length} Total Projects • Role: <span className="font-semibold text-slate-700 dark:text-slate-300">{userRole}</span>
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {onRefresh && (
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing || loading}
-              className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
-              title="Refresh projects list"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing || loading ? 'animate-spin text-blue-600' : 'text-slate-400'}`} />
-              <span>Refresh</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => setIsTrashOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
-            title="View soft-deleted projects"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-            <span>Trash</span>
-          </button>
-
-          <button
-            onClick={handleLoadDemo}
-            disabled={loadingDemo}
-            className="flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors disabled:opacity-50"
-            title="Load Hero Showroom Building demo project"
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${loadingDemo ? 'animate-spin' : 'text-amber-500'}`} />
-            <span>{loadingDemo ? 'Loading...' : '⚡ Demo Project'}</span>
-          </button>
-
+        {/* Action Buttons - Clean Mobile Organization */}
+        <div className="flex flex-col xs:flex-row xs:flex-wrap items-stretch xs:items-center gap-2 min-w-0">
           {permissions.canCreateProject && (
             <button
               id="dashboard-new-project-btn"
               onClick={onOpenCreateModal}
-              className="flex items-center gap-2 px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02]"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02] w-full xs:w-auto order-first md:order-last"
             >
-              <Plus className="w-4 h-4" />
-              {t('newProject')}
+              <Plus className="w-4 h-4 shrink-0" />
+              <span>{t('newProject')}</span>
             </button>
           )}
+
+          <div className="flex items-center gap-2 flex-wrap xs:flex-nowrap w-full xs:w-auto">
+            {onRefresh && (
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing || loading}
+                className="flex-1 xs:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                title="Refresh projects list"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing || loading ? 'animate-spin text-blue-600' : 'text-slate-400'}`} />
+                <span>Refresh</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setIsTrashOpen(true)}
+              className="flex-1 xs:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+              title="View soft-deleted projects"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+              <span>Trash</span>
+            </button>
+
+            <button
+              onClick={handleLoadDemo}
+              disabled={loadingDemo}
+              className="flex-1 xs:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors disabled:opacity-50 whitespace-nowrap"
+              title="Load Hero Showroom Building demo project"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${loadingDemo ? 'animate-spin' : 'text-amber-500'}`} />
+              <span>{loadingDemo ? 'Loading...' : '⚡ Demo Project'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Metric Cards (Interactive Filters) */}
-      <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4 mb-6">
+      {/* Metric Cards (Interactive Filters) - Clean 2-cols on mobile, 4-cols on tablet/desktop */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6 min-w-0">
         <button
           onClick={() => setStatusFilter('ALL')}
-          className={`p-4 rounded-xl border text-left transition-all ${
+          className={`p-3 sm:p-4 rounded-xl border text-left transition-all min-w-0 overflow-hidden ${
             statusFilter === 'ALL'
               ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/30 dark:bg-blue-950/20'
               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
           } shadow-sm`}
         >
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+          <div className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider truncate">
             {t('allProjects')}
           </div>
-          <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+          <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-1">
             {projects.length}
           </div>
         </button>
 
         <button
           onClick={() => setStatusFilter('ACTIVE')}
-          className={`p-4 rounded-xl border text-left transition-all ${
+          className={`p-3 sm:p-4 rounded-xl border text-left transition-all min-w-0 overflow-hidden ${
             statusFilter === 'ACTIVE'
               ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/30 dark:bg-blue-950/20'
               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
           } shadow-sm`}
         >
-          <div className="text-[11px] font-semibold text-blue-500 uppercase tracking-wider">
+          <div className="text-[10px] sm:text-[11px] font-bold text-blue-500 uppercase tracking-wider truncate">
             {t('inProgress')}
           </div>
-          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
+          <div className="text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
             {activeCount}
           </div>
         </button>
 
         <button
           onClick={() => setStatusFilter('WAITING')}
-          className={`p-4 rounded-xl border text-left transition-all ${
+          className={`p-3 sm:p-4 rounded-xl border text-left transition-all min-w-0 overflow-hidden ${
             statusFilter === 'WAITING'
               ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/30 dark:bg-amber-950/20'
               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
           } shadow-sm`}
         >
-          <div className="text-[11px] font-semibold text-amber-500 uppercase tracking-wider">
+          <div className="text-[10px] sm:text-[11px] font-bold text-amber-500 uppercase tracking-wider truncate">
             {t('waiting')} Blockers
           </div>
-          <div className="text-2xl font-black text-amber-500 mt-1">
+          <div className="text-xl sm:text-2xl font-black text-amber-500 mt-1">
             {totalWaiting}
           </div>
         </button>
 
         <button
           onClick={() => setStatusFilter('OVERDUE')}
-          className={`p-4 rounded-xl border text-left transition-all ${
+          className={`p-3 sm:p-4 rounded-xl border text-left transition-all min-w-0 overflow-hidden ${
             statusFilter === 'OVERDUE'
               ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/30 dark:bg-rose-950/20'
               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
           } shadow-sm`}
         >
-          <div className="text-[11px] font-semibold text-rose-500 uppercase tracking-wider">
+          <div className="text-[10px] sm:text-[11px] font-bold text-rose-500 uppercase tracking-wider truncate">
             {t('overdue')} Nodes
           </div>
-          <div className="text-2xl font-black text-rose-500 mt-1">
+          <div className="text-xl sm:text-2xl font-black text-rose-500 mt-1">
             {totalOverdue}
           </div>
         </button>
       </div>
 
       {/* Dynamic Search, Filter Pills & Sort Toolbar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:p-4 mb-6 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 sm:gap-3 min-w-0 max-w-full overflow-hidden">
         {/* Search Bar */}
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-0 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
@@ -298,8 +301,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           )}
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x pb-1 md:pb-0">
+        {/* Filter Pills - Scrollable inside card without overflowing page */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x pb-1 md:pb-0 min-w-0 max-w-full w-full md:w-auto">
           {(['ALL', 'ACTIVE', 'WAITING', 'OVERDUE', 'COMPLETED'] as const).map((filter) => {
             const isSelected = statusFilter === filter;
             const labels: Record<string, string> = {
@@ -313,9 +316,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               <button
                 key={filter}
                 onClick={() => setStatusFilter(filter)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors shrink-0 ${
                   isSelected
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-blue-600 text-white shadow-xs'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
@@ -326,12 +329,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         </div>
 
         {/* Sort Select */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+        <div className="flex items-center gap-1.5 shrink-0 w-full md:w-auto">
+          <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <select
             value={sortBy}
             onChange={(e: any) => setSortBy(e.target.value)}
-            className="text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full md:w-auto text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
           >
             <option value="updated">Recently Updated</option>
             <option value="name">Name (A–Z)</option>
@@ -343,7 +346,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
       {/* Projects Grid */}
       {projects.length === 0 ? (
-        <div className="text-center py-16 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-white/50 dark:bg-slate-900/50 p-8">
+        <div className="text-center py-10 sm:py-16 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-white/50 dark:bg-slate-900/50 p-4 sm:p-8 min-w-0">
           <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center mx-auto mb-3">
             <FolderKanban className="w-6 h-6" />
           </div>
@@ -353,11 +356,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 mb-4">
             Create your first project canvas to start tracking tasks and dependencies.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 max-w-md mx-auto">
             {permissions.canCreateProject && (
               <button
                 onClick={onOpenCreateModal}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02]"
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all hover:scale-[1.02] text-center justify-center"
               >
                 + Create New Project
               </button>
@@ -365,10 +368,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
             <button
               onClick={handleLoadDemo}
               disabled={loadingDemo}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-500/20 transition-all hover:scale-[1.02] disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl text-xs font-bold shadow-md shadow-orange-500/20 transition-all hover:scale-[1.02] disabled:opacity-50 text-center"
             >
               <Sparkles className={`w-4 h-4 ${loadingDemo ? 'animate-spin' : ''}`} />
-              <span>{loadingDemo ? 'Creating Demo Canvas...' : '⚡ Load Demo Project (Hero Showroom)'}</span>
+              <span>{loadingDemo ? 'Creating Demo Canvas...' : '⚡ Load Demo Project'}</span>
             </button>
           </div>
         </div>

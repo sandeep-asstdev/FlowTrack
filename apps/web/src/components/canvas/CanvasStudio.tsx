@@ -2299,7 +2299,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           </div>
         )}
 
-        {/* Mobile Floating Action Controls (Easy touch access on mobile screens) */}
+        {/* Mobile Floating Action Controls (Only in 2D canvas view so they don't block list/tree/board) */}
+        {workspaceViewMode === 'canvas' && (
         <div id="mobile-canvas-controls" className="sm:hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl mb-safe pointer-events-auto">
           <button
             id="mobile-add-task-btn"
@@ -2342,6 +2343,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             <Sparkles className="w-4 h-4 text-blue-500" />
           </button>
         </div>
+        )}
 
         {/* Floating Action / Feedback Toast */}
         {toastMessage && (

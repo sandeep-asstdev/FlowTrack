@@ -64,7 +64,7 @@
 html {
   width: 100%;
   min-width: 320px;
-  overflow-x: hidden;
+  overflow-x: clip;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -74,26 +74,30 @@ body {
   color: var(--color-text-main);
   width: 100%;
   min-width: 320px;
-  overflow-x: hidden;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
+  overflow-x: clip;
+    -webkit-tap-highlight-color: transparent;
   -webkit-overflow-scrolling: touch;
 }
 
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(0, 0, 0, 0.04);
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #94a3b8;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #64748b;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
 }
 
 /* React Flow styling overrides (n8n signature UX) */

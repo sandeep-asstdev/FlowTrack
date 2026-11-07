@@ -273,7 +273,7 @@ export const UserManagementView: React.FC = () => {
     member.role === 'ADMIN' && member.user.isActive !== false && stats.admins <= 1;
 
   return (
-    <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 flex flex-col gap-6">
+    <div className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6 pb-28 sm:pb-36 flex flex-col gap-6">
       {/* Top Banner & Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>

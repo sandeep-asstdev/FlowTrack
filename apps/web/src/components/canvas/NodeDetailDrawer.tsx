@@ -112,8 +112,8 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     edit: Boolean(node?.can?.edit),
     manage: Boolean(node?.can?.manage),
     work: Boolean(node?.can?.work),
-    tickChecklist: Boolean(node?.can?.tickChecklist),
-    editChecklist: Boolean(node?.can?.editChecklist),
+    tickChecklist: Boolean(node?.can?.tickChecklist ?? node?.can?.work ?? false),
+    editChecklist: Boolean(node?.can?.editChecklist ?? (node?.can?.work || node?.can?.manage) ?? false),
     submit: Boolean(node?.can?.submit),
     approve: Boolean(node?.can?.approve),
     changeDates: Boolean(node?.can?.changeDates),
@@ -167,18 +167,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [isSavingChecklist, setIsSavingChecklist] = useState(false);
 
   const handleToggleChecklistItem = async (itemId: string) => {
-    if (!nodeId || isSavingChecklist) return;
+    if (!nodeId) return;
+    const previousChecklist = [...checklist];
     const nextChecklist = checklist.map((item) =>
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
+    // Instant optimistic update for immediate feedback
+    setChecklist(nextChecklist);
     setIsSavingChecklist(true);
     try {
       await ApiClient.updateChecklist(nodeId, nextChecklist);
-      setChecklist(nextChecklist);
       onNodeUpdated?.();
-      await loadNode(nodeId);
     } catch (err: any) {
       console.error('Failed to update checklist:', err);
+      setChecklist(previousChecklist);
       alert(err.message || 'Failed to update checklist item');
     } finally {
       setIsSavingChecklist(false);
@@ -187,22 +189,25 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   const handleAddChecklistItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nodeId || !newChecklistText.trim() || isSavingChecklist) return;
+    if (!nodeId || !newChecklistText.trim()) return;
+    const previousChecklist = [...checklist];
+    const textToAdd = newChecklistText.trim();
     const newItem = {
       id: `chk-${Date.now()}-${checklist.length}`,
-      text: newChecklistText.trim(),
+      text: textToAdd,
       completed: false,
     };
     const nextChecklist = [...checklist, newItem];
+    setChecklist(nextChecklist);
+    setNewChecklistText('');
     setIsSavingChecklist(true);
     try {
       await ApiClient.updateChecklist(nodeId, nextChecklist);
-      setChecklist(nextChecklist);
-      setNewChecklistText('');
       onNodeUpdated?.();
-      await loadNode(nodeId);
     } catch (err: any) {
       console.error('Failed to add checklist item:', err);
+      setChecklist(previousChecklist);
+      setNewChecklistText(textToAdd);
       alert(err.message || 'Failed to add checklist item');
     } finally {
       setIsSavingChecklist(false);
@@ -210,16 +215,17 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   const handleDeleteChecklistItem = async (itemId: string) => {
-    if (!nodeId || isSavingChecklist) return;
+    if (!nodeId) return;
+    const previousChecklist = [...checklist];
     const nextChecklist = checklist.filter((item) => item.id !== itemId);
+    setChecklist(nextChecklist);
     setIsSavingChecklist(true);
     try {
       await ApiClient.updateChecklist(nodeId, nextChecklist);
-      setChecklist(nextChecklist);
       onNodeUpdated?.();
-      await loadNode(nodeId);
     } catch (err: any) {
       console.error('Failed to delete checklist item:', err);
+      setChecklist(previousChecklist);
       alert(err.message || 'Failed to delete checklist item');
     } finally {
       setIsSavingChecklist(false);

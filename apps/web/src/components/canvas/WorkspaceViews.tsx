@@ -113,8 +113,8 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
   // =========================================================================
   if (viewMode === 'list') {
     return (
-      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 overscroll-contain">
-        <div className="max-w-7xl mx-auto space-y-4">
+      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 pb-28 sm:pb-36 touch-auto">
+        <div className="max-w-7xl mx-auto space-y-4 pb-16">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -372,7 +372,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
           </div>
         )}
 
-        <div className="flex-1 min-h-0 flex gap-3 sm:gap-4 items-stretch overflow-x-auto overflow-y-hidden pb-2 snap-x snap-mandatory touch-pan-x">
+        <div className="flex-1 min-h-0 flex gap-3 sm:gap-4 items-stretch overflow-x-auto overflow-y-auto pb-6 snap-x sm:snap-none touch-auto">
           {columns.map((col) => {
             const colTasks = parsedNodes.filter(
               (n) => col.states.includes(n.state) || col.states.includes(n.statusCategory)
@@ -394,7 +394,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                   </h3>
                 </div>
 
-                <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 overscroll-contain min-h-0">
+                <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 min-h-0 pb-8 touch-auto">
                   {colTasks.length === 0 ? (
                     <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
                       No tasks
@@ -473,8 +473,8 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
   // =========================================================================
   if (viewMode === 'tree') {
     return (
-      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 overscroll-contain">
-        <div className="max-w-4xl mx-auto space-y-4">
+      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 pb-28 sm:pb-36 touch-auto">
+        <div className="max-w-4xl mx-auto space-y-4 pb-16">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -512,7 +512,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
   // =========================================================================
   if (viewMode === 'timeline') {
     return (
-      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 overscroll-contain">
+      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 pb-28 sm:pb-36 touch-auto">
         <div className="max-w-6xl mx-auto space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -609,7 +609,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
   // =========================================================================
   if (viewMode === 'calendar') {
     return (
-      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 overscroll-contain">
+      <div className="w-full h-full min-h-0 flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50 p-4 sm:p-6 pb-28 sm:pb-36 touch-auto">
         <div className="max-w-6xl mx-auto space-y-4">
           <div className="flex items-center justify-between">
             <div>

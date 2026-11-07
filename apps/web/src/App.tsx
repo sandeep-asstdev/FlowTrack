@@ -217,7 +217,7 @@ export function App() {
         projectName={selectedProject?.name}
       />
 
-      <main className={`flex-1 flex flex-col w-full min-w-0 max-w-full overflow-x-hidden ${currentView === 'canvas' ? 'pb-0' : 'pb-16 md:pb-0'}`}>
+      <main className={`flex-1 flex flex-col w-full min-w-0 max-w-full ${currentView === 'canvas' ? 'pb-0' : 'pb-16 md:pb-0'}`}>
         <ErrorBoundary fallbackTitle="Error loading workspace view" onReset={handleBackToDashboard}>
         {/* Route Error Guard (404, 403, 401) */}
         {routeError ? (

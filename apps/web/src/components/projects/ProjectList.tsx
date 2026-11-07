@@ -145,7 +145,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   }
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-8 min-w-0 overflow-x-hidden">
+    <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 pt-4 sm:pt-8 pb-28 sm:pb-36 min-w-0">
       {/* Overview Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 min-w-0">
         <div className="min-w-0">

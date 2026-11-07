@@ -968,5 +968,5 @@ export const UniversalDashboard: React.FC<UniversalDashboardProps> = ({
     );
   }
 
-  return <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 h-full flex-1 flex flex-col">{content}</div>;
+  return <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6 pb-28 sm:pb-36 flex-1 flex flex-col">{content}</div>;
 };

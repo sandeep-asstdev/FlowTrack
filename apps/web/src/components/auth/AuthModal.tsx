@@ -144,11 +144,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setOtpCooldownSeconds(res.resendCooldownSeconds || 45);
       setIsCooldownActive(true);
 
-      const receivedOtp = (res as any).otpCode || (res as any).devOtpCode;
+      const receivedOtp = (res as any).otpCode || (res as any).devOtpCode || (res?.message?.match(/\b\d{6}\b/)?.[0]);
       if (receivedOtp) {
         setOtpCode(receivedOtp);
-        setDevSimulationNotice(`Verification Code: ${receivedOtp} (Autofilled below)`);
-        setSuccessMessage(`Code generated: ${receivedOtp}`);
+        setDevSimulationNotice(`Your OTP is: ${receivedOtp}`);
+        setSuccessMessage(`OTP received: ${receivedOtp}`);
       } else if (res.channel === 'email' || channel === 'email') {
         setSuccessMessage('Verification code sent to your email.');
       } else {
@@ -887,17 +887,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       </div>
 
                       {devSimulationNotice && (
-                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-900 dark:text-blue-200 flex items-center justify-between">
-                          <span className="font-medium">{devSimulationNotice}</span>
+                        <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                              Your OTP for testing:
+                            </span>
+                            <span className="font-mono font-bold text-sm tracking-widest bg-white dark:bg-slate-900 px-2.5 py-0.5 rounded-lg border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 select-all">
+                              {devSimulationNotice.match(/\b\d{6}\b/)?.[0] || otpCode || devSimulationNotice}
+                            </span>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
                               const match = devSimulationNotice.match(/\b\d{6}\b/);
                               if (match) setOtpCode(match[0]);
                             }}
-                            className="font-bold underline text-blue-600 dark:text-blue-400 cursor-pointer ml-2 shrink-0"
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white cursor-pointer ml-2 shrink-0 transition-colors"
                           >
-                            Paste Code
+                            Autofill OTP
                           </button>
                         </div>
                       )}
@@ -1096,17 +1103,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       </div>
 
                       {devSimulationNotice && (
-                        <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-900 dark:text-blue-200 flex items-center justify-between">
-                          <span className="font-medium">{devSimulationNotice}</span>
+                        <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                              Your OTP for testing:
+                            </span>
+                            <span className="font-mono font-bold text-sm tracking-widest bg-white dark:bg-slate-900 px-2.5 py-0.5 rounded-lg border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100 select-all">
+                              {devSimulationNotice.match(/\b\d{6}\b/)?.[0] || otpCode || devSimulationNotice}
+                            </span>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
                               const match = devSimulationNotice.match(/\b\d{6}\b/);
                               if (match) setOtpCode(match[0]);
                             }}
-                            className="font-bold underline text-blue-600 dark:text-blue-400 cursor-pointer ml-2 shrink-0"
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white cursor-pointer ml-2 shrink-0 transition-colors"
                           >
-                            Paste Code
+                            Autofill OTP
                           </button>
                         </div>
                       )}

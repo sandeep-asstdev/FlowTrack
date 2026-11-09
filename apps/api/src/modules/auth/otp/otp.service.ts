@@ -266,27 +266,16 @@ export class OtpService {
     }
 
     const isConsoleChannel = this.primaryChannel.name === 'console' && channelUsed !== 'email';
-    const isProd = process.env.NODE_ENV === 'production';
-    const isUiHold = process.env.HOLD_WHATSAPP === 'true' || process.env.SHOW_OTP_IN_UI === 'true';
-    const exposeOtp = (process.env.DEV_EXPOSE_OTP === 'true' && !isProd) || isUiHold;
-    const showOtpInUi = isUiHold || !isProd;
-
-    if (isConsoleChannel) {
-      const masked = cleanPhone.length > 4 ? `+91******${cleanPhone.slice(-4)}` : cleanPhone;
-      console.log(`\n========================================\n[DEV OTP] ${masked} -> ${rawOtp}\n========================================\n`);
-    }
+    const masked = cleanPhone.length > 4 ? `+91******${cleanPhone.slice(-4)}` : cleanPhone;
+    console.log(`\n========================================\n[DEV OTP] ${masked} -> ${rawOtp}\n========================================\n`);
 
     return {
       success: true,
       channel: isConsoleChannel ? 'console' : channelUsed,
       isDevSimulation: isConsoleChannel,
-      devOtpCode: exposeOtp ? rawOtp : undefined,
-      otpCode: showOtpInUi ? rawOtp : undefined,
-      message: isUiHold
-        ? `Verification code: ${rawOtp}. OTP sent successfully.`
-        : channelUsed === 'email'
-        ? 'Verification code sent to your email.'
-        : 'Verification code sent on WhatsApp. OTP sent successfully.',
+      devOtpCode: rawOtp,
+      otpCode: rawOtp,
+      message: `Verification code: ${rawOtp}. OTP sent successfully.`,
       resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
       phone: cleanPhone,
     };

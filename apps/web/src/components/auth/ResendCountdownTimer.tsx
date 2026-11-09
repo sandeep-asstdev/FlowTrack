@@ -72,7 +72,7 @@ export const ResendCountdownTimer: React.FC<ResendCountdownTimerProps> = React.m
         disabled={disabled || isSending}
         className="px-3 py-2.5 min-h-[44px] text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
       >
-        {isSending ? 'Sending...' : 'Resend code'}
+        {isSending ? 'Sending...' : 'Send OTP on WhatsApp'}
       </button>
     );
   }
@@ -84,7 +84,7 @@ export const ResendCountdownTimer: React.FC<ResendCountdownTimerProps> = React.m
       disabled={disabled || isSending}
       className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50 cursor-pointer"
     >
-      {isSending ? 'Sending...' : 'Resend code'}
+      {isSending ? 'Sending...' : 'Send OTP on WhatsApp'}
     </button>
   );
 });

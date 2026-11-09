@@ -52,6 +52,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Profile avatar fields
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
   const [tempAvatarId, setTempAvatarId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -231,22 +232,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const localUrl = URL.createObjectURL(file);
     setAvatarFile(file);
     setAvatarPreviewUrl(localUrl);
+    setAvatarError(null);
     setUploadingAvatar(true);
-    setUploadProgress(0);
+    setUploadProgress(15);
+
+    // Read base64 eagerly as a 100% resilient fallback
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setAvatarBase64(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch {}
 
     try {
       const res = await ApiClient.uploadAvatar(file, (pct) => {
-        setUploadProgress(pct);
+        setUploadProgress(Math.min(99, Math.max(15, pct)));
       });
       setTempAvatarId(res.tempAvatarId);
-      setAvatarPreviewUrl(res.avatarUrl);
+      // Keep local blob preview for instant crisp local rendering
+      setAvatarPreviewUrl(localUrl);
       setUploadProgress(100);
     } catch (err: any) {
-      setAvatarError(err.message || 'Failed to upload profile image.');
-      setAvatarFile(null);
-      setAvatarPreviewUrl(null);
-      setTempAvatarId(null);
-      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      console.warn('[AuthModal] Pre-upload unavailable, falling back to registration payload:', err);
+      // Do not clear the preview or drop the file - base64 fallback is ready!
+      setUploadProgress(100);
     } finally {
       setUploadingAvatar(false);
     }
@@ -259,6 +271,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       } catch {}
     }
     setAvatarFile(null);
+    setAvatarBase64(null);
     setAvatarPreviewUrl(null);
     setTempAvatarId(null);
     setUploadProgress(null);
@@ -272,7 +285,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setError(null);
     setAvatarError(null);
 
-    if (REQUIRE_AVATAR && !tempAvatarId) {
+    if (REQUIRE_AVATAR && !tempAvatarId && !avatarBase64 && !avatarFile) {
       setAvatarError('A profile image is required to complete registration.');
       setError('Please choose and upload a profile photo.');
       setLoading(false);
@@ -313,6 +326,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         phone: fullPhone,
         phoneProof,
         tempAvatarId: tempAvatarId || undefined,
+        avatarBase64: !tempAvatarId ? (avatarBase64 || undefined) : undefined,
       });
 
       setAuth(
@@ -1000,10 +1014,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <button
                   id="register-submit-btn"
                   type="submit"
-                  disabled={loading || !isPhoneVerified}
+                  disabled={loading || !isPhoneVerified || uploadingAvatar}
                   className="w-full py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all disabled:opacity-50 mt-2 flex items-center justify-center cursor-pointer"
                 >
-                  {loading ? 'Creating Account...' : 'Complete Registration'}
+                  {loading ? 'Creating Account...' : uploadingAvatar ? 'Uploading Photo...' : 'Complete Registration'}
                 </button>
               </form>
             </div>

@@ -10,7 +10,7 @@ function isLocalHostname(host: string): boolean {
   );
 }
 
-const getApiBaseUrl = (): string => {
+export const getApiBaseUrl = (): string => {
   if (typeof window !== 'undefined') {
     // If accessed on Cloudflare or any remote deployment, ALWAYS target live Render backend
     if (!isLocalHostname(window.location.hostname)) {
@@ -111,6 +111,7 @@ export class ApiClient {
   static uploadAvatar(file: File, onProgress?: (progressPercent: number) => void): Promise<{ tempAvatarId: string; avatarUrl: string; thumbnailUrl: string }> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      xhr.timeout = 25000;
       xhr.open('POST', `${API_BASE}/auth/avatar/upload`);
 
       if (this.token) {
@@ -119,8 +120,8 @@ export class ApiClient {
 
       if (xhr.upload && onProgress) {
         xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100);
+          if (e.lengthComputable && e.total > 0) {
+            const percent = Math.min(99, Math.round((e.loaded / e.total) * 100));
             onProgress(percent);
           }
         };
@@ -130,6 +131,7 @@ export class ApiClient {
         try {
           const res = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300) {
+            if (onProgress) onProgress(100);
             resolve(res);
           } else {
             reject(new Error(res.message || 'Avatar upload failed'));
@@ -139,7 +141,17 @@ export class ApiClient {
         }
       };
 
-      xhr.onerror = () => reject(new Error('Network error during avatar upload'));
+      xhr.ontimeout = () => {
+        reject(new Error('Avatar upload timed out. Upload will be completed during signup.'));
+      };
+
+      xhr.onabort = () => {
+        reject(new Error('Avatar upload was aborted.'));
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error during avatar upload.'));
+      };
 
       const formData = new FormData();
       formData.append('file', file);

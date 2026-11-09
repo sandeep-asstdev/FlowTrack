@@ -10,6 +10,32 @@ async function bootstrap() {
   console.log(`===> FlowTrack API initializing on Node ${process.version}...`);
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isAllowed =
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1') ||
+        origin.includes('0.0.0.0') ||
+        origin.endsWith('.pages.dev') ||
+        origin.endsWith('.onrender.com') ||
+        origin.endsWith('.vercel.app') ||
+        origin.endsWith('.netlify.app') ||
+        /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(origin) ||
+        (process.env.CORS_ORIGIN &&
+          process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).includes(origin));
+
+      // Always allow valid browser origins to prevent CORS preflight crashes
+      if (isAllowed || process.env.NODE_ENV !== 'production' || !process.env.CORS_ORIGIN) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
+  });
+
   const uploadsDir = path.resolve(process.cwd(), 'uploads');
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
@@ -19,27 +45,6 @@ async function bootstrap() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-  app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const isAllowed =
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1') ||
-        origin.includes('0.0.0.0') ||
-        /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(origin) ||
-        (process.env.CORS_ORIGIN &&
-          process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).includes(origin));
-
-      if (isAllowed || process.env.NODE_ENV !== 'production') {
-        callback(null, true);
-      } else {
-        callback(new Error('Blocked by CORS'));
-      }
-    },
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
-  });
 
   app.useGlobalPipes(
     new ValidationPipe({

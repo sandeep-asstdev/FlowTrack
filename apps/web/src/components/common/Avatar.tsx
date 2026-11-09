@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getApiBaseUrl } from '../../services/api';
 
 export interface AvatarUser {
   id?: string;
@@ -102,7 +103,7 @@ export const Avatar: React.FC<AvatarProps> = ({
       imageUrl = rawUrl;
     } else {
       // Relative path: in dev/prod resolve with API base if not absolute
-      const apiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api/v1';
+      const apiBase = getApiBaseUrl();
       const rootBase = apiBase.replace(/\/api\/v1\/?$/, '');
       if (rawUrl.startsWith('/api/v1/')) {
         imageUrl = `${rootBase}${rawUrl}`;

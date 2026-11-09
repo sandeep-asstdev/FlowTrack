@@ -199,3 +199,4 @@ export const AvatarGroup: React.FC<AvatarGroupProps> = ({
     </div>
   );
 };
+

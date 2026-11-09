@@ -2,14 +2,23 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { json, urlencoded } from 'express';
+import * as express from 'express';
+import * as path from 'path';
+import * as fs from 'fs';
 
 async function bootstrap() {
   console.log(`===> FlowTrack API initializing on Node ${process.version}...`);
   const app = await NestFactory.create(AppModule);
 
-  app.use(json({ limit: '50mb' }));
-  app.use(urlencoded({ extended: true, limit: '50mb' }));
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  app.use('/uploads', express.static(uploadsDir));
+  app.use('/api/v1/uploads', express.static(uploadsDir));
+
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   app.enableCors({
     origin: (origin, callback) => {

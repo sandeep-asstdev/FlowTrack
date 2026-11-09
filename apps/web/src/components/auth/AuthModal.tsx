@@ -17,9 +17,15 @@ import {
   ArrowLeft,
   Check,
   RotateCw,
+  Camera,
+  Trash2,
+  UploadCloud,
 } from 'lucide-react';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { ResendCountdownTimer } from './ResendCountdownTimer';
+import { Avatar } from '../common/Avatar';
+
+export const REQUIRE_AVATAR = true;
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -42,6 +48,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [phoneDigits, setPhoneDigits] = useState('9876543210');
   const [phoneProof, setPhoneProof] = useState<string | null>(null);
   const [isPhoneVerified, setIsPhoneVerified] = useState(false);
+
+  // Profile avatar fields
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [tempAvatarId, setTempAvatarId] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // OTP flow state
   const [otpCode, setOtpCode] = useState('');
@@ -178,10 +193,91 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAvatarError(null);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (files.length > 1) {
+      setAvatarError('Please select exactly one profile image.');
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+
+    const file = files[0];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const lowerName = file.name.toLowerCase();
+
+    // Reject SVG explicitly
+    if (file.type === 'image/svg+xml' || lowerName.endsWith('.svg')) {
+      setAvatarError('SVG files are not allowed. Please choose a JPG, PNG, or WEBP image.');
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+
+    const validExt = ['.jpg', '.jpeg', '.png', '.webp'].some((ext) => lowerName.endsWith(ext));
+    if (!allowedTypes.includes(file.type) && !validExt) {
+      setAvatarError('Invalid file format. Only JPG, PNG, and WEBP formats are accepted.');
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      setAvatarError(`Image size exceeds 5MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please choose a smaller photo.`);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+
+    const localUrl = URL.createObjectURL(file);
+    setAvatarFile(file);
+    setAvatarPreviewUrl(localUrl);
+    setUploadingAvatar(true);
+    setUploadProgress(0);
+
+    try {
+      const res = await ApiClient.uploadAvatar(file, (pct) => {
+        setUploadProgress(pct);
+      });
+      setTempAvatarId(res.tempAvatarId);
+      setAvatarPreviewUrl(res.avatarUrl);
+      setUploadProgress(100);
+    } catch (err: any) {
+      setAvatarError(err.message || 'Failed to upload profile image.');
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
+      setTempAvatarId(null);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (tempAvatarId) {
+      try {
+        await ApiClient.deleteTempAvatar(tempAvatarId);
+      } catch {}
+    }
+    setAvatarFile(null);
+    setAvatarPreviewUrl(null);
+    setTempAvatarId(null);
+    setUploadProgress(null);
+    setAvatarError(null);
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
+  };
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setAvatarError(null);
+
+    if (REQUIRE_AVATAR && !tempAvatarId) {
+      setAvatarError('A profile image is required to complete registration.');
+      setError('Please choose and upload a profile photo.');
+      setLoading(false);
+      return;
+    }
 
     if (!fullName.trim() || fullName.trim().length < 2) {
       setError('Full name must be at least 2 characters');
@@ -216,6 +312,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         fullName: fullName.trim(),
         phone: fullPhone,
         phoneProof,
+        tempAvatarId: tempAvatarId || undefined,
       });
 
       setAuth(
@@ -235,6 +332,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       );
       onClose();
     } catch (err: any) {
+      if (tempAvatarId) {
+        try {
+          await ApiClient.deleteTempAvatar(tempAvatarId);
+        } catch {}
+        setTempAvatarId(null);
+        setAvatarPreviewUrl(null);
+        setAvatarFile(null);
+      }
       setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
@@ -550,6 +655,94 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </div>
 
               <form onSubmit={handleRegister} className="space-y-3.5">
+                {/* Profile Image Field */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Profile Photo {REQUIRE_AVATAR && <span className="text-rose-500">*</span>}
+                  </label>
+                  <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div className="relative shrink-0">
+                      <Avatar
+                        user={{
+                          fullName: fullName || 'User',
+                          avatarUrl: avatarPreviewUrl,
+                        }}
+                        size={56}
+                        className="shadow-sm ring-2 ring-blue-500/30"
+                      />
+                      {uploadingAvatar && (
+                        <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
+                          <RotateCw className="w-4 h-4 text-white animate-spin" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <input
+                        ref={avatarInputRef}
+                        id="signup-avatar-input"
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handleAvatarSelect}
+                        disabled={loading || uploadingAvatar}
+                      />
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => avatarInputRef.current?.click()}
+                          disabled={loading || uploadingAvatar}
+                          className="px-3 py-1.5 min-h-[32px] text-xs font-semibold rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-750 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-blue-500" />
+                          <span>{avatarPreviewUrl ? 'Change Photo' : 'Upload Photo'}</span>
+                        </button>
+
+                        {avatarPreviewUrl && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveAvatar}
+                            disabled={loading || uploadingAvatar}
+                            className="px-2.5 py-1.5 min-h-[32px] text-xs font-semibold rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {uploadingAvatar && uploadProgress !== null && (
+                        <div className="mt-2 space-y-1">
+                          <div className="flex justify-between text-[10px] text-slate-500">
+                            <span>Uploading photo...</span>
+                            <span>{uploadProgress}%</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-600 rounded-full transition-all duration-200"
+                              style={{ width: `${uploadProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {!uploadingAvatar && !avatarError && (
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          JPG, PNG, or WEBP up to 5MB.
+                        </p>
+                      )}
+
+                      {avatarError && (
+                        <p className="text-[10px] text-rose-500 font-medium mt-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          <span>{avatarError}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Full Name */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">

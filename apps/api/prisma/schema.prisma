@@ -97,6 +97,7 @@ model User {
   passwordHash String?      @map("password_hash")
   fullName     String       @map("full_name")
   avatarUrl    String?      @map("avatar_url")
+  avatarThumbnailUrl String? @map("avatar_thumbnail_url")
   locale       String       @default("en")
   isActive     Boolean      @default(true) @map("is_active")
   emailVerified Boolean     @default(true) @map("email_verified")

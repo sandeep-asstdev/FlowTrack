@@ -108,6 +108,49 @@ export class ApiClient {
     return this.request('/auth/register', { method: 'POST', body: JSON.stringify(body) });
   }
 
+  static uploadAvatar(file: File, onProgress?: (progressPercent: number) => void): Promise<{ tempAvatarId: string; avatarUrl: string; thumbnailUrl: string }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/auth/avatar/upload`);
+
+      if (this.token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+      }
+
+      if (xhr.upload && onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            onProgress(percent);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(res);
+          } else {
+            reject(new Error(res.message || 'Avatar upload failed'));
+          }
+        } catch {
+          reject(new Error('Invalid response from upload server'));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error during avatar upload'));
+
+      const formData = new FormData();
+      formData.append('file', file);
+      xhr.send(formData);
+    });
+  }
+
+  static deleteTempAvatar(tempAvatarId: string) {
+    return this.request(`/auth/avatar/temp/${tempAvatarId}`, { method: 'DELETE' });
+  }
+
   static loginWithGoogle(idTokenOrCredential: string) {
     return this.request('/auth/google', {
       method: 'POST',

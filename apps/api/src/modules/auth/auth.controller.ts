@@ -1,5 +1,7 @@
-import { Controller, Post, Body, Get, UseGuards, Req, Ip } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Req, Ip, UploadedFile, UseInterceptors, Param, Delete, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
+import { AvatarService } from './avatar.service';
 import {
   RegisterDto,
   LoginDto,
@@ -14,11 +16,43 @@ import { AuthGuard } from '@nestjs/passport';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly avatarService: AvatarService
+  ) {}
+
+  @Post('avatar/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAvatar(
+    @UploadedFile() file: any,
+    @Body() body: any,
+    @Ip() ip: string
+  ) {
+    let buffer: Buffer | null = null;
+    if (file && file.buffer) {
+      buffer = file.buffer;
+    } else if (body?.image || body?.avatarBase64 || body?.file) {
+      const raw = body.image || body.avatarBase64 || body.file;
+      const base64Str = typeof raw === 'string' && raw.includes(',') ? raw.split(',')[1] : raw;
+      buffer = Buffer.from(base64Str, 'base64');
+    }
+
+    if (!buffer || buffer.length === 0) {
+      throw new BadRequestException('No image file or image data provided.');
+    }
+
+    return this.avatarService.saveTempAvatar(buffer, ip);
+  }
+
+  @Delete('avatar/temp/:id')
+  deleteTempAvatar(@Param('id') id: string) {
+    this.avatarService.deleteTempAvatar(id);
+    return { success: true };
+  }
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  register(@Body() dto: RegisterDto, @Ip() ip: string) {
+    return this.authService.register(dto, ip);
   }
 
   @Post('login')

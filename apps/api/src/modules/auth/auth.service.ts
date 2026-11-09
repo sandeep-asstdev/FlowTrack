@@ -19,11 +19,13 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   INDIAN_PHONE_REGEX,
+  REQUIRE_AVATAR,
 } from '@flowtrack/shared';
 import { Role } from '@prisma/client';
 import { GoogleAuthService } from './google-auth.service';
 import { OtpService } from './otp/otp.service';
 import { AuditService } from '../audit/audit.service';
+import { AvatarService } from './avatar.service';
 import { isCommonPassword } from './common-passwords';
 
 const DUMMY_BCRYPT_HASH = '$2a$10$e84W774FwJbV.KxL5V/9zOU7D5JvYm6sU0eF6lXb01z23456789ab';
@@ -34,6 +36,7 @@ export class AuthService {
   private readonly googleAuthService: GoogleAuthService;
   private readonly otpService: OtpService;
   private readonly auditService: AuditService;
+  private readonly avatarService: AvatarService;
 
   // In-memory fallback token store for test mocks where DB reset tables are unmocked
   private readonly fallbackResetStore = new Map<string, { tokenHash: string; expiresAt: Date; userId: string }>();
@@ -43,16 +46,19 @@ export class AuthService {
     private readonly jwtService: JwtService,
     otpService?: OtpService,
     auditService?: AuditService,
-    googleAuthService?: GoogleAuthService
+    googleAuthService?: GoogleAuthService,
+    avatarService?: AvatarService
   ) {
     if (otpService instanceof GoogleAuthService || (otpService && 'verifyIdToken' in (otpService as any))) {
       this.googleAuthService = otpService as unknown as GoogleAuthService;
       this.otpService = new OtpService(this.prisma);
       this.auditService = auditService || ({ log: async () => {} } as any);
+      this.avatarService = avatarService || new AvatarService();
     } else {
       this.otpService = otpService || new OtpService(this.prisma);
       this.auditService = auditService || ({ log: async () => {} } as any);
       this.googleAuthService = googleAuthService || new GoogleAuthService();
+      this.avatarService = avatarService || new AvatarService();
     }
   }
 
@@ -61,80 +67,112 @@ export class AuthService {
    * Mass-assignment safe: ignores any role/permissions parameters in the request,
    * strictly creating the user with lowest non-elevated MEMBER role.
    */
-  async register(dto: RegisterDto) {
-    // 1. Strict security boundary: Public signup cannot grant Platform Admin role
-    if ((dto as any).requestedRole === 'ADMIN' || (dto as any).role === 'ADMIN') {
-      throw new BadRequestException(
-        'Public signup cannot grant Platform Admin role. Platform Admin must be provisioned through an authorized administrative bootstrap.'
-      );
-    }
+  async register(dto: RegisterDto, ipAddress?: string) {
+    let committedAvatar: { avatarUrl: string; thumbnailUrl: string } | null = null;
+    let directCleanup: (() => void) | null = null;
 
-    // 2. Validate full name
-    if (!dto.fullName || dto.fullName.trim().length < 2) {
-      throw new BadRequestException('Full name must be at least 2 characters');
-    }
+    try {
+      // 0. Avatar validation if required
+      const requireAvatar =
+        process.env.REQUIRE_AVATAR !== undefined
+          ? process.env.REQUIRE_AVATAR === 'true'
+          : REQUIRE_AVATAR;
 
-    // 3. Validate password strength and block common passwords
-    if (!dto.password || dto.password.length < 8) {
-      throw new BadRequestException('Password must be at least 8 characters');
-    }
-    if (isCommonPassword(dto.password)) {
-      throw new BadRequestException('This password is too common or easily guessable. Please choose a stronger password.');
-    }
-
-    // 4. Validate Indian phone format (+91 followed by 10 digits starting with 6-9)
-    const cleanPhone = dto.phone ? dto.phone.trim() : '';
-    if (cleanPhone && !INDIAN_PHONE_REGEX.test(cleanPhone)) {
-      throw new BadRequestException(
-        'Phone number must be a valid Indian mobile number (+91 prefix followed by exactly 10 digits starting with 6, 7, 8, or 9).'
-      );
-    }
-    if (!cleanPhone && process.env.NODE_ENV !== 'test') {
-      throw new BadRequestException(
-        'Phone number must be a valid Indian mobile number (+91 prefix followed by exactly 10 digits starting with 6, 7, 8, or 9).'
-      );
-    }
-
-    // 5. Validate and consume single-use Phone Verification Proof
-    if (!dto.phoneProof) {
-      if (process.env.NODE_ENV !== 'test') {
-        throw new BadRequestException('Mobile phone verification proof is required before registration.');
+      if (requireAvatar && !dto.tempAvatarId && !dto.avatarBase64 && !dto.avatarUrl) {
+        throw new BadRequestException('Profile avatar is required for registration.');
       }
-    } else {
-      await this.otpService.validateAndConsumePhoneProof(cleanPhone, dto.phoneProof);
-    }
 
-    const cleanEmail = dto.email.toLowerCase().trim();
+      let avatarUrl = dto.avatarUrl || null;
+      let avatarThumbnailUrl = dto.avatarThumbnailUrl || null;
 
-    // 5. Uniqueness check for email and phone
-    const existing = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ email: cleanEmail }, { phone: cleanPhone }],
-      },
-    });
-
-    if (existing) {
-      if (existing.email === cleanEmail) {
-        throw new ConflictException('User with this email already exists');
+      if (dto.tempAvatarId) {
+        committedAvatar = this.avatarService.commitTempAvatar(dto.tempAvatarId);
+        avatarUrl = committedAvatar.avatarUrl;
+        avatarThumbnailUrl = committedAvatar.thumbnailUrl;
+      } else if (dto.avatarBase64) {
+        const raw = dto.avatarBase64.includes(',') ? dto.avatarBase64.split(',')[1] : dto.avatarBase64;
+        const buf = Buffer.from(raw, 'base64');
+        const saved = await this.avatarService.savePermanentAvatar(buf, ipAddress);
+        avatarUrl = saved.avatarUrl;
+        avatarThumbnailUrl = saved.thumbnailUrl;
+        directCleanup = saved.cleanup;
       }
-      throw new ConflictException('User with this mobile phone number already exists');
-    }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+      // 1. Strict security boundary: Public signup cannot grant Platform Admin role
+      if ((dto as any).requestedRole === 'ADMIN' || (dto as any).role === 'ADMIN') {
+        throw new BadRequestException(
+          'Public signup cannot grant Platform Admin role. Platform Admin must be provisioned through an authorized administrative bootstrap.'
+        );
+      }
 
-    // 6. Create user with default MEMBER role and verified phone
-    const user = await this.prisma.user.create({
-      data: {
-        email: cleanEmail,
-        phone: cleanPhone,
-        fullName: dto.fullName.trim(),
-        passwordHash,
-        isActive: true,
-        phoneVerified: true,
-        emailVerified: false,
-        tokenVersion: 1,
-      },
-    });
+      // 2. Validate full name
+      if (!dto.fullName || dto.fullName.trim().length < 2) {
+        throw new BadRequestException('Full name must be at least 2 characters');
+      }
+
+      // 3. Validate password strength and block common passwords
+      if (!dto.password || dto.password.length < 8) {
+        throw new BadRequestException('Password must be at least 8 characters');
+      }
+      if (isCommonPassword(dto.password)) {
+        throw new BadRequestException('This password is too common or easily guessable. Please choose a stronger password.');
+      }
+
+      // 4. Validate Indian phone format (+91 followed by 10 digits starting with 6-9)
+      const cleanPhone = dto.phone ? dto.phone.trim() : '';
+      if (cleanPhone && !INDIAN_PHONE_REGEX.test(cleanPhone)) {
+        throw new BadRequestException(
+          'Phone number must be a valid Indian mobile number (+91 prefix followed by exactly 10 digits starting with 6, 7, 8, or 9).'
+        );
+      }
+      if (!cleanPhone && process.env.NODE_ENV !== 'test') {
+        throw new BadRequestException(
+          'Phone number must be a valid Indian mobile number (+91 prefix followed by exactly 10 digits starting with 6, 7, 8, or 9).'
+        );
+      }
+
+      // 5. Validate and consume single-use Phone Verification Proof
+      if (!dto.phoneProof) {
+        if (process.env.NODE_ENV !== 'test') {
+          throw new BadRequestException('Mobile phone verification proof is required before registration.');
+        }
+      } else {
+        await this.otpService.validateAndConsumePhoneProof(cleanPhone, dto.phoneProof);
+      }
+
+      const cleanEmail = dto.email.toLowerCase().trim();
+
+      // 5. Uniqueness check for email and phone
+      const existing = await this.prisma.user.findFirst({
+        where: {
+          OR: [{ email: cleanEmail }, { phone: cleanPhone }],
+        },
+      });
+
+      if (existing) {
+        if (existing.email === cleanEmail) {
+          throw new ConflictException('User with this email already exists');
+        }
+        throw new ConflictException('User with this mobile phone number already exists');
+      }
+
+      const passwordHash = await bcrypt.hash(dto.password, 10);
+
+      // 6. Create user with default MEMBER role and verified phone
+      const user = await this.prisma.user.create({
+        data: {
+          email: cleanEmail,
+          phone: cleanPhone,
+          fullName: dto.fullName.trim(),
+          avatarUrl,
+          avatarThumbnailUrl,
+          passwordHash,
+          isActive: true,
+          phoneVerified: true,
+          emailVerified: false,
+          tokenVersion: 1,
+        },
+      });
 
     // 7. Strictly assign non-elevated MEMBER role (ignoring any requestedRole or role)
     const assignedRole: Role = Role.MEMBER;
@@ -248,13 +286,30 @@ export class AuthService {
         email: user.email,
         fullName: user.fullName,
         phone: user.phone,
+        avatarUrl: user.avatarUrl,
+        avatarThumbnailUrl: user.avatarThumbnailUrl,
       },
       workspaces: workspacesList,
       activeWorkspaceId: defaultWsId,
       accessToken: token,
       role: assignedRole,
     };
+  } catch (err) {
+    if (dto.tempAvatarId) {
+      this.avatarService.deleteTempAvatar(dto.tempAvatarId);
+    }
+    if (committedAvatar) {
+      const match = committedAvatar.avatarUrl.match(/avatars\/([^.]+)/);
+      if (match && match[1]) {
+        this.avatarService.deleteTempAvatar(match[1]);
+      }
+    }
+    if (directCleanup) {
+      directCleanup();
+    }
+    throw err;
   }
+}
 
   /**
    * Constant-time timing-safe login with generic error messages.
@@ -348,6 +403,7 @@ export class AuthService {
         fullName: user.fullName,
         phone: user.phone,
         avatarUrl: user.avatarUrl,
+        avatarThumbnailUrl: user.avatarThumbnailUrl,
         locale: user.locale,
         isActive: user.isActive,
       },

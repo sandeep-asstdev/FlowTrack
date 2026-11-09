@@ -11,6 +11,10 @@ export const registerSchema = z.object({
     .regex(INDIAN_PHONE_REGEX, 'Must be a valid Indian mobile number with +91 prefix and 10 digits starting with 6, 7, 8, or 9'),
   phoneProof: z.string().min(8, 'Phone verification proof is required. Please verify your mobile number via OTP.').optional(),
   workspaceName: z.string().min(2).optional(),
+  avatarUrl: z.string().optional(),
+  avatarThumbnailUrl: z.string().optional(),
+  tempAvatarId: z.string().optional(),
+  avatarBase64: z.string().optional(),
   // Mass-assignment protection: requestedRole/role are optional in schema so clients passing them don't throw schema validation error, but backend ignores them completely!
   requestedRole: z.string().optional(),
   role: z.string().optional(),

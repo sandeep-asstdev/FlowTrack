@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
+import { Avatar } from '../common/Avatar';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
 import { canApproveTask, getTaskStateMetadata } from '@flowtrack/shared';
@@ -624,6 +625,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
+  const assignedUser = node.owner || workspaceMembers.find((m) => (m.user?.id || m.userId) === ownerId)?.user || (customData?.assigneeName ? { fullName: customData.assigneeName, avatarUrl: customData.assigneeAvatar } : null);
   const canSubmitWork = Boolean(
     user?.id &&
     (node.ownerId === user.id || !node.ownerId || currentRole === 'TEAM_LEAD' || currentRole === 'MANAGER' || currentRole === 'ADMIN')
@@ -883,9 +885,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 {node.state || 'Draft'}
               </span>
               <span>•</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[130px]">
-                {node.owner?.fullName || 'Unassigned'}
-              </span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                {assignedUser && <Avatar user={assignedUser} size={18} preferThumbnail showTooltip={false} />}
+                <span className="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[130px]">
+                  {assignedUser?.fullName || node.owner?.fullName || 'Unassigned'}
+                </span>
+              </div>
               {dueDate && (
                 <>
                   <span>•</span>
@@ -1353,12 +1358,36 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   </select>
                 ) : (
                   <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
-                      {node.owner?.fullName ? node.owner.fullName[0] : 'U'}
-                    </div>
+                    <Avatar user={node.owner} size={24} />
                     <span className="text-xs font-semibold text-slate-900 dark:text-white">
                       {node.owner?.fullName || 'Unassigned'}
                     </span>
+                  </div>
+                )}
+
+                {assignedUser && (
+                  <div className="mt-2.5 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-3.5">
+                    <Avatar user={assignedUser} size={96} className="shadow-md shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                        {assignedUser.fullName || (assignedUser as any).name || (assignedUser as any).email || 'Assignee'}
+                      </span>
+                      {(assignedUser as any).email && (
+                        <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                          {(assignedUser as any).email}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          Task Assignee
+                        </span>
+                        {node.assignedBy?.fullName && (
+                          <span className="text-[10px] text-slate-400">
+                            by {node.assignedBy.fullName}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

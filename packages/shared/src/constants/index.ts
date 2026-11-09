@@ -37,4 +37,6 @@ export const EDGE_KINDS = {
   RELATED: 'related',
 } as const;
 
+export const REQUIRE_AVATAR = true;
+
 export * from './industry.js';

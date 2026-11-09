@@ -8,6 +8,7 @@ import { GoogleAuthService } from './google-auth.service';
 import { AuthorizationService } from './authorization.service';
 import { AutoBootstrapService } from './auto-bootstrap.service';
 import { OtpService } from './otp/otp.service';
+import { AvatarService } from './avatar.service';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
@@ -20,7 +21,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleAuthService, AuthorizationService, AutoBootstrapService, OtpService],
-  exports: [AuthService, GoogleAuthService, AuthorizationService, AutoBootstrapService, OtpService, JwtModule, PassportModule],
+  providers: [AuthService, JwtStrategy, GoogleAuthService, AuthorizationService, AutoBootstrapService, OtpService, AvatarService],
+  exports: [AuthService, GoogleAuthService, AuthorizationService, AutoBootstrapService, OtpService, AvatarService, JwtModule, PassportModule],
 })
 export class AuthModule {}

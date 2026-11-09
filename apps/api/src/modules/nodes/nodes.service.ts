@@ -114,16 +114,16 @@ export class NodesService {
         status: true,
         parentNode: { select: { id: true, title: true } },
         owner: {
-          select: { id: true, fullName: true, avatarUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
         },
         reviewer: {
-          select: { id: true, fullName: true, avatarUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
         },
         assignedBy: {
-          select: { id: true, fullName: true, avatarUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
         },
         submitter: {
-          select: { id: true, fullName: true, avatarUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
         },
         team: {
           select: { id: true, name: true, colour: true },
@@ -350,16 +350,16 @@ export class NodesService {
         },
         status: true,
         owner: {
-          select: { id: true, fullName: true, avatarUrl: true, email: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         reviewer: {
-          select: { id: true, fullName: true, avatarUrl: true, email: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         assignedBy: {
-          select: { id: true, fullName: true, avatarUrl: true, email: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         submitter: {
-          select: { id: true, fullName: true, avatarUrl: true, email: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         team: {
           select: { id: true, name: true, colour: true },
@@ -367,8 +367,8 @@ export class NodesService {
         approvals: {
           orderBy: { decidedAt: 'desc' },
           include: {
-            reviewer: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-            submitter: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
+            reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+            submitter: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
           },
         },
         children: {
@@ -406,12 +406,12 @@ export class NodesService {
         },
         documents: {
           where: { deletedAt: null },
-          include: { uploader: { select: { fullName: true, avatarUrl: true } } },
+          include: { uploader: { select: { fullName: true, avatarUrl: true, avatarThumbnailUrl: true } } },
           orderBy: { createdAt: 'desc' },
         },
         remarks: {
           where: { deletedAt: null },
-          include: { author: { select: { fullName: true, avatarUrl: true } } },
+          include: { author: { select: { fullName: true, avatarUrl: true, avatarThumbnailUrl: true } } },
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -847,10 +847,10 @@ export class NodesService {
       include: {
         nodeType: true,
         status: true,
-        owner: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        reviewer: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        submitter: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
+        owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        submitter: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
         team: { select: { id: true, name: true, colour: true } },
       },
     });
@@ -1349,10 +1349,10 @@ export class NodesService {
       include: {
         nodeType: true,
         status: true,
-        owner: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        reviewer: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        submitter: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
+        owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        submitter: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
         team: { select: { id: true, name: true, colour: true } },
       },
     });
@@ -1665,7 +1665,7 @@ export class NodesService {
         photoUrl,
       },
       include: {
-        author: { select: { id: true, fullName: true, avatarUrl: true } },
+        author: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
     });
 
@@ -1713,7 +1713,7 @@ export class NodesService {
         version: 1,
       },
       include: {
-        uploader: { select: { id: true, fullName: true, avatarUrl: true } },
+        uploader: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
     });
 
@@ -1727,7 +1727,7 @@ export class NodesService {
     const docs = await this.prisma.document.findMany({
       where: { nodeId, deletedAt: null },
       include: {
-        uploader: { select: { id: true, fullName: true, avatarUrl: true } },
+        uploader: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1749,7 +1749,7 @@ export class NodesService {
     return this.prisma.auditLog.findMany({
       where: { entityId: nodeId },
       include: {
-        actor: { select: { id: true, fullName: true, avatarUrl: true } },
+        actor: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -1983,8 +1983,8 @@ export class NodesService {
         include: {
           nodeType: true,
           status: true,
-          owner: { select: { id: true, fullName: true, avatarUrl: true } },
-          reviewer: { select: { id: true, fullName: true, avatarUrl: true } },
+          owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
+          reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
         },
       });
 
@@ -2138,21 +2138,21 @@ export class NodesService {
         workspace: { select: { id: true, name: true } },
         nodeType: true,
         status: true,
-        owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
-        submitter: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
-        assignedBy: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+        owner: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
+        submitter: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
+        assignedBy: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
         team: { select: { id: true, name: true, colour: true } },
         approvals: {
           orderBy: { decidedAt: 'desc' },
           include: {
-            reviewer: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+            reviewer: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
           },
         },
         remarks: {
           orderBy: { createdAt: 'desc' },
           take: 5,
           include: {
-            author: { select: { id: true, fullName: true, avatarUrl: true } },
+            author: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
           },
         },
       },
@@ -2205,16 +2205,16 @@ export class NodesService {
       include: {
         nodeType: true,
         status: true,
-        owner: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        reviewer: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-        submitter: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
+        owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+        submitter: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
         team: { select: { id: true, name: true, colour: true } },
         approvals: {
           orderBy: { decidedAt: 'desc' },
           include: {
-            reviewer: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
-            submitter: { select: { id: true, fullName: true, avatarUrl: true, email: true } },
+            reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
+            submitter: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
           },
         },
       },
@@ -2333,10 +2333,10 @@ export class NodesService {
       orderBy: { decidedAt: 'desc' },
       include: {
         submitter: {
-          select: { id: true, fullName: true, avatarUrl: true, email: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         reviewer: {
-          select: { id: true, fullName: true, avatarUrl: true, email: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
       },
     });
@@ -2380,8 +2380,8 @@ export class NodesService {
       include: {
         nodeType: true,
         status: true,
-        owner: { select: { id: true, fullName: true, avatarUrl: true } },
-        reviewer: { select: { id: true, fullName: true, avatarUrl: true } },
+        owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
+        reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
     });
 
@@ -2499,8 +2499,8 @@ export class NodesService {
         version: { increment: 1 },
       },
       include: {
-        owner: { select: { id: true, fullName: true, avatarUrl: true } },
-        assignedBy: { select: { id: true, fullName: true, avatarUrl: true } },
+        owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
+        assignedBy: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
     });
 
@@ -2542,8 +2542,8 @@ export class NodesService {
       include: {
         nodeType: true,
         status: true,
-        owner: { select: { id: true, fullName: true, avatarUrl: true } },
-        reviewer: { select: { id: true, fullName: true, avatarUrl: true } },
+        owner: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
+        reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
       },
     });
 

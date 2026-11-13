@@ -24,12 +24,17 @@ export class ProjectsController {
     private readonly cpmService: CpmService
   ) {}
 
-  private getWorkspaceId(req: any, headerWorkspaceId?: string): string {
-    const wsId = headerWorkspaceId || req.user?.activeWorkspaceId || req.user?.workspaceId;
-    if (!wsId) {
+  private getWorkspaceId(req: any, headerWorkspaceId?: string, optional = false): string {
+    const wsId =
+      headerWorkspaceId ||
+      req.headers?.['x-workspace-id'] ||
+      req.user?.activeWorkspaceId ||
+      req.user?.workspaceId ||
+      req.user?.memberships?.[0]?.workspaceId;
+    if (!wsId && !optional) {
       throw new BadRequestException('Workspace ID is required in X-Workspace-Id header');
     }
-    return wsId;
+    return wsId || '';
   }
 
   @Get()
@@ -71,7 +76,7 @@ export class ProjectsController {
     @Param('id') id: string,
     @Headers('x-workspace-id') headerWsId?: string
   ) {
-    const wsId = this.getWorkspaceId(req, headerWsId);
+    const wsId = this.getWorkspaceId(req, headerWsId, true);
     return this.projectsService.getProject(id, wsId, req.user);
   }
 
@@ -81,7 +86,7 @@ export class ProjectsController {
     @Param('id') id: string,
     @Headers('x-workspace-id') headerWsId?: string
   ) {
-    const wsId = this.getWorkspaceId(req, headerWsId);
+    const wsId = this.getWorkspaceId(req, headerWsId, true);
     return this.cpmService.calculateProjectCriticalPath(id, wsId);
   }
 
@@ -92,7 +97,7 @@ export class ProjectsController {
     @Body() dto: UpdateProjectDto,
     @Headers('x-workspace-id') headerWsId?: string
   ) {
-    const wsId = this.getWorkspaceId(req, headerWsId);
+    const wsId = this.getWorkspaceId(req, headerWsId, true);
     const actorId = req.user?.id || req.user?.sub;
     return this.projectsService.updateProject(id, wsId, dto, actorId, req.user?.role);
   }

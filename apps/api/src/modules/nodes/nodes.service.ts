@@ -179,7 +179,7 @@ export class NodesService {
     });
   }
 
-  async resolveTaskPermissions(nodeId: string, actorId?: string, actorWorkspaceId?: string, preloadedNode?: any) {
+  async resolveTaskPermissions(nodeId: string, actorId?: string, actorWorkspaceId?: string, preloadedNode?: any, userRole?: string) {
     const node = preloadedNode || await this.prisma.node.findUnique({
       where: { id: nodeId },
       include: {
@@ -211,6 +211,8 @@ export class NodesService {
         isProjectOwner: false,
         isProjectManager: false,
         isTeamLeadInScope: false,
+        isWorkspaceAdmin: false,
+        isPlatformAdmin: false,
         canView: false,
         can: {
           view: false,
@@ -240,7 +242,8 @@ export class NodesService {
     const projectMemberRecord = node.project?.members?.find((m: any) => m.userId === actorId);
     const isProjectMemberManager = projectMemberRecord && (projectMemberRecord.role === Role.MANAGER || projectMemberRecord.role === Role.ADMIN);
 
-    // Workspace membership
+    // Workspace membership & Admin resolution
+    const userRoleUpper = (userRole || '').toUpperCase();
     const workspaceMembership = await this.prisma.membership.findUnique({
       where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
     });
@@ -249,7 +252,7 @@ export class NodesService {
           where: { userId: actorId, role: Role.ADMIN },
         })
       : null;
-    const isPlatformAdmin = Boolean(userAdminMembership);
+    const isPlatformAdmin = userRoleUpper === 'ADMIN' || Boolean(userAdminMembership);
     const isWorkspaceAdmin = workspaceMembership?.role === Role.ADMIN || isPlatformAdmin;
     const isWorkspaceMember = Boolean(workspaceMembership) || isPlatformAdmin;
 
@@ -315,19 +318,34 @@ export class NodesService {
 
     let canView = false;
     if (isConfidential) {
-      const isAssociated = canWork || isReviewer || isProjectOwner || isResponsibleManager;
-      if (isAssociated) {
+      const isPrivileged =
+        isWorkspaceAdmin ||
+        isPlatformAdmin ||
+        isProjectOwner ||
+        isResponsibleManager ||
+        isProjectMemberManager ||
+        isManagerOrLead;
+      const isAssociated = canWork || isReviewer || isDirectOwnerOrAssignee || isInScopeSubtree;
+      if (isPrivileged || isAssociated) {
         canView = true;
       } else {
-        // Platform admin alone does NOT get business content access to confidential tasks!
         const hasGrant = this.authService
           ? await this.authService.hasValidAccessGrant({ id: actorId, workspaceId: node.workspaceId }, node.projectId)
           : null;
         canView = Boolean(hasGrant);
       }
     } else {
-      // Non-confidential: Any workspace member, project member, project owner/manager, assignee, collaborator, or reviewer can view
-      canView = isWorkspaceMember || Boolean(projectMemberRecord) || isProjectOwner || isResponsibleManager || canWork || isReviewer;
+      // Non-confidential: Any workspace member, project member, project owner/manager, assignee, collaborator, reviewer, or privileged role can view
+      canView =
+        isWorkspaceMember ||
+        Boolean(projectMemberRecord) ||
+        isProjectOwner ||
+        isResponsibleManager ||
+        canWork ||
+        isReviewer ||
+        isWorkspaceAdmin ||
+        isPlatformAdmin ||
+        isManagerOrLead;
     }
 
     const can = {
@@ -338,7 +356,7 @@ export class NodesService {
       tickChecklist: canWork,
       editChecklist: canWork || canManage,
       submit: canWork,
-      approve: isReviewer && !isAssignee,
+      approve: (isReviewer && !isAssignee) || isWorkspaceAdmin,
       changeDates: canManage,
       uploadEvidence: canWork,
       delete: canManage,
@@ -356,13 +374,15 @@ export class NodesService {
       isProjectOwner,
       isProjectManager,
       isTeamLeadInScope,
+      isWorkspaceAdmin,
+      isPlatformAdmin,
       canView,
       can,
     };
   }
 
   async getNode(id: string, actorId?: string, userRole?: string) {
-    const auth = await this.resolveTaskPermissions(id, actorId);
+    const auth = await this.resolveTaskPermissions(id, actorId, undefined, undefined, userRole);
     if (!auth.canView) {
       throw new NotFoundException('Node not found');
     }
@@ -460,11 +480,19 @@ export class NodesService {
 
     // Confidentiality gate: unauthorized users receive 404 (not 403) to hide existence
     if (this.authService && actorId) {
-      if (
+      const userRoleUpper = (userRole || '').toUpperCase();
+      const isPrivileged =
+        userRoleUpper === 'ADMIN' ||
+        auth.isWorkspaceAdmin ||
+        auth.isPlatformAdmin ||
+        auth.isProjectOwner ||
+        auth.isProjectManager;
+
+      if (!isPrivileged && (
         node.classification === 'RESTRICTED' ||
         node.classification === 'CONFIDENTIAL' ||
         node.classification === 'HIGHLY_CONFIDENTIAL'
-      ) {
+      )) {
         const isAssociated =
           node.ownerId === actorId ||
           node.reviewerId === actorId ||

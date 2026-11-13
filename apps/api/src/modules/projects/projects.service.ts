@@ -119,7 +119,7 @@ export class ProjectsService {
   }
 
   async getProject(projectId: string, workspaceId: string, user?: { id?: string; role?: string }) {
-    const project = await this.prisma.project.findFirst({
+    let project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
         workspaceId,
@@ -133,27 +133,66 @@ export class ProjectsService {
     });
 
     if (!project) {
+      // Fallback: check if project exists across accessible workspaces (e.g. if header/token was stale)
+      const anyProject = await this.prisma.project.findFirst({
+        where: { id: projectId, deletedAt: null },
+        include: {
+          owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+          responsibleManager: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+          department: { select: { id: true, name: true, code: true } },
+        },
+      });
+
+      if (anyProject) {
+        const userRoleUpper = (user?.role || '').toUpperCase();
+        const isAdmin = userRoleUpper === 'ADMIN';
+        let allowedWs = isAdmin;
+        if (!allowedWs && user?.id && this.prisma.membership) {
+          const m = await this.prisma.membership.findUnique({
+            where: { workspaceId_userId: { workspaceId: anyProject.workspaceId, userId: user.id } },
+          });
+          if (m) allowedWs = true;
+        }
+        if (!allowedWs && user?.id && (anyProject.ownerId === user.id || anyProject.responsibleManagerId === user.id)) {
+          allowedWs = true;
+        }
+        if (allowedWs) {
+          project = anyProject;
+          workspaceId = anyProject.workspaceId;
+        }
+      }
+    }
+
+    if (!project) {
       throw new NotFoundException('Project not found');
     }
 
+    const effectiveWsId = project.workspaceId || workspaceId;
+
     // Shared visibility filter / confidential authorization: return 404 if unauthorized
     if (this.authService && user?.id) {
-      const evalResult = await this.authService.evaluate(
-        { id: user.id, role: user.role, workspaceId },
-        GRANULAR_PERMISSIONS.PROJECT_VIEW,
-        { project }
-      );
-      if (!evalResult.allowed) {
-        if (evalResult.statusCode === 404) {
-          throw new NotFoundException('Project not found');
+      const userRoleUpper = (user?.role || '').toUpperCase();
+      const isAdmin = userRoleUpper === 'ADMIN';
+      const isOwnerOrManager = project.ownerId === user.id || project.responsibleManagerId === user.id;
+
+      if (!isAdmin && !isOwnerOrManager) {
+        const evalResult = await this.authService.evaluate(
+          { id: user.id, role: user.role, workspaceId: effectiveWsId },
+          GRANULAR_PERMISSIONS.PROJECT_VIEW,
+          { project }
+        );
+        if (!evalResult.allowed) {
+          if (evalResult.statusCode === 404) {
+            throw new NotFoundException('Project not found');
+          }
+          throw new ForbiddenException(evalResult.reason);
         }
-        throw new ForbiddenException(evalResult.reason);
       }
     }
 
     const customFields = await this.prisma.fieldDefinition.findMany({
       where: {
-        workspaceId,
+        workspaceId: effectiveWsId,
         targetType: 'project',
         isActive: true,
       },
@@ -245,8 +284,11 @@ export class ProjectsService {
       actorId ? { id: actorId, role: userRole } : undefined
     );
 
+    const effectiveWsId = existing.workspaceId;
+
     if (actorId) {
-      const isAdmin = userRole === 'ADMIN';
+      const userRoleUpper = (userRole || '').toUpperCase();
+      const isAdmin = userRoleUpper === 'ADMIN';
       const isOwnerOrResponsible = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
       if (!isAdmin && !isOwnerOrResponsible) {
         throw new ForbiddenException(
@@ -256,16 +298,20 @@ export class ProjectsService {
     }
 
     if (this.authService && actorId) {
-      const requiredPerm =
-        dto.classification !== undefined && dto.classification !== existing.classification
-          ? GRANULAR_PERMISSIONS.CONFIDENTIALITY_CHANGE
-          : GRANULAR_PERMISSIONS.PROJECT_EDIT;
+      const userRoleUpper = (userRole || '').toUpperCase();
+      const isAdmin = userRoleUpper === 'ADMIN';
+      if (!isAdmin) {
+        const requiredPerm =
+          dto.classification !== undefined && dto.classification !== existing.classification
+            ? GRANULAR_PERMISSIONS.CONFIDENTIALITY_CHANGE
+            : GRANULAR_PERMISSIONS.PROJECT_EDIT;
 
-      await this.authService.enforce(
-        { id: actorId, role: userRole, workspaceId },
-        requiredPerm,
-        { project: existing }
-      );
+        await this.authService.enforce(
+          { id: actorId, role: userRole, workspaceId: effectiveWsId },
+          requiredPerm,
+          { project: existing }
+        );
+      }
     }
 
     // Optimistic locking check if version was sent

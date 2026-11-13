@@ -8,6 +8,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Role } from '@prisma/client';
 import {
   CreateTemplateDto,
   InstantiateTemplateDto,
@@ -393,14 +394,26 @@ export class TemplatesService implements OnModuleInit {
           classification: dto.classification as any || 'CONFIDENTIAL',
           startDate: projectStartDate.toISOString(),
           targetDate: dto.targetDate || undefined,
-          ownerId: dto.ownerId,
-          responsibleManagerId: dto.responsibleManagerId,
+          ownerId: dto.ownerId || actorId,
+          responsibleManagerId: dto.responsibleManagerId || null,
           settings: validatedSettings as any,
         },
         actorId,
         userRole
       );
       createdProjectId = project.id;
+
+      if (actorId && this.prisma.projectMember) {
+        try {
+          await this.prisma.projectMember.create({
+            data: {
+              projectId: project.id,
+              userId: actorId,
+              role: (userRole === 'ADMIN' ? Role.ADMIN : (userRole === 'MANAGER' ? Role.MANAGER : Role.MEMBER)) as any,
+            },
+          });
+        } catch {}
+      }
 
       // 2. Fetch or create NodeTypes in the workspace
       const nodeTypeMap = await this.ensureWorkspaceNodeTypes(workspaceId);

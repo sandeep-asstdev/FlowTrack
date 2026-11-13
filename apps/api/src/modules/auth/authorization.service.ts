@@ -120,9 +120,9 @@ export class AuthorizationService {
     // 2. Resolve user's effective roles and direct permissions across scopes
     const { effectiveRoles, directPermissions } = await this.resolveEffectiveRolesAndPerms(user, meta);
 
-    // 3. Technical Admin Content Separation:
-    // Technical Admin alone does NOT grant access to confidential business content
-    const isTechnicalAdmin = effectiveRoles.includes('ADMIN');
+    // 3. Admin / Platform Administrator evaluation:
+    // Under platform rules, ADMIN has full CRUD on all resources
+    const isAdmin = effectiveRoles.includes('ADMIN') || (user.role && user.role.toUpperCase() === 'ADMIN');
 
     // 4. Confidentiality Evaluation
     const classification = meta.classification || CONFIDENTIALITY_LEVELS.INTERNAL;
@@ -131,7 +131,7 @@ export class AuthorizationService {
       classification === CONFIDENTIALITY_LEVELS.CONFIDENTIAL ||
       classification === CONFIDENTIALITY_LEVELS.HIGHLY_CONFIDENTIAL;
 
-    if (isHighConfidentiality && meta.id) {
+    if (isHighConfidentiality && meta.id && !isAdmin) {
       const hasDirectAccessGrant = await this.hasValidAccessGrant(user, meta.id);
       const isDirectOwnerOrManager =
         user.id === meta.ownerId ||
@@ -339,29 +339,8 @@ export class AuthorizationService {
     for (const role of roles) {
       switch (role) {
         case 'ADMIN':
-          // Technical administrator permissions
-          if (
-            [
-              GRANULAR_PERMISSIONS.PROJECT_CREATE,
-              GRANULAR_PERMISSIONS.PROJECT_ARCHIVE,
-              GRANULAR_PERMISSIONS.PROJECT_RESTORE,
-              GRANULAR_PERMISSIONS.PROJECT_DELETE,
-              GRANULAR_PERMISSIONS.PROJECT_PURGE,
-              GRANULAR_PERMISSIONS.MEMBERS_MANAGE,
-              GRANULAR_PERMISSIONS.PERMISSIONS_GRANT,
-              GRANULAR_PERMISSIONS.AUDIT_VIEW,
-            ].includes(permission as any)
-          ) {
-            return true;
-          }
-          // Note: ADMIN does NOT automatically get business content view/edit on confidential resources!
-          if (
-            (!resource?.classification || resource.classification === CONFIDENTIALITY_LEVELS.PUBLIC_INTERNAL) &&
-            [GRANULAR_PERMISSIONS.PROJECT_VIEW, GRANULAR_PERMISSIONS.TASK_CREATE].includes(permission as any)
-          ) {
-            return true;
-          }
-          break;
+          // Technical administrator / platform admin (CEO-level): Full CRUD on everything
+          return true;
 
         case 'MANAGER':
         case 'PROJECT_MANAGER':

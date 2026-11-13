@@ -3,6 +3,7 @@ import {
   projectSettingsSchema,
   createTemplateSchema,
   instantiateTemplateSchema,
+  calculateTaskDates,
 } from '../index.js';
 import {
   UNIVERSAL_INDUSTRIES,
@@ -135,5 +136,77 @@ describe('Universal Template Schema', () => {
     };
 
     expect(() => createTemplateSchema.parse(invalidTemplate)).toThrow();
+  });
+
+  it('validates Phase 10 relative dates, checklists, role placeholders and evidence types', () => {
+    const phase10Template = {
+      name: 'Plotted Real Estate Layout (50 acres)',
+      description: 'Starter checklist - verify with your legal and liaison team',
+      category: 'Real Estate & Urban Development',
+      industry: 'construction_real_estate',
+      methodology: 'stage_gate',
+      icon: 'Building2',
+      tags: ['real-estate', 'plotted-development', 'approvals-pack'],
+      isPublic: true,
+      graphJson: {
+        nodes: [
+          {
+            key: 'TASK-1.1',
+            title: '1.1 Title and ownership document check',
+            offsetDays: 0,
+            durationDays: 14,
+            priority: 'HIGH',
+            isMilestone: false,
+            isRequired: true,
+            classification: 'RESTRICTED',
+            rolePlaceholder: 'Legal leader',
+            checklist: [
+              'Verify 30-year deed chain',
+              { text: 'Revenue records RTC check', isRequired: true },
+            ],
+            requiredEvidenceTypes: ['title_deed_copies', 'revenue_records_rtc'],
+            approvalPolicyLink: 'Important',
+          },
+          {
+            key: 'TASK-1.4',
+            title: '1.4 Legal clearance report',
+            offsetDays: 21,
+            durationDays: 7,
+            priority: 'URGENT',
+            isMilestone: true,
+            isRequired: true,
+            classification: 'HIGHLY_CONFIDENTIAL',
+            rolePlaceholder: 'Legal leader',
+            approvalPolicyLink: 'Critical',
+          },
+        ],
+        edges: [
+          {
+            sourceIndex: 0,
+            targetIndex: 1,
+            kind: 'blocked_by',
+            label: 'Blocks Clearance',
+          },
+        ],
+      },
+    };
+
+    const parsed = createTemplateSchema.parse(phase10Template);
+    expect(parsed.name).toBe('Plotted Real Estate Layout (50 acres)');
+    expect(parsed.graphJson.nodes[0].offsetDays).toBe(0);
+    expect(parsed.graphJson.nodes[0].durationDays).toBe(14);
+    expect(parsed.graphJson.nodes[0].rolePlaceholder).toBe('Legal leader');
+    expect(parsed.graphJson.nodes[0].classification).toBe('RESTRICTED');
+    expect(parsed.graphJson.nodes[0].requiredEvidenceTypes).toContain('title_deed_copies');
+    expect(parsed.graphJson.nodes[1].isMilestone).toBe(true);
+    expect(parsed.graphJson.nodes[1].classification).toBe('HIGHLY_CONFIDENTIAL');
+    expect(parsed.graphJson.edges[0].kind).toBe('blocked_by');
+  });
+
+  it('calculates task start and due dates accurately using calculateTaskDates', () => {
+    const projectStart = new Date('2026-11-01T00:00:00.000Z');
+    const { startDate, dueDate } = calculateTaskDates(projectStart, 14, 21);
+    expect(startDate.toISOString()).toBe('2026-11-15T00:00:00.000Z');
+    expect(dueDate.toISOString()).toBe('2026-12-06T00:00:00.000Z');
   });
 });

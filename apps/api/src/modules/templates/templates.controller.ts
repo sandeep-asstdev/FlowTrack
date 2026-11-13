@@ -60,7 +60,8 @@ export class TemplatesController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.templatesService.createTemplate(dto, wsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.templatesService.createTemplate(dto, wsId, actorId);
   }
 
   @Patch(':id')
@@ -72,7 +73,8 @@ export class TemplatesController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.templatesService.updateTemplate(id, dto, wsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.templatesService.updateTemplate(id, dto, wsId, actorId);
   }
 
   @Delete(':id')
@@ -83,7 +85,38 @@ export class TemplatesController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
-    return this.templatesService.deleteTemplate(id, wsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.templatesService.deleteTemplate(id, wsId, actorId);
+  }
+
+  @Post(':id/duplicate')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  async duplicate(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId);
+    const actorId = req.user?.id || req.user?.sub;
+    const original = await this.templatesService.getTemplate(id);
+    return this.templatesService.createTemplate(
+      {
+        name: `${original.name} (Copy)`,
+        description: original.description || undefined,
+        category: original.category,
+        industry: original.industry as any,
+        methodology: original.methodology as any,
+        icon: original.icon,
+        tags: (original.tags as any) || [],
+        isPublic: false,
+        defaultSettings: original.defaultSettings as any,
+        nodeTypes: (original.nodeTypes as any) || [],
+        statusSets: (original.statusSets as any) || [],
+        graphJson: original.graphJson as any,
+      },
+      wsId,
+      actorId
+    );
   }
 
   @Post(':id/instantiate')
@@ -95,6 +128,7 @@ export class TemplatesController {
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId);
     const actorId = req.user?.id || req.user?.sub;
-    return this.templatesService.instantiateTemplate(id, wsId, dto, actorId);
+    const userRole = req.user?.role;
+    return this.templatesService.instantiateTemplate(id, wsId, dto, actorId, userRole);
   }
 }

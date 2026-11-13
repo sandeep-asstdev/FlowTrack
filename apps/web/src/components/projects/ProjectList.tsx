@@ -22,6 +22,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { getRolePermissions } from '../../utils/permissions';
 import { ProjectDeleteImpactModal } from './ProjectDeleteImpactModal';
 import { TrashProjectsModal } from './TrashProjectsModal';
+import { TemplateManagerModal } from './TemplateManagerModal';
 
 interface ProjectListProps {
   projects: any[];
@@ -44,6 +45,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   const [deleteTargetProject, setDeleteTargetProject] = useState<any>(null);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'WAITING' | 'OVERDUE' | 'COMPLETED'>('ALL');
   const [sortBy, setSortBy] = useState<'updated' | 'name' | 'progress' | 'targetDate'>('updated');
@@ -197,6 +199,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
             >
               <Trash2 className="w-3.5 h-3.5 text-slate-400" />
               <span>Trash</span>
+            </button>
+
+            <button
+              onClick={() => setIsTemplateManagerOpen(true)}
+              className="flex-1 xs:flex-initial flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+              title="Manage and create project templates"
+            >
+              <Layers className="w-3.5 h-3.5 text-slate-400" />
+              <span>Templates</span>
             </button>
 
             <button
@@ -550,6 +561,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         isOpen={isTrashOpen}
         onClose={() => setIsTrashOpen(false)}
         onProjectRestored={() => onRefresh ? onRefresh() : window.location.reload()}
+      />
+
+      {/* Phase 10 Template Manager Modal */}
+      <TemplateManagerModal
+        isOpen={isTemplateManagerOpen}
+        onClose={() => setIsTemplateManagerOpen(false)}
+        onTemplateCreated={() => onRefresh && onRefresh()}
       />
     </div>
   );

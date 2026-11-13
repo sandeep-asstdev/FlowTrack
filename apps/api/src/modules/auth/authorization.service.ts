@@ -437,6 +437,17 @@ export class AuthorizationService {
    * Generates a Prisma WHERE visibility filter for projects to hide confidential items (404 policy).
    */
   getProjectVisibilityFilter(user: AuthenticatedUserContext): Record<string, any> {
+    const userRoleUpper = (user.role || '').toUpperCase();
+    const isAdmin = userRoleUpper === 'ADMIN';
+
+    // Platform or workspace administrators can view all non-deleted projects within their workspace
+    if (isAdmin) {
+      return {
+        workspaceId: user.workspaceId,
+        deletedAt: null,
+      };
+    }
+
     const isDirectMatch = {
       workspaceId: user.workspaceId,
       deletedAt: null,

@@ -248,7 +248,7 @@ export class ProjectsService {
       customData = valResult.sanitized;
     }
 
-    return this.prisma.project.create({
+    const createdProject = await this.prisma.project.create({
       data: {
         workspaceId,
         name: dto.name,
@@ -269,6 +269,22 @@ export class ProjectsService {
         customData: customData as any,
       },
     });
+
+    // Automatically add the creator as a project member so confidential projects are visible and accessible
+    if (actorId && this.prisma.projectMember) {
+      try {
+        const userRoleUpper = (userRole || '').toUpperCase();
+        await this.prisma.projectMember.create({
+          data: {
+            projectId: createdProject.id,
+            userId: actorId,
+            role: (userRoleUpper === 'ADMIN' ? Role.ADMIN : (userRoleUpper === 'MANAGER' ? Role.MANAGER : Role.MEMBER)) as any,
+          },
+        });
+      } catch {}
+    }
+
+    return createdProject;
   }
 
   async updateProject(

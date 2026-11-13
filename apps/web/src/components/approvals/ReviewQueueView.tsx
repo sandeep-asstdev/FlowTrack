@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { ApiClient } from '../../services/api';
+import { isComplexApproval } from '../../utils/permissions';
 import {
   CheckCircle2,
   XCircle,
@@ -26,6 +27,8 @@ interface PendingTask {
   projectId: string;
   workspaceId: string;
   approvalStatus: string;
+  estimatedCost?: number | string;
+  actualCost?: number | string;
   submittedAt?: string;
   submitterId?: string;
   submitter?: {
@@ -608,22 +611,41 @@ export const ReviewQueueView: React.FC = () => {
                   )}
 
                   {/* Review Action Buttons */}
-                  <div className="flex flex-col-reverse xs:flex-row items-stretch xs:items-center justify-end gap-2 sm:gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      onClick={() => handleOpenDecision(task, 'rejected')}
-                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-sm w-full xs:w-auto"
-                    >
-                      <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                      Request Changes / Reject
-                    </button>
-                    <button
-                      onClick={() => handleOpenDecision(task, 'approved')}
-                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm shadow-emerald-600/20 w-full xs:w-auto"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Approve Deliverables
-                    </button>
-                  </div>
+                  {(() => {
+                    const taskCost = task.estimatedCost ? Number(task.estimatedCost) : (task.actualCost ? Number(task.actualCost) : undefined);
+                    const isHighValue = isComplexApproval(task.approvalStatus, taskCost);
+                    const needsAdmin = isHighValue && currentRole !== 'ADMIN';
+
+                    return (
+                      <div className="flex flex-col-reverse xs:flex-row items-stretch xs:items-center justify-between gap-2 sm:gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                        <div>
+                          {needsAdmin && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                              ⚠️ Needs Admin approval
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleOpenDecision(task, 'rejected')}
+                            disabled={needsAdmin}
+                            className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm w-full xs:w-auto"
+                          >
+                            <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                            Request Changes / Reject
+                          </button>
+                          <button
+                            onClick={() => handleOpenDecision(task, 'approved')}
+                            disabled={needsAdmin}
+                            className="flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm shadow-emerald-600/20 w-full xs:w-auto"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Approve Deliverables
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

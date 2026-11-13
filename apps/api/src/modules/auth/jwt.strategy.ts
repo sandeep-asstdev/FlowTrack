@@ -55,11 +55,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const { passwordHash: _hash, ...safeUser } = user;
+    const activeWorkspaceId = payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId;
+    const activeMembership = user.memberships?.find((m) => m.workspaceId === activeWorkspaceId) || user.memberships?.[0];
+    const role = (payload.role as any) || activeMembership?.role || 'MEMBER';
 
     return {
       ...safeUser,
-      activeWorkspaceId: payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId,
-      workspaceId: payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId,
+      role,
+      activeWorkspaceId,
+      workspaceId: activeWorkspaceId,
     };
   }
 }

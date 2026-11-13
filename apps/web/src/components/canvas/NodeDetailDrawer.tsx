@@ -45,7 +45,7 @@ import {
   Zap,
   CheckSquare,
 } from 'lucide-react';
-import { getRolePermissions } from '../../utils/permissions';
+import { getRolePermissions, isComplexApproval } from '../../utils/permissions';
 
 const formatShortDate = (dateStr?: string) => {
   if (!dateStr) return '';
@@ -613,12 +613,19 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       (currentRole === 'TEAM_LEAD' && (node.projectId === '5cfe9caa-fd85-45ca-b46b-24d1d1084658' || !node.reviewerId)))
   );
 
-  const canUserApprove = !isSubmitter && Boolean(isAssignedApprover || (currentRole === 'ADMIN' && !isSubmitter));
+  const nodeCost = node.estimatedCost ? Number(node.estimatedCost) : (node.actualCost ? Number(node.actualCost) : undefined);
+  const isHighValueOrComplex = isComplexApproval(node.approvalStatus, nodeCost);
+  const needsAdminApproval = isHighValueOrComplex && currentRole !== 'ADMIN';
+
+  const canUserApprove = !isSubmitter && !needsAdminApproval && Boolean(isAssignedApprover || (currentRole === 'ADMIN' && !isSubmitter));
 
   const approvalAuth = {
     allowed: canUserApprove,
+    needsAdminApproval,
     reason: isSubmitter
       ? 'Separation of duties: You cannot approve your own work.'
+      : needsAdminApproval
+      ? 'Needs Admin approval: High-value and complex approval requests can only be approved by an Admin.'
       : !canUserApprove
       ? 'You are not an assigned approver for this task.'
       : '',
@@ -2295,6 +2302,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     : isPendingApproval
                     ? '⏳ Pending Manager Review'
                     : 'No approval requested yet'}
+                  {approvalAuth.needsAdminApproval && (
+                    <span className="block mt-1 font-bold text-amber-700 dark:text-amber-300">
+                      ⚠️ Needs Admin approval (High-Value / Complex)
+                    </span>
+                  )}
                 </div>
 
                 {/* Reviewer Actions */}

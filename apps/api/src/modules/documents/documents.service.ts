@@ -79,6 +79,41 @@ export class DocumentsService {
       throw new ForbiddenException('You do not have access to upload documents in this workspace.');
     }
 
+    const userAdminMembership = await this.prisma.membership.findFirst({
+      where: { userId, role: Role.ADMIN },
+    });
+    const isPlatformAdmin = Boolean(userAdminMembership);
+    const isWorkspaceAdmin = member.role === Role.ADMIN || isPlatformAdmin;
+
+    if (!isWorkspaceAdmin) {
+      if (member.role === Role.MEMBER) {
+        if (node.ownerId !== userId) {
+          throw new ForbiddenException('Forbidden: Members can only upload attachments to tasks assigned to them.');
+        }
+      } else {
+        const isOwn = node.ownerId === userId || node.assignedById === userId;
+        let isInSubtree = false;
+        if (node.path && node.path.includes('/')) {
+          const ancestorIds = node.path.split('/').filter(Boolean).filter((id) => id !== node.id);
+          if (ancestorIds.length > 0) {
+            const owned = await this.prisma.node.findFirst({
+              where: {
+                id: { in: ancestorIds },
+                OR: [{ ownerId: userId }, { assignedById: userId }],
+              },
+              select: { id: true },
+            });
+            if (owned) isInSubtree = true;
+          }
+        }
+        if (!isOwn && !isInSubtree) {
+          throw new ForbiddenException(
+            'Forbidden: You can only upload attachments to tasks within your authorized scope.'
+          );
+        }
+      }
+    }
+
     this.validateFileSecurity(dto.name, dto.fileSize);
 
     // Document Versioning: Check if a document with this name already exists on this node
@@ -350,6 +385,21 @@ export class DocumentsService {
 
     if (!doc || doc.deletedAt) {
       throw new NotFoundException('Document not found');
+    }
+
+    if (doc.uploadedBy !== userId) {
+      const member = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId: doc.workspaceId, userId } },
+      });
+      const userAdminMembership = await this.prisma.membership.findFirst({
+        where: { userId, role: Role.ADMIN },
+      });
+      const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
+      if (!isWorkspaceAdmin) {
+        throw new ForbiddenException(
+          'Forbidden: You can only delete documents you uploaded or if you are an Administrator.'
+        );
+      }
     }
 
     const deleted = await this.prisma.document.update({

@@ -179,8 +179,8 @@ export class NodesService {
     });
   }
 
-  async resolveTaskPermissions(nodeId: string, actorId?: string, actorWorkspaceId?: string) {
-    const node = await this.prisma.node.findUnique({
+  async resolveTaskPermissions(nodeId: string, actorId?: string, actorWorkspaceId?: string, preloadedNode?: any) {
+    const node = preloadedNode || await this.prisma.node.findUnique({
       where: { id: nodeId },
       include: {
         project: {
@@ -244,9 +244,11 @@ export class NodesService {
     const workspaceMembership = await this.prisma.membership.findUnique({
       where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
     });
-    const userAdminMembership = await this.prisma.membership.findFirst({
-      where: { userId: actorId, role: Role.ADMIN },
-    });
+    const userAdminMembership = this.prisma.membership?.findFirst
+      ? await this.prisma.membership.findFirst({
+          where: { userId: actorId, role: Role.ADMIN },
+        })
+      : null;
     const isPlatformAdmin = Boolean(userAdminMembership);
     const isWorkspaceAdmin = workspaceMembership?.role === Role.ADMIN || isPlatformAdmin;
     const isWorkspaceMember = Boolean(workspaceMembership) || isPlatformAdmin;
@@ -262,10 +264,45 @@ export class NodesService {
       }
     }
 
-    // A manager must be in scope of this project!
-    // Unrelated managers have NO management rights on this project's tasks!
-    const isProjectManager = isProjectOwner || isResponsibleManager || Boolean(isProjectMemberManager);
-    const canManage = isProjectManager || isTeamLeadInScope || isWorkspaceAdmin;
+    // Direct ownership or assignment
+    const isDirectOwnerOrAssignee = node.ownerId === actorId || node.assignedById === actorId;
+
+    // Subtree ownership: check if any ancestor in the materialized path belongs to this actor
+    let isInScopeSubtree = false;
+    if (node.path && node.path.includes('/')) {
+      const pathIds = node.path.split('/').filter(Boolean);
+      const ancestorIds = pathIds.filter((pId) => pId !== node.id);
+      if (ancestorIds.length > 0) {
+        const ownedAncestor = await this.prisma.node.findFirst({
+          where: {
+            id: { in: ancestorIds },
+            OR: [
+              { ownerId: actorId },
+              { assignedById: actorId },
+            ],
+          },
+          select: { id: true },
+        });
+        if (ownedAncestor) {
+          isInScopeSubtree = true;
+        }
+      }
+    }
+
+    const isOwnScope = isDirectOwnerOrAssignee || isInScopeSubtree;
+    const effectiveRole = workspaceMembership?.role || projectMemberRecord?.role || Role.MEMBER;
+    const isManagerOrLead = effectiveRole === Role.MANAGER || effectiveRole === Role.TEAM_LEAD;
+    const isProjectManager = isProjectOwner || isResponsibleManager;
+
+    // A manager/team lead has management rights ONLY on data they own or that sits inside their own scope/subtree!
+    let canManage = false;
+    if (isWorkspaceAdmin || isProjectOwner || isResponsibleManager) {
+      canManage = true;
+    } else if (isManagerOrLead) {
+      canManage = isOwnScope || isTeamLeadInScope;
+    } else {
+      canManage = false; // Members cannot manage
+    }
 
     // Confidentiality check
     const isConfidential =
@@ -665,6 +702,47 @@ export class NodesService {
   }
 
   async createNode(workspaceId: string, dto: CreateNodeDto, actorId?: string) {
+    if (actorId) {
+      const membership = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: actorId } },
+      });
+      const userAdminMembership = this.prisma.membership?.findFirst
+        ? await this.prisma.membership.findFirst({
+            where: { userId: actorId, role: Role.ADMIN },
+          })
+        : null;
+      const isPlatformAdmin = Boolean(userAdminMembership);
+      const isWorkspaceAdmin = membership?.role === Role.ADMIN || isPlatformAdmin;
+      const userRole = isWorkspaceAdmin ? Role.ADMIN : (membership?.role || Role.MEMBER);
+
+      // Rule: Member can only create subtasks under tasks assigned to them, and cannot create root tasks
+      if (userRole === Role.MEMBER) {
+        if (!dto.parentNodeId) {
+          throw new ForbiddenException('Forbidden: Members cannot create root-level tasks or projects.');
+        }
+        const parentNode = await this.prisma.node.findUnique({
+          where: { id: dto.parentNodeId },
+          select: { ownerId: true },
+        });
+        if (parentNode?.ownerId !== actorId) {
+          throw new ForbiddenException('Forbidden: Members can only create sub-tasks under tasks assigned to them.');
+        }
+        if (dto.ownerId && dto.ownerId !== actorId) {
+          throw new ForbiddenException('Forbidden: Members cannot assign tasks to others.');
+        }
+      }
+
+      // Rule: Manager and Team Leader can create child tasks ONLY inside their own scope
+      if (userRole === Role.MANAGER || userRole === Role.TEAM_LEAD) {
+        if (dto.parentNodeId) {
+          const parentAuth = await this.resolveTaskPermissions(dto.parentNodeId, actorId, workspaceId);
+          if (!parentAuth.canManage) {
+            throw new ForbiddenException('Forbidden: Managers and Team Leaders can only create child tasks within their own scope.');
+          }
+        }
+      }
+    }
+
     // Security Guard: Prevent regular members from assigning tasks or designating reviewers
     if (actorId && (dto.ownerId || dto.reviewerId || dto.teamId)) {
       const membership = await this.prisma.membership.findUnique({
@@ -923,7 +1001,7 @@ export class NodesService {
       });
       userRole = membership?.role;
 
-      const auth = await this.resolveTaskPermissions(id, actorId);
+      const auth = await this.resolveTaskPermissions(id, actorId, undefined, existing);
       if (!auth.canManage && !auth.canWork) {
         if (this.auditService) {
           await this.auditService.recordAuditEvent({
@@ -1763,7 +1841,7 @@ export class NodesService {
     }
 
     if (actorId) {
-      const auth = await this.resolveTaskPermissions(id, actorId);
+      const auth = await this.resolveTaskPermissions(id, actorId, undefined, existing);
       if (!auth.can.delete) {
         if (this.auditService) {
           await this.auditService.recordAuditEvent({

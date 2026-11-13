@@ -56,6 +56,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const workspaces = useAuthStore((s) => s.workspaces);
   const currentWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
   const userRole = useAuthStore((s) => s.getActiveRole());
+  const currentUser = useAuthStore((s) => s.user);
   const permissions = getRolePermissions(userRole);
 
   const totalOverdue = projects.reduce((acc, p) => acc + (p.metrics?.overdueNodes || 0), 0);
@@ -450,7 +451,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                         v{project.version}
                       </span>
-                      {permissions.canDeleteProject && (
+                      {((permissions.role === 'ADMIN') || (permissions.canDeleteProject && (project.ownerId === currentUser?.id || project.responsibleManagerId === currentUser?.id))) && (
                         <button
                           type="button"
                           onClick={(e) => {

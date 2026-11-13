@@ -284,6 +284,11 @@ export function validateApproverEligibility(ctx: ApproverCheckContext): Approver
     isBackup = true;
   }
 
+  // Admin / CEO-level platform authority: Can approve/reject any approval request
+  if (userRoles.some((r) => r.toUpperCase() === 'ADMIN') || hasPrivilegedPermission) {
+    isDesignated = true;
+  }
+
   // Role-based matching (e.g. MANAGER, EXECUTIVE, TEAM_LEAD)
   if (stageApproverRole) {
     const normRole = stageApproverRole.toUpperCase();

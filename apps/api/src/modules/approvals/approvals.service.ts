@@ -20,6 +20,8 @@ import {
   PRIVILEGED_OPERATIONS,
   PrivilegedOperation,
   TASK_LIFECYCLE_STATES,
+  isComplexApproval,
+  HIGH_VALUE_APPROVAL_THRESHOLD,
 } from '@flowtrack/shared';
 
 export interface CreatePolicyStageDto {
@@ -270,6 +272,35 @@ export class ApprovalsService {
 
     const opType = dto.operationType || 'TASK_COMPLETION';
 
+    // RBAC: Check submitter role constraints
+    const submitterMembership = await this.prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: submitterId } },
+    });
+    const submitterRole = submitterMembership?.role || 'MEMBER';
+
+    // Member: can ONLY request approval to the person who assigned them that task (or parent owner)
+    if (submitterRole === 'MEMBER') {
+      const explicitApprover = (dto.payload?.targetApproverId || dto.payload?.approverId) as string | undefined;
+      const assignerId = task?.assignedById;
+
+      let parentOwnerId: string | null = null;
+      if (task?.parentNodeId) {
+        const parent = await this.prisma.node.findUnique({
+          where: { id: task.parentNodeId },
+          select: { ownerId: true, assignedById: true },
+        });
+        parentOwnerId = parent?.ownerId || parent?.assignedById || null;
+      }
+
+      const validAssigners = [assignerId, parentOwnerId].filter(Boolean) as string[];
+
+      if (explicitApprover && validAssigners.length > 0 && !validAssigners.includes(explicitApprover)) {
+        throw new ForbiddenException(
+          'Forbidden: Members can only request approval from the person who assigned them the task.'
+        );
+      }
+    }
+
     // 2. Query candidate active policies
     const candidatePolicies = await this.prisma.approvalPolicy.findMany({
       where: { workspaceId, isActive: true },
@@ -416,6 +447,37 @@ export class ApprovalsService {
       where: { workspaceId_userId: { workspaceId, userId: actorId } },
     });
     const userRole = actorMembership?.role || 'MEMBER';
+
+    // Self-approval is strictly forbidden
+    if (request.submitterId === actorId) {
+      throw new ForbiddenException('Self-approval is forbidden: You cannot approve your own request.');
+    }
+
+    // Members cannot approve
+    if (userRole === 'MEMBER') {
+      throw new ForbiddenException('Forbidden: Members cannot approve or reject approval requests.');
+    }
+
+    // High-value and complex approval escalation rule
+    const amountVal = (request.payload as any)?.amount ?? (request.payload as any)?.budget ?? (task?.estimatedCost ? Number(task.estimatedCost) : undefined);
+    const opType = request.operationType || ((request.payload as any)?.type as string) || '';
+    const isEscalated = isComplexApproval(opType, amountVal);
+
+    if (isEscalated && userRole !== 'ADMIN') {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId,
+        action: 'UNAUTHORIZED_APPROVAL_ATTEMPT',
+        targetType: 'approval_request',
+        targetId: requestId,
+        reason: 'Needs Admin approval: High-value and complex approval requests can only be approved by an Admin.',
+        policyReference: `${request.policyId}:v${request.policyVersion}`,
+        outcome: 'BLOCKED',
+      });
+      throw new ForbiddenException(
+        'Needs Admin approval: High-value and complex approval requests can only be approved by an Admin.'
+      );
+    }
 
     const previousDecisions = request.decisions.map((d) => {
       const stage = request.stageInstances.find((s) => s.id === d.stageInstanceId);
@@ -684,6 +746,12 @@ export class ApprovalsService {
     const isLeadOrManager = membership?.role === Role.ADMIN || membership?.role === Role.MANAGER || membership?.role === Role.TEAM_LEAD;
     if (!isLeadOrManager) {
       throw new ForbiddenException('Unauthorized: You are not authorized to make decisions on this task.');
+    }
+
+    const taskCost = node.estimatedCost ? Number(node.estimatedCost) : (node.actualCost ? Number(node.actualCost) : undefined);
+    const isHighValue = isComplexApproval(node.approvalStatus, taskCost);
+    if (isHighValue && membership?.role !== Role.ADMIN) {
+      throw new ForbiddenException('Needs Admin approval: High-value and complex approval requests can only be approved by an Admin.');
     }
 
     let targetState: string = TASK_LIFECYCLE_STATES.APPROVED;

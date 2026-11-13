@@ -34,7 +34,7 @@ export const PERMISSIONS = {
   TASKS_UPDATE_ASSIGNED: 'tasks:update_assigned',
   TASKS_SUBMIT: 'tasks:submit',
 
-  // Approvals (Managers & Team Leads ONLY. Platform Admin NEVER has this permission!)
+  // Approvals (Platform Admin has ultimate approval; Managers & Team Leads review within non-high-value scope)
   APPROVALS_REVIEW: 'approvals:review',
 
   // Audit & Reporting
@@ -78,7 +78,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     PERMISSIONS.TASKS_ASSIGN,
     PERMISSIONS.TASKS_UPDATE_ASSIGNED,
     PERMISSIONS.TASKS_SUBMIT,
-    // Note: APPROVALS_REVIEW is strictly omitted. Platform Admin is never an approver.
+    PERMISSIONS.APPROVALS_REVIEW,
     PERMISSIONS.AUDIT_READ,
     PERMISSIONS.REPORTS_VIEW,
   ],
@@ -308,3 +308,340 @@ export const updateMemberRoleSchema = z.object({
   role: z.enum(['ADMIN', 'MANAGER', 'TEAM_LEAD', 'MEMBER', 'GUEST']),
 });
 export type UpdateMemberRoleDto = z.infer<typeof updateMemberRoleSchema>;
+
+/**
+ * Global threshold for high-value approvals.
+ * Amounts strictly greater than this threshold MUST escalate to ADMIN.
+ */
+export const HIGH_VALUE_APPROVAL_THRESHOLD = 100000;
+
+/**
+ * Approval types considered complex / sensitive that strictly escalate to ADMIN.
+ */
+export const COMPLEX_APPROVAL_TYPES = [
+  'payment',
+  'payments',
+  'budget_change',
+  'budget',
+  'project_archive',
+  'archive',
+  'role_promotion',
+  'role_change',
+  'high_value',
+] as const;
+
+export function isComplexApproval(type?: string | null, amount?: number | null): boolean {
+  if (amount !== undefined && amount !== null && Number(amount) > HIGH_VALUE_APPROVAL_THRESHOLD) {
+    return true;
+  }
+  if (!type) return false;
+  const normalized = type.toLowerCase().trim();
+  return COMPLEX_APPROVAL_TYPES.some((t) => normalized === t || normalized.includes(t));
+}
+
+export function normalizeRole(role?: string | null): Role {
+  if (!role) return MEMBERSHIP_ROLES.MEMBER;
+  const upper = role.toUpperCase().trim();
+  if (upper === 'SUPER_ADMIN' || upper === 'CEO') return MEMBERSHIP_ROLES.ADMIN;
+  if (upper === 'TEAM_LEADER' || upper === 'TEAM_LEAD') return MEMBERSHIP_ROLES.TEAM_LEAD;
+  if (upper === 'MANAGER') return MEMBERSHIP_ROLES.MANAGER;
+  if (upper === 'ADMIN') return MEMBERSHIP_ROLES.ADMIN;
+  if (upper === 'GUEST') return MEMBERSHIP_ROLES.GUEST;
+  return MEMBERSHIP_ROLES.MEMBER;
+}
+
+export interface UserAuthContext {
+  id: string;
+  role: Role | string;
+}
+
+export interface NodeScopeContext {
+  id: string;
+  projectId?: string;
+  createdById?: string | null;
+  assigneeId?: string | null;
+  assignedById?: string | null;
+  parentNodeId?: string | null;
+  isInUserSubtree?: boolean;
+  isContextForUser?: boolean;
+}
+
+export function canViewNode(user: UserAuthContext, node: NodeScopeContext): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  // ADMIN, MANAGER, TEAM_LEADER can view any task in the project (read-only for non-owned)
+  if (role === MEMBERSHIP_ROLES.ADMIN || role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  // MEMBER: Can view if assigned to them, created by them, or context needed to do their task
+  const isAssigned = node.assigneeId === user.id;
+  const isCreator = node.createdById === user.id;
+  const isSubtree = !!node.isInUserSubtree;
+  const isContext = !!node.isContextForUser;
+
+  if (isAssigned || isCreator || isSubtree || isContext) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  return {
+    allowed: false,
+    statusCode: 403,
+    reason: 'Forbidden: Members can only view tasks assigned to them and their context.',
+  };
+}
+
+export function canEditNode(user: UserAuthContext, node: NodeScopeContext): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  // ADMIN: Full CRUD on everything
+  if (role === MEMBERSHIP_ROLES.ADMIN) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  // MANAGER and TEAM_LEADER:
+  // Full CRUD ONLY on data they own or that sits inside their own scope:
+  // nodes they created, nodes assigned to them, and the subtree beneath those nodes.
+  // They can VIEW other managers'/TL's nodes but NOT edit.
+  if (role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+    const isOwnerOrCreator = node.createdById === user.id || node.assigneeId === user.id;
+    const isInScopeSubtree = !!node.isInUserSubtree;
+
+    if (isOwnerOrCreator || isInScopeSubtree) {
+      return { allowed: true, statusCode: 200 };
+    }
+
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: Managers and Team Leaders can only edit nodes within their own scope or subtree.',
+    };
+  }
+
+  // MEMBER: Worker role. Can ONLY update their own assigned tasks (status, progress, comments, attachments).
+  if (role === MEMBERSHIP_ROLES.MEMBER) {
+    if (node.assigneeId === user.id) {
+      return { allowed: true, statusCode: 200 };
+    }
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: Members can only update tasks assigned to them.',
+    };
+  }
+
+  return { allowed: false, statusCode: 403, reason: 'Forbidden: Insufficient permissions.' };
+}
+
+export function canDeleteNode(user: UserAuthContext, node: NodeScopeContext): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  if (role === MEMBERSHIP_ROLES.ADMIN) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  if (role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+    const isOwnerOrCreator = node.createdById === user.id || node.assigneeId === user.id;
+    const isInScopeSubtree = !!node.isInUserSubtree;
+
+    if (isOwnerOrCreator || isInScopeSubtree) {
+      return { allowed: true, statusCode: 200 };
+    }
+
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: You can only delete nodes within your own scope or subtree.',
+    };
+  }
+
+  // MEMBER cannot delete anything
+  return {
+    allowed: false,
+    statusCode: 403,
+    reason: 'Forbidden: Members cannot delete tasks or nodes.',
+  };
+}
+
+export function canAssign(user: UserAuthContext, node: NodeScopeContext): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  if (role === MEMBERSHIP_ROLES.ADMIN) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  if (role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+    const isOwnerOrCreator = node.createdById === user.id || node.assigneeId === user.id;
+    const isInScopeSubtree = !!node.isInUserSubtree;
+
+    if (isOwnerOrCreator || isInScopeSubtree) {
+      return { allowed: true, statusCode: 200 };
+    }
+
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: You can only assign tasks within your own scope or subtree.',
+    };
+  }
+
+  return {
+    allowed: false,
+    statusCode: 403,
+    reason: 'Forbidden: Members cannot assign tasks to others.',
+  };
+}
+
+export function canCreateChild(user: UserAuthContext, parentNode?: NodeScopeContext | null): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  if (role === MEMBERSHIP_ROLES.ADMIN) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  // Root task creation (parentNode is null/undefined)
+  if (!parentNode) {
+    if (role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+      return { allowed: true, statusCode: 200 };
+    }
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: Members cannot create root-level tasks or projects.',
+    };
+  }
+
+  if (role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+    const isOwnerOrCreator = parentNode.createdById === user.id || parentNode.assigneeId === user.id;
+    const isInScopeSubtree = !!parentNode.isInUserSubtree;
+
+    if (isOwnerOrCreator || isInScopeSubtree) {
+      return { allowed: true, statusCode: 200 };
+    }
+
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: Managers and Team Leaders can only create child tasks within their own scope.',
+    };
+  }
+
+  // MEMBER: Can add sub-tasks/tasks ONLY under tasks assigned to them
+  if (role === MEMBERSHIP_ROLES.MEMBER) {
+    if (parentNode.assigneeId === user.id) {
+      return { allowed: true, statusCode: 200 };
+    }
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: Members can only create sub-tasks under tasks assigned to them.',
+    };
+  }
+
+  return { allowed: false, statusCode: 403, reason: 'Forbidden: Insufficient permissions.' };
+}
+
+export interface ApprovalRequestParams {
+  nodeAssigneeId?: string | null;
+  nodeAssignedById?: string | null;
+  parentOwnerId?: string | null;
+  targetApproverId: string;
+}
+
+export function canRequestApproval(user: UserAuthContext, params: ApprovalRequestParams): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  if (role === MEMBERSHIP_ROLES.ADMIN || role === MEMBERSHIP_ROLES.MANAGER || role === MEMBERSHIP_ROLES.TEAM_LEAD) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  if (role === MEMBERSHIP_ROLES.MEMBER) {
+    // Member can create approval requests ONLY to the person who assigned them that task (the assigner/parent owner)
+    const validAssigners = [params.nodeAssignedById, params.parentOwnerId].filter(Boolean);
+
+    if (validAssigners.length === 0) {
+      return {
+        allowed: false,
+        statusCode: 403,
+        reason: 'Forbidden: No assigner found for this task to request approval from.',
+      };
+    }
+
+    if (!validAssigners.includes(params.targetApproverId)) {
+      return {
+        allowed: false,
+        statusCode: 403,
+        reason: 'Forbidden: Members can only request approval from the person who assigned them the task.',
+      };
+    }
+
+    return { allowed: true, statusCode: 200 };
+  }
+
+  return { allowed: false, statusCode: 403, reason: 'Forbidden: Insufficient permissions.' };
+}
+
+export interface ApprovalContext {
+  id?: string;
+  type?: string | null;
+  amount?: number | null;
+  approverId?: string | null;
+  requesterId?: string | null;
+}
+
+export function canApprove(user: UserAuthContext, approval: ApprovalContext): AuthorizationResult {
+  if (!user?.id) return { allowed: false, statusCode: 401, reason: 'Unauthenticated' };
+  const role = normalizeRole(user.role);
+
+  // Self-approval is strictly forbidden
+  if (approval.requesterId && approval.requesterId === user.id) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Self-approval is forbidden: You cannot approve your own request.',
+    };
+  }
+
+  // ADMIN: Can approve/reject ANY approval request, including high-value ones.
+  if (role === MEMBERSHIP_ROLES.ADMIN) {
+    return { allowed: true, statusCode: 200 };
+  }
+
+  // MEMBER: Cannot approve
+  if (role === MEMBERSHIP_ROLES.MEMBER || role === MEMBERSHIP_ROLES.GUEST) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: Members cannot approve or reject approval requests.',
+    };
+  }
+
+  // MANAGER / TEAM_LEADER:
+  // High-value rule: amount > HIGH_VALUE_APPROVAL_THRESHOLD or complex type MUST escalate to ADMIN
+  const isHighValueOrComplex = isComplexApproval(approval.type, approval.amount);
+  if (isHighValueOrComplex) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Needs Admin approval: High-value and complex approval requests can only be approved by an Admin.',
+    };
+  }
+
+  // Must be addressed to this user if approverId is specified
+  if (approval.approverId && approval.approverId !== user.id) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      reason: 'Forbidden: This approval request is addressed to another approver.',
+    };
+  }
+
+  return { allowed: true, statusCode: 200 };
+}
+

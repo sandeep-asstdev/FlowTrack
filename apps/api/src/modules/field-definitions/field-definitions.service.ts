@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Role } from '@prisma/client';
 import {
   CreateFieldDefinitionDto,
   UpdateFieldDefinitionDto,
@@ -68,6 +70,19 @@ export class FieldDefinitionsService {
   }
 
   async create(workspaceId: string, dto: CreateFieldDefinitionDto, actorId?: string) {
+    if (actorId) {
+      const member = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: actorId } },
+      });
+      const userAdminMembership = await this.prisma.membership.findFirst({
+        where: { userId: actorId, role: Role.ADMIN },
+      });
+      const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
+      if (!isWorkspaceAdmin && member?.role !== Role.MANAGER) {
+        throw new ForbiddenException('Forbidden: Only Administrators and Managers can create custom field definitions.');
+      }
+    }
+
     // 1. Validate fieldKey formatting (alphanumeric + underscore only)
     const normalizedKey = dto.fieldKey.toLowerCase().trim();
     if (!/^[a-z0-9_]+$/.test(normalizedKey)) {
@@ -156,6 +171,19 @@ export class FieldDefinitionsService {
   async update(id: string, dto: UpdateFieldDefinitionDto, actorId?: string) {
     const existing = await this.getById(id);
 
+    if (actorId) {
+      const member = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
+      });
+      const userAdminMembership = await this.prisma.membership.findFirst({
+        where: { userId: actorId, role: Role.ADMIN },
+      });
+      const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
+      if (!isWorkspaceAdmin && member?.role !== Role.MANAGER) {
+        throw new ForbiddenException('Forbidden: Only Administrators and Managers can update custom field definitions.');
+      }
+    }
+
     // 1. Version increment
     const newVersion = existing.version + 1;
 
@@ -215,6 +243,19 @@ export class FieldDefinitionsService {
 
   async delete(id: string, permanent: boolean = false, actorId?: string) {
     const existing = await this.getById(id);
+
+    if (actorId) {
+      const member = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
+      });
+      const userAdminMembership = await this.prisma.membership.findFirst({
+        where: { userId: actorId, role: Role.ADMIN },
+      });
+      const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
+      if (!isWorkspaceAdmin && member?.role !== Role.MANAGER) {
+        throw new ForbiddenException('Forbidden: Only Administrators and Managers can delete custom field definitions.');
+      }
+    }
 
     if (permanent) {
       const deleted = await this.prisma.fieldDefinition.delete({ where: { id } });

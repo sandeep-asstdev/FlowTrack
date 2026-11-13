@@ -245,6 +245,16 @@ export class ProjectsService {
       actorId ? { id: actorId, role: userRole } : undefined
     );
 
+    if (actorId) {
+      const isAdmin = userRole === 'ADMIN';
+      const isOwnerOrResponsible = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
+      if (!isAdmin && !isOwnerOrResponsible) {
+        throw new ForbiddenException(
+          'Forbidden: You can only modify projects you own or are designated as responsible manager for.'
+        );
+      }
+    }
+
     if (this.authService && actorId) {
       const requiredPerm =
         dto.classification !== undefined && dto.classification !== existing.classification
@@ -627,6 +637,16 @@ export class ProjectsService {
       actorId ? { id: actorId, role: userRole } : undefined
     );
 
+    if (actorId) {
+      const isAdmin = userRole === 'ADMIN';
+      const isOwnerOrResponsible = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
+      if (!isAdmin && !isOwnerOrResponsible) {
+        throw new ForbiddenException(
+          'Forbidden: You can only archive projects you own or are designated as responsible manager for.'
+        );
+      }
+    }
+
     if (this.authService && actorId) {
       await this.authService.enforce(
         { id: actorId, role: userRole, workspaceId },
@@ -680,6 +700,16 @@ export class ProjectsService {
       workspaceId,
       actorId ? { id: actorId, role: userRole } : undefined
     );
+
+    if (actorId) {
+      const isAdmin = userRole === 'ADMIN';
+      const isOwnerOrResponsible = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
+      if (!isAdmin && !isOwnerOrResponsible) {
+        throw new ForbiddenException(
+          'Forbidden: You can only archive projects you own or are designated as responsible manager for.'
+        );
+      }
+    }
 
     if (this.authService && actorId) {
       await this.authService.enforce(

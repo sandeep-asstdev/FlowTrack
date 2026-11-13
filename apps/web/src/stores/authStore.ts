@@ -64,7 +64,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const state = get();
     if (state.simulatedRole) return state.simulatedRole;
     const activeWs = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
-    return activeWs?.role || 'ADMIN';
+    return activeWs?.role || 'MEMBER';
   },
 
   logout: () => {

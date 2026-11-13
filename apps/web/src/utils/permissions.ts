@@ -1,4 +1,31 @@
-import { hasRolePermission, PERMISSIONS, Role } from '@flowtrack/shared';
+import {
+  hasRolePermission,
+  PERMISSIONS,
+  Role,
+  canViewNode,
+  canEditNode,
+  canDeleteNode,
+  canAssign,
+  canCreateChild,
+  canRequestApproval,
+  canApprove,
+  HIGH_VALUE_APPROVAL_THRESHOLD,
+  isComplexApproval,
+  normalizeRole,
+} from '@flowtrack/shared';
+
+export {
+  canViewNode,
+  canEditNode,
+  canDeleteNode,
+  canAssign,
+  canCreateChild,
+  canRequestApproval,
+  canApprove,
+  HIGH_VALUE_APPROVAL_THRESHOLD,
+  isComplexApproval,
+  normalizeRole,
+};
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'TEAM_LEAD' | 'MEMBER' | 'GUEST' | 'VIEWER';
 

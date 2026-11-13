@@ -459,6 +459,7 @@ export class ApprovalsService {
     }
 
     // High-value and complex approval escalation rule
+    const task = (request as any).node;
     const amountVal = (request.payload as any)?.amount ?? (request.payload as any)?.budget ?? (task?.estimatedCost ? Number(task.estimatedCost) : undefined);
     const opType = request.operationType || ((request.payload as any)?.type as string) || '';
     const isEscalated = isComplexApproval(opType, amountVal);

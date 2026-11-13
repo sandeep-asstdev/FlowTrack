@@ -248,7 +248,7 @@ export class AuthService {
     }
 
     const defaultWsId = primaryWs?.id || workspace.id;
-    const token = this.generateToken(user.id, user.email, defaultWsId, user.tokenVersion || 1);
+    const token = this.generateToken(user.id, user.email, defaultWsId, user.tokenVersion || 1, Role.MEMBER);
 
     let workspacesList: any[] = [
       {
@@ -384,7 +384,8 @@ export class AuthService {
     }
 
     const defaultWorkspaceId = user.memberships[0]?.workspaceId;
-    const token = this.generateToken(user.id, user.email, defaultWorkspaceId, user.tokenVersion || 1);
+    const defaultRole = user.memberships[0]?.role;
+    const token = this.generateToken(user.id, user.email, defaultWorkspaceId, user.tokenVersion || 1, defaultRole);
 
     if (this.auditService?.log) {
       await this.auditService.log({
@@ -1119,12 +1120,13 @@ export class AuthService {
     };
   }
 
-  private generateToken(userId: string, email: string, activeWorkspaceId?: string, tokenVersion: number = 1) {
+  private generateToken(userId: string, email: string, activeWorkspaceId?: string, tokenVersion: number = 1, role?: Role) {
     return this.jwtService.sign({
       sub: userId,
       email,
       activeWorkspaceId,
       tokenVersion,
+      ...(role && { role }),
     });
   }
 }

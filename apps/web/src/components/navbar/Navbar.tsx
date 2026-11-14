@@ -91,22 +91,37 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   }, [mobileDrawerOpen]);
 
+  const refreshUnreadCount = () => {
+    if (!user) return;
+    ApiClient.getNotifications({ read: false, limit: 1 })
+      .then((res) => {
+        if (res && res.unreadCount !== undefined) {
+          setUnreadCount(res.unreadCount);
+        }
+      })
+      .catch(() => null);
+  };
+
   useEffect(() => {
     if (user) {
-      ApiClient.getNotifications({ read: false, limit: 1 })
-        .then((res) => {
-          if (res && res.unreadCount !== undefined) {
-            setUnreadCount(res.unreadCount);
-          }
-        })
-        .catch(() => null);
+      socketService.connect();
+      socketService.joinUser(user.id);
+      refreshUnreadCount();
 
       const unsub = socketService.on('notification:received', () => {
         setUnreadCount((c) => c + 1);
       });
 
+      // Periodic refresh every 30s to stay synchronized
+      const interval = setInterval(refreshUnreadCount, 30000);
+
+      const handleCustomUpdate = () => refreshUnreadCount();
+      window.addEventListener('notification:refresh', handleCustomUpdate);
+
       return () => {
         unsub();
+        clearInterval(interval);
+        window.removeEventListener('notification:refresh', handleCustomUpdate);
       };
     }
   }, [user]);
@@ -802,7 +817,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Slide-out Notification Drawer */}
       <NotificationDrawer
         isOpen={showNotifications}
-        onClose={() => setShowNotifications(false)}
+        onClose={() => {
+          setShowNotifications(false);
+          refreshUnreadCount();
+        }}
+        onUnreadCountChange={(cnt) => setUnreadCount(cnt)}
       />
 
       {/* Fixed Bottom Navigation Bar on Mobile (< md screens) - Hidden in 2D canvas view */}

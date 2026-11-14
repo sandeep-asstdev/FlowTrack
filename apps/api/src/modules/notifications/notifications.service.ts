@@ -282,7 +282,10 @@ export class NotificationsService {
           customData: true,
           project: {
             select: {
+              name: true,
               classification: true,
+              ownerId: true,
+              responsibleManagerId: true,
             },
           },
         },
@@ -291,32 +294,59 @@ export class NotificationsService {
 
       const todayStr = now.toISOString().slice(0, 10);
       for (const node of overdueNodes) {
-        if (!node.ownerId) continue;
         const isConfidential =
           node.project?.classification === 'CONFIDENTIAL' ||
           node.project?.classification === 'RESTRICTED' ||
           node.project?.classification === 'HIGHLY_CONFIDENTIAL' ||
           Boolean((node.customData as any)?.isLocked);
 
-        const title = isConfidential
-          ? '⚠️ Task Overdue Reminder'
-          : '⚠️ Task Overdue';
-        const body = isConfidential
-          ? 'A confidential task assigned to you has passed its deadline.'
-          : `Task "${node.title}" is overdue. Please review and update progress.`;
+        // Collect all stakeholders who need to be reminded of overdue progress:
+        // 1. Assignee, 2. Project Owner, 3. Project Manager, 4. Workspace Admins/Managers
+        const recipientIds = new Set<string>();
+        if (node.ownerId) recipientIds.add(node.ownerId);
+        if (node.project?.ownerId) recipientIds.add(node.project.ownerId);
+        if (node.project?.responsibleManagerId) recipientIds.add(node.project.responsibleManagerId);
 
-        await this.sendNotification({
-          workspaceId: node.workspaceId,
-          projectId: node.projectId,
-          userId: node.ownerId,
-          type: 'DEADLINE_REMINDER',
-          title,
-          body,
-          entityType: 'node',
-          entityId: node.id,
-          dedupKey: `overdue:node:${node.id}:${todayStr}`,
-        });
-        results.overdueRemindersSent++;
+        try {
+          const leaders = await this.prisma.membership.findMany({
+            where: {
+              workspaceId: node.workspaceId,
+              role: { in: ['ADMIN', 'MANAGER'] },
+            },
+            select: { userId: true },
+          });
+          for (const l of leaders) {
+            recipientIds.add(l.userId);
+          }
+        } catch {}
+
+        for (const recipientId of recipientIds) {
+          const isAssignee = recipientId === node.ownerId;
+          const title = isAssignee
+            ? (isConfidential ? '⚠️ Task Overdue Reminder' : '⚠️ Task Overdue')
+            : (isConfidential ? '⚠️ Project Task Overdue' : `⚠️ Task Overdue: ${node.title}`);
+
+          const body = isAssignee
+            ? (isConfidential
+                ? 'A confidential task assigned to you has passed its deadline.'
+                : `Task "${node.title}" is overdue. Please review and update progress.`)
+            : (isConfidential
+                ? 'A confidential task in your project has passed its deadline.'
+                : `Task "${node.title}" in project "${node.project?.name || 'Project'}" has passed its deadline.`);
+
+          await this.sendNotification({
+            workspaceId: node.workspaceId,
+            projectId: node.projectId,
+            userId: recipientId,
+            type: 'DEADLINE_REMINDER',
+            title,
+            body,
+            entityType: 'node',
+            entityId: node.id,
+            dedupKey: `overdue:node:${node.id}:user:${recipientId}:${todayStr}`,
+          });
+          results.overdueRemindersSent++;
+        }
       }
     } catch (err: any) {
       this.logger.error(`Failed to process overdue work reminders: ${err.message}`, err.stack);

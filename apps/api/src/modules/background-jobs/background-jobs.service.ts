@@ -167,7 +167,7 @@ export class BackgroundJobsService implements OnModuleInit, OnModuleDestroy {
             });
 
             // Emit live websocket notification to user if connected
-            this.gateway?.server?.to(node.ownerId!)?.emit('notification:received', createdNotif);
+            this.gateway?.sendToUser(node.ownerId!, 'notification:received', createdNotif);
           }
         });
       }

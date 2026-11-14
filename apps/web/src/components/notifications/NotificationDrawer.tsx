@@ -39,12 +39,14 @@ interface NotificationDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectNode?: (nodeId: string) => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
 export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   isOpen,
   onClose,
   onSelectNode,
+  onUnreadCountChange,
 }) => {
   const { user } = useAuthStore();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -60,7 +62,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       const res = await ApiClient.getNotifications();
       if (res && res.items) {
         setNotifications(res.items);
-        setUnreadCount(res.unreadCount || 0);
+        const cnt = res.unreadCount || 0;
+        setUnreadCount(cnt);
+        if (onUnreadCountChange) onUnreadCountChange(cnt);
       }
     } catch (err) {
       console.error('Failed to load notifications', err);
@@ -68,6 +72,13 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       setLoading(false);
     }
   };
+
+  // Re-fetch notifications whenever user changes OR drawer is opened
+  useEffect(() => {
+    if (user && isOpen) {
+      loadNotifications();
+    }
+  }, [user, isOpen]);
 
   useEffect(() => {
     if (user) {
@@ -79,7 +90,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
 
       const unsubscribe = socketService.on('notification:received', (newNotif: NotificationItem) => {
         setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id)]);
-        setUnreadCount((prev) => prev + 1);
+        setUnreadCount((prev) => {
+          const next = prev + 1;
+          if (onUnreadCountChange) onUnreadCountChange(next);
+          return next;
+        });
       });
 
       return () => {
@@ -95,7 +110,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true, readAt: new Date().toISOString() } : n))
       );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      setUnreadCount((prev) => {
+        const next = Math.max(0, prev - 1);
+        if (onUnreadCountChange) onUnreadCountChange(next);
+        return next;
+      });
     } catch (err) {
       console.error('Failed to mark notification read', err);
     }
@@ -106,6 +125,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       await ApiClient.markAllNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true, readAt: new Date().toISOString() })));
       setUnreadCount(0);
+      if (onUnreadCountChange) onUnreadCountChange(0);
     } catch (err) {
       console.error('Failed to mark all as read', err);
     }

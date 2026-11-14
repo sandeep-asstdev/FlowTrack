@@ -856,7 +856,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           (n.dueDate && new Date(n.dueDate).getTime() < Date.now() && n.status?.category !== 'done')
       );
       if (hasOverdue) {
-        ApiClient.checkOverdueReminders().catch(() => null);
+        ApiClient.checkOverdueReminders()
+          .then(() => {
+            window.dispatchEvent(new CustomEvent('notification:refresh'));
+          })
+          .catch(() => null);
       }
     } catch (e: any) {
       console.error('Failed to load canvas data:', e);

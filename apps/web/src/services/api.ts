@@ -585,6 +585,10 @@ export class ApiClient {
     return this.request('/notifications/read-all', { method: 'POST' });
   }
 
+  static checkOverdueReminders() {
+    return this.request('/notifications/cron/overdue-reminders', { method: 'POST' });
+  }
+
   // Custom Field Definitions
   static getFieldDefinitions(filters?: { targetType?: string; nodeTypeId?: string; includeInactive?: boolean; groupName?: string }) {
     const params = new URLSearchParams();

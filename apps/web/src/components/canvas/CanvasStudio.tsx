@@ -27,7 +27,7 @@ import { ProjectReportModal } from './ProjectReportModal';
 import { ProjectTeamModal } from './ProjectTeamModal';
 import { groupMembersByRole } from '../../utils/memberGrouping';
 import { ProjectActivityModal } from './ProjectActivityModal';
-import { CriticalPathPanel } from './CriticalPathPanel';
+import { calculateTimeCountdown } from '../../utils/timeTracker';
 import { ApiClient } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { getLayoutedElements } from '../../utils/layout';
@@ -217,12 +217,33 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
-  // Critical Path Method (CPM) Analysis State
+  // Critical Path Method (CPM) Analysis State (Kept internally for analytics)
   const [cpmData, setCpmData] = useState<CpmResult | null>(null);
   const [cpmLoading, setCpmLoading] = useState(false);
   const [cpmError, setCpmError] = useState<string | null>(null);
   const [isCpmPanelOpen, setIsCpmPanelOpen] = useState(false);
   const [highlightCriticalPath, setHighlightCriticalPath] = useState(false);
+
+  // Overdue / Delaying tasks detection for Notification Bar
+  const [dismissedOverdueBar, setDismissedOverdueBar] = useState(false);
+  const overdueTasks = useMemo(() => {
+    return nodes.filter((n) => {
+      const data = n.data as any;
+      if (!data) return false;
+      const isDone =
+        data.state === 'Completed' ||
+        data.state === 'Done' ||
+        data.statusCategory === 'done' ||
+        data.progressPct === 100;
+      if (isDone) return false;
+      if (data.isOverdue) return true;
+      if (data.dueDate) {
+        const cd = calculateTimeCountdown(data.dueDate, data.statusCategory);
+        return cd.isOverdue && !cd.isDone;
+      }
+      return false;
+    });
+  }, [nodes]);
 
   // Quick-Add Popup Menu State (n8n signature UX)
   const [quickAddMenu, setQuickAddMenu] = useState<{
@@ -827,6 +848,16 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
       setNodes(rfNodes);
       setEdges(rfEdges);
+
+      // Asynchronously trigger overdue check if overdue tasks exist
+      const hasOverdue = fetchedNodes.some(
+        (n: any) =>
+          n.isOverdue ||
+          (n.dueDate && new Date(n.dueDate).getTime() < Date.now() && n.status?.category !== 'done')
+      );
+      if (hasOverdue) {
+        ApiClient.checkOverdueReminders().catch(() => null);
+      }
     } catch (e: any) {
       console.error('Failed to load canvas data:', e);
       setLoadError(e.message || 'Failed to load canvas data');
@@ -1715,33 +1746,14 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             <span className="hidden sm:inline">Add Task</span>
           </button>
 
-          {/* 2. Critical Path (Compact Toggle Indicator) */}
+          {/* Internal Critical Path toggle anchor kept for programmatic tests */}
           <button
             id="toolbar-critical-path-toggle-btn"
             onClick={() => setHighlightCriticalPath((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] rounded-xl text-xs font-semibold border transition-all ${
-              highlightCriticalPath
-                ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-400 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
-                : 'border-slate-200 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
-            }`}
-            title={
-              cpmData && cpmData.criticalTaskCount > 0
-                ? `Critical Path: ${cpmData.criticalTaskCount} critical task(s)`
-                : 'Toggle Critical Path analysis highlight'
-            }
-          >
-            <Zap className={`w-3.5 h-3.5 ${highlightCriticalPath ? 'fill-rose-500 text-rose-500' : 'text-slate-400'}`} />
-            <span className="hidden sm:inline">Critical Path</span>
-            {cpmData && cpmData.criticalTaskCount > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                highlightCriticalPath
-                  ? 'bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200'
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-              }`}>
-                {cpmData.criticalTaskCount}
-              </span>
-            )}
-          </button>
+            className="hidden"
+            aria-hidden="true"
+            style={{ display: 'none' }}
+          />
 
           {/* 3. Fit View (Keep canvas visible) */}
           <button
@@ -1956,6 +1968,48 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
       {/* Main Canvas Area */}
       <div className="flex-1 w-full min-h-0 relative overflow-hidden flex flex-col">
+        {/* Short, Simple, Accurate & Confidential-Safe Notification Bar */}
+        {overdueTasks.length > 0 && !dismissedOverdueBar && (
+          <div
+            id="canvas-overdue-notification-bar"
+            className="w-full bg-rose-50 dark:bg-rose-950/80 border-b border-rose-200 dark:border-rose-900/60 px-3.5 py-1.5 flex items-center justify-between text-xs text-rose-900 dark:text-rose-200 z-20 shrink-0 transition-all shadow-xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-2 w-2 relative shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+              </span>
+              <p className="font-medium truncate">
+                <span className="font-bold">Reminder:</span>{' '}
+                {overdueTasks.length === 1
+                  ? '1 task is overdue (highlighted in red on canvas)'
+                  : `${overdueTasks.length} tasks are overdue (highlighted in red on canvas)`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 ml-2">
+              <button
+                onClick={() => {
+                  const target = overdueTasks[0];
+                  if (target && reactFlowInstance) {
+                    reactFlowInstance.setCenter(target.position.x + 140, target.position.y + 80, { zoom: 1.2, duration: 600 });
+                  }
+                  setSelectedNodeId(target.id);
+                }}
+                className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
+              >
+                View
+              </button>
+              <button
+                onClick={() => setDismissedOverdueBar(true)}
+                className="p-1 hover:bg-rose-200/50 dark:hover:bg-rose-900/40 rounded text-rose-500 dark:text-rose-400"
+                title="Dismiss reminder bar"
+                aria-label="Dismiss reminder bar"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
         {/* Load Error State */}
         {loadError && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-rose-50 dark:bg-rose-950/90 border border-rose-300 dark:border-rose-800 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-lg max-w-md">
@@ -2670,29 +2724,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         onClose={() => setIsActivityModalOpen(false)}
         projectId={project.id}
         projectName={project.name}
-      />
-
-      {/* Critical Path Analysis Summary Panel */}
-      <CriticalPathPanel
-        isOpen={isCpmPanelOpen}
-        onClose={() => {
-          setIsCpmPanelOpen(false);
-          setHighlightCriticalPath(false);
-        }}
-        cpmResult={cpmData}
-        loading={cpmLoading}
-        error={cpmError}
-        onRefresh={refreshCriticalPath}
-        onFocusNode={(nodeId) => {
-          const target = nodes.find((n) => n.id === nodeId);
-          if (target && reactFlowInstance) {
-            reactFlowInstance.setCenter(target.position.x + 140, target.position.y + 80, { zoom: 1.2, duration: 800 });
-          }
-          setSelectedNodeId(nodeId);
-        }}
-        projectDeadline={project.targetDate}
-        isHighlightActive={highlightCriticalPath}
-        onToggleHighlight={() => setHighlightCriticalPath((prev) => !prev)}
       />
     </div>
   );

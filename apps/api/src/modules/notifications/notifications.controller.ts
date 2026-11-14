@@ -38,6 +38,11 @@ export class NotificationsController {
     return this.notificationsService.markAllAsRead(req.user.id);
   }
 
+  @Post('read-all')
+  async readAll(@Request() req: any) {
+    return this.notificationsService.markAllAsRead(req.user.id);
+  }
+
   @Get('preferences')
   async getPreferences(@Request() req: any) {
     return this.notificationsService.getUserPreferences(req.user.id);

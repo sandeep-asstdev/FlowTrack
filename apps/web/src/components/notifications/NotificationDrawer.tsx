@@ -132,7 +132,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       case 'BLOCKER':
         return <AlertTriangle className="w-4 h-4 text-rose-500" />;
       case 'DEADLINE_REMINDER':
-        return <Clock className="w-4 h-4 text-amber-500" />;
+        return <Clock className="w-4 h-4 text-rose-500" />;
       case 'COMMENT_MENTION':
         return <MessageSquare className="w-4 h-4 text-sky-500" />;
       case 'EVIDENCE_SUBMITTED':
@@ -205,53 +205,57 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex items-center gap-1.5 overflow-x-auto text-xs touch-pan-x shrink-0">
           <button
             onClick={() => { setFilterType('all'); setOnlyUnread(false); }}
-            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
-              filterType === 'all' && !onlyUnread
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${filterType === 'all' && !onlyUnread
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
+              }`}
           >
             All
           </button>
           <button
             onClick={() => setOnlyUnread(!onlyUnread)}
-            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
-              onlyUnread
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${onlyUnread
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
+              }`}
           >
             Unread ({unreadCount})
           </button>
           <button
             onClick={() => { setFilterType('ASSIGNMENT'); setOnlyUnread(false); }}
-            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
-              filterType === 'ASSIGNMENT'
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${filterType === 'ASSIGNMENT'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
+              }`}
           >
             Assignments
           </button>
           <button
             onClick={() => { setFilterType('APPROVAL_REQUEST'); setOnlyUnread(false); }}
-            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
-              filterType === 'APPROVAL_REQUEST'
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${filterType === 'APPROVAL_REQUEST'
                 ? 'bg-purple-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
+              }`}
           >
             Gates
           </button>
           <button
             onClick={() => { setFilterType('BLOCKER'); setOnlyUnread(false); }}
-            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${
-              filterType === 'BLOCKER'
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${filterType === 'BLOCKER'
                 ? 'bg-rose-600 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
+              }`}
           >
             Blockers
+          </button>
+          <button
+            onClick={() => { setFilterType('DEADLINE_REMINDER'); setOnlyUnread(false); }}
+            className={`px-3.5 py-2 min-h-[44px] rounded-lg font-semibold transition-colors shrink-0 flex items-center justify-center ${filterType === 'DEADLINE_REMINDER'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+              }`}
+          >
+            Deadlines
           </button>
         </div>
 
@@ -278,11 +282,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
               <div
                 key={notif.id}
                 onClick={() => handleNotificationClick(notif)}
-                className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
-                  notif.read
+                className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${notif.read
                     ? 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 opacity-80'
-                    : 'border-blue-200 dark:border-blue-900/60 bg-blue-50/30 dark:bg-blue-950/20 shadow-xs hover:border-blue-400'
-                }`}
+                    : notif.type === 'DEADLINE_REMINDER'
+                      ? 'border-rose-300 dark:border-rose-900/70 bg-rose-50/40 dark:bg-rose-950/20 shadow-xs hover:border-rose-400'
+                      : 'border-blue-200 dark:border-blue-900/60 bg-blue-50/30 dark:bg-blue-950/20 shadow-xs hover:border-blue-400'
+                  }`}
               >
                 <div className="flex items-start gap-3">
                   <div className="mt-0.5 shrink-0 p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
@@ -295,7 +300,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                         {notif.title}
                       </h5>
                       {!notif.read && (
-                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${notif.type === 'DEADLINE_REMINDER' ? 'bg-rose-500' : 'bg-blue-500'}`}></span>
                       )}
                     </div>
 

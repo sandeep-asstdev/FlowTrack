@@ -120,8 +120,14 @@ export class NotificationsService {
         }
 
         if (!isRecipientAuthorized) {
-          finalTitle = '[Confidential Initiative] Update';
-          finalBody = 'You have received a notification regarding a classified item. Higher authorization is required to view details.';
+          finalTitle =
+            dto.type === 'DEADLINE_REMINDER'
+              ? '⚠️ Task Overdue Reminder'
+              : '[Confidential Initiative] Update';
+          finalBody =
+            dto.type === 'DEADLINE_REMINDER'
+              ? 'A confidential task assigned to you has passed its deadline.'
+              : 'You have received a notification regarding a classified item. Higher authorization is required to view details.';
         }
       }
 
@@ -270,8 +276,15 @@ export class NotificationsService {
           id: true,
           title: true,
           workspaceId: true,
+          projectId: true,
           ownerId: true,
           dueDate: true,
+          customData: true,
+          project: {
+            select: {
+              classification: true,
+            },
+          },
         },
         take: 100,
       });
@@ -279,12 +292,26 @@ export class NotificationsService {
       const todayStr = now.toISOString().slice(0, 10);
       for (const node of overdueNodes) {
         if (!node.ownerId) continue;
+        const isConfidential =
+          node.project?.classification === 'CONFIDENTIAL' ||
+          node.project?.classification === 'RESTRICTED' ||
+          node.project?.classification === 'HIGHLY_CONFIDENTIAL' ||
+          Boolean((node.customData as any)?.isLocked);
+
+        const title = isConfidential
+          ? '⚠️ Task Overdue Reminder'
+          : '⚠️ Task Overdue';
+        const body = isConfidential
+          ? 'A confidential task assigned to you has passed its deadline.'
+          : `Task "${node.title}" is overdue. Please review and update progress.`;
+
         await this.sendNotification({
           workspaceId: node.workspaceId,
+          projectId: node.projectId,
           userId: node.ownerId,
           type: 'DEADLINE_REMINDER',
-          title: `⏰ Overdue Task Notice: "${node.title}"`,
-          body: `The task "${node.title}" is overdue (due date was ${node.dueDate ? new Date(node.dueDate).toLocaleDateString() : 'past'}). Please submit progress update or request extension.`,
+          title,
+          body,
           entityType: 'node',
           entityId: node.id,
           dedupKey: `overdue:node:${node.id}:${todayStr}`,

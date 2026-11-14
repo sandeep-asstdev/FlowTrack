@@ -1,5 +1,6 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CollaborationGateway } from '../collaboration/collaboration.gateway';
 
 export interface BackgroundJob {
   id: string;
@@ -16,7 +17,10 @@ export class BackgroundJobsService implements OnModuleInit, OnModuleDestroy {
   private isProcessing = false;
   private intervalTimer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly gateway?: CollaborationGateway
+  ) {}
 
   onModuleInit() {
     this.logger.log('BackgroundJobsService initialized with non-blocking async queue.');
@@ -95,6 +99,12 @@ export class BackgroundJobsService implements OnModuleInit, OnModuleDestroy {
           ownerId: true,
           workspaceId: true,
           projectId: true,
+          customData: true,
+          project: {
+            select: {
+              classification: true,
+            },
+          },
         },
         take: 100,
       });
@@ -120,21 +130,44 @@ export class BackgroundJobsService implements OnModuleInit, OnModuleDestroy {
           });
 
           if (!existing) {
-            await this.prisma.notification.create({
+            const isConfidential =
+              node.project?.classification === 'CONFIDENTIAL' ||
+              node.project?.classification === 'RESTRICTED' ||
+              node.project?.classification === 'HIGHLY_CONFIDENTIAL' ||
+              Boolean((node.customData as any)?.isLocked);
+
+            const title = isOverdue
+              ? isConfidential
+                ? '⚠️ Task Overdue Reminder'
+                : '⚠️ Task Overdue'
+              : isConfidential
+              ? '⏳ Deadline Approaching'
+              : '⏳ Due Soon';
+
+            const body = isOverdue
+              ? isConfidential
+                ? 'A confidential task assigned to you has passed its deadline.'
+                : `Task "${node.title}" has passed its deadline. Please review.`
+              : isConfidential
+              ? 'A confidential task assigned to you is due soon.'
+              : `Task "${node.title}" is due soon.`;
+
+            const createdNotif = await this.prisma.notification.create({
               data: {
                 workspaceId: node.workspaceId,
                 projectId: node.projectId,
                 userId: node.ownerId!,
                 type: 'DEADLINE_REMINDER',
-                title: isOverdue ? `🚨 Task Overdue: ${node.title}` : `⏳ Deadline Approaching: ${node.title}`,
-                body: isOverdue
-                  ? `Task "${node.title}" exceeded its deadline on ${node.dueDate.toLocaleDateString()}. Please update progress or submit evidence.`
-                  : `Task "${node.title}" is due soon on ${node.dueDate.toLocaleDateString()}.`,
+                title,
+                body,
                 entityType: 'node',
                 entityId: node.id,
                 dedupKey,
               },
             });
+
+            // Emit live websocket notification to user if connected
+            this.gateway?.server?.to(node.ownerId!)?.emit('notification:received', createdNotif);
           }
         });
       }

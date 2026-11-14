@@ -161,15 +161,17 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
     return <CheckSquare className="w-4 h-4 text-blue-600" />;
   };
 
+  // Overdue / Delaying state calculation
+  const isDelayedOrOverdue = (isOverdue || countdown.isOverdue) && !countdown.isDone && statusCategory !== 'done';
+
   // Node card border & background styling - clean, professional business card styling
+  // ONLY delayed or overdue tasks turn red. Critical path tasks use standard border.
   const borderColourClass = selected
     ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-lg'
-    : isOverdue && !countdown.isDone
-    ? 'border-amber-400 dark:border-amber-600/70 shadow-xs'
+    : isDelayedOrOverdue
+    ? 'border-rose-500 ring-2 ring-rose-500/30 shadow-md bg-rose-50/10 dark:bg-rose-950/20'
     : (data.isBlocked || statusCategory === 'blocked') && !countdown.isDone
-    ? 'border-rose-400 dark:border-rose-600/70 shadow-xs'
-    : isCritical && !countdown.isDone
-    ? 'border-rose-300 dark:border-rose-600/60 shadow-xs'
+    ? 'border-amber-400 dark:border-amber-600/70 shadow-xs'
     : isMilestoneNode
     ? 'border-amber-200 dark:border-amber-800/80'
     : isApprovalNode
@@ -355,33 +357,18 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
 
         {/* State Badge on the right */}
         <div className="flex items-center gap-1 shrink-0">
-          {countdown.isDone ? (
+          {countdown.isDone || statusCategory === 'done' ? (
             <span className="inline-flex items-center text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">
               Done
             </span>
-          ) : data.isBlocked || statusCategory === 'blocked' ? (
-            <span className="inline-flex items-center text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded">
-              Blocked
-            </span>
-          ) : countdown.isOverdue ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+          ) : isDelayedOrOverdue ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 px-1.5 py-0.5 rounded">
               <Clock className="w-2.5 h-2.5" />
-              Overdue
+              {countdown.isOverdue ? 'Overdue' : 'Delaying'}
             </span>
-          ) : isCritical ? (
-            <span
-              className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-50/80 dark:bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-200/60 dark:border-rose-900/40"
-              title="Critical path task (0d float)"
-            >
-              <Zap className="w-2.5 h-2.5 fill-rose-500 text-rose-500" />
-              Critical
-            </span>
-          ) : totalFloat !== undefined && totalFloat > 0 ? (
-            <span
-              className="inline-flex items-center text-[10px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded"
-              title={`Schedule flexibility: ${totalFloat} days available float`}
-            >
-              {totalFloat}d float
+          ) : data.isBlocked || statusCategory === 'blocked' ? (
+            <span className="inline-flex items-center text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+              Blocked
             </span>
           ) : isMilestoneNode ? (
             <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
@@ -563,7 +550,10 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
               Fin: {formatShortDate(earlyFinishDate)}
             </span>
           ) : dueDate ? (
-            <span className="truncate" title={`Due Date: ${dueDate}`}>
+            <span
+              className={`truncate ${isDelayedOrOverdue ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}`}
+              title={`Due Date: ${dueDate}`}
+            >
               Due: {formatShortDate(dueDate)}
             </span>
           ) : (

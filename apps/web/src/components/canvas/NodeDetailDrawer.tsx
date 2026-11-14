@@ -46,6 +46,7 @@ import {
   CheckSquare,
 } from 'lucide-react';
 import { getRolePermissions, isComplexApproval } from '../../utils/permissions';
+import { groupMembersByRole } from '../../utils/memberGrouping';
 
 const formatShortDate = (dateStr?: string) => {
   if (!dateStr) return '';
@@ -1353,15 +1354,19 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">-- Unassigned --</option>
-                    {workspaceMembers.map((m: any) => {
-                      const u = m.user || {};
-                      const uid = u.id || m.userId;
-                      return (
-                        <option key={m.id || uid} value={uid}>
-                          {u.fullName || u.email || 'Member'} ({m.role || 'MEMBER'})
-                        </option>
-                      );
-                    })}
+                    {groupMembersByRole(workspaceMembers).map((group) => (
+                      <optgroup key={group.role} label={group.groupName}>
+                        {group.members.map((m: any) => {
+                          const u = m.user || {};
+                          const uid = u.id || m.userId;
+                          return (
+                            <option key={m.id || uid} value={uid}>
+                              {u.fullName || u.email || 'Member'}
+                            </option>
+                          );
+                        })}
+                      </optgroup>
+                    ))}
                   </select>
                 ) : (
                   <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2">

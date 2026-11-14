@@ -25,6 +25,7 @@ import { NodeDetailDrawer } from './NodeDetailDrawer';
 import { NodeViewDetailsModal } from './NodeViewDetailsModal';
 import { ProjectReportModal } from './ProjectReportModal';
 import { ProjectTeamModal } from './ProjectTeamModal';
+import { groupMembersByRole } from '../../utils/memberGrouping';
 import { ProjectActivityModal } from './ProjectActivityModal';
 import { CriticalPathPanel } from './CriticalPathPanel';
 import { ApiClient } from '../../services/api';
@@ -2426,14 +2427,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                   className="w-full px-3 py-2.5 min-h-[44px] text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium cursor-pointer"
                 >
                   <option value="">Unassigned</option>
-                  {workspaceMembersList.map((m: any) => {
-                    const u = m.user || m;
-                    return (
-                      <option key={u.id} value={u.id}>
-                        {u.fullName ? `${u.fullName} (${m.role || 'MEMBER'})` : u.email}
-                      </option>
-                    );
-                  })}
+                  {groupMembersByRole(workspaceMembersList).map((group) => (
+                    <optgroup key={group.role} label={group.groupName}>
+                      {group.members.map((m: any) => {
+                        const u = m.user || m;
+                        return (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName || u.email}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
 

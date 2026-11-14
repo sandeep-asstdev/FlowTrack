@@ -20,6 +20,7 @@ import {
   Sliders,
 } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
+import { groupMembersByRole } from '../../utils/memberGrouping';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -623,10 +624,14 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select Project Owner...</option>
-                    {members.map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.user?.fullName || m.user?.email} ({m.role})
-                      </option>
+                    {groupMembersByRole(members).map((group) => (
+                      <optgroup key={group.role} label={group.groupName}>
+                        {group.members.map((m) => (
+                          <option key={m.userId} value={m.userId}>
+                            {m.user?.fullName || m.user?.email}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </div>
@@ -641,10 +646,14 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select Responsible Manager...</option>
-                    {members.map((m) => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.user?.fullName || m.user?.email} ({m.role})
-                      </option>
+                    {groupMembersByRole(members).map((group) => (
+                      <optgroup key={group.role} label={group.groupName}>
+                        {group.members.map((m) => (
+                          <option key={m.userId} value={m.userId}>
+                            {m.user?.fullName || m.user?.email}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </div>
@@ -755,10 +764,14 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                       className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[200px]"
                     >
                       <option value="">Leave Unassigned</option>
-                      {members.map((m) => (
-                        <option key={m.userId} value={m.userId}>
-                          {m.user?.fullName || m.user?.email} ({m.role})
-                        </option>
+                      {groupMembersByRole(members).map((group) => (
+                        <optgroup key={group.role} label={group.groupName}>
+                          {group.members.map((m) => (
+                            <option key={m.userId} value={m.userId}>
+                              {m.user?.fullName || m.user?.email}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </div>

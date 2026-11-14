@@ -66,7 +66,9 @@ export class NodesService {
       dueAfter?: string;
       customFieldKey?: string;
       customFieldValue?: string;
-    }
+    },
+    actorId?: string,
+    userRole?: string
   ) {
     const where: any = {
       projectId,
@@ -114,16 +116,16 @@ export class NodesService {
         status: true,
         parentNode: { select: { id: true, title: true } },
         owner: {
-          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         reviewer: {
-          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         assignedBy: {
-          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         submitter: {
-          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true },
+          select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true },
         },
         team: {
           select: { id: true, name: true, colour: true },
@@ -160,6 +162,59 @@ export class NodesService {
       });
     }
 
+    // Phase 11 & Phase 9 User Isolation Filter:
+    // A regular member must only see tasks assigned to them, tasks where they collaborate,
+    // their descendants (subtasks), and minimal ancestor breadcrumbs.
+    if (actorId) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        include: { members: true },
+      });
+      const isProjectOwner = project?.ownerId === actorId;
+      const isResponsibleManager = project?.responsibleManagerId === actorId;
+      const projectMemberRecord = project?.members?.find((m: any) => m.userId === actorId);
+      const isProjectMemberManager = projectMemberRecord && (projectMemberRecord.role === Role.MANAGER || projectMemberRecord.role === Role.ADMIN);
+      const userRoleUpper = (userRole || '').toUpperCase();
+      const isWorkspaceAdmin = userRoleUpper === 'ADMIN';
+
+      const canManageAll = isWorkspaceAdmin || isProjectOwner || isResponsibleManager || Boolean(isProjectMemberManager);
+
+      if (!canManageAll) {
+        const assignedNodes = nodes.filter(
+          (n) => n.ownerId === actorId || (Array.isArray(n.collaboratorIds) && (n.collaboratorIds as string[]).includes(actorId))
+        );
+
+        const accessibleNodeIds = new Set<string>();
+        for (const an of assignedNodes) {
+          accessibleNodeIds.add(an.id);
+          const anPath = an.path || `/${an.id}`;
+          const pathIds = anPath.split('/').filter(Boolean);
+          pathIds.forEach((pId) => accessibleNodeIds.add(pId));
+          for (const cand of nodes) {
+            const candPath = cand.path || `/${cand.id}`;
+            if (candPath.startsWith(`${anPath}/`)) {
+              accessibleNodeIds.add(cand.id);
+            }
+          }
+        }
+
+        nodes = nodes.filter((n) => accessibleNodeIds.has(n.id));
+
+        // Mask confidential ancestor tasks that user does not own
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          const isDirectWork = n.ownerId === actorId || (Array.isArray(n.collaboratorIds) && (n.collaboratorIds as string[]).includes(actorId));
+          if (!isDirectWork && (n.classification === 'RESTRICTED' || n.classification === 'CONFIDENTIAL' || n.classification === 'HIGHLY_CONFIDENTIAL')) {
+            nodes[i] = {
+              ...n,
+              title: '[Confidential Task]',
+              description: null,
+            };
+          }
+        }
+      }
+    }
+
     const now = new Date();
     return nodes.map((node) => {
       const isClosed = node.status?.category === 'done' || node.status?.category === 'cancelled';
@@ -180,16 +235,19 @@ export class NodesService {
   }
 
   async resolveTaskPermissions(nodeId: string, actorId?: string, actorWorkspaceId?: string, preloadedNode?: any, userRole?: string) {
-    const node = preloadedNode || await this.prisma.node.findUnique({
-      where: { id: nodeId },
-      include: {
-        project: {
-          include: {
-            members: true,
+    let node = preloadedNode;
+    if (!node || !node.project || !node.project.members) {
+      node = await this.prisma.node.findUnique({
+        where: { id: nodeId },
+        include: {
+          project: {
+            include: {
+              members: true,
+            },
           },
         },
-      },
-    });
+      });
+    }
 
     if (!node || node.deletedAt) {
       throw new NotFoundException('Task not found');
@@ -295,16 +353,45 @@ export class NodesService {
     const isOwnScope = isDirectOwnerOrAssignee || isInScopeSubtree;
     const effectiveRole = workspaceMembership?.role || projectMemberRecord?.role || Role.MEMBER;
     const isManagerOrLead = effectiveRole === Role.MANAGER || effectiveRole === Role.TEAM_LEAD;
-    const isProjectManager = isProjectOwner || isResponsibleManager;
+    const isProjectManager = isProjectOwner || isResponsibleManager || Boolean(isProjectMemberManager);
 
-    // A manager/team lead has management rights ONLY on data they own or that sits inside their own scope/subtree!
+    // Project Owner, Responsible Manager, Workspace Admin, or Project Member Manager has full management rights in this project
     let canManage = false;
-    if (isWorkspaceAdmin || isProjectOwner || isResponsibleManager) {
+    if (isWorkspaceAdmin || isProjectManager) {
       canManage = true;
     } else if (isManagerOrLead) {
       canManage = isOwnScope || isTeamLeadInScope;
     } else {
       canManage = false; // Members cannot manage
+    }
+
+    // Check if task is a descendant or ancestor of an assigned task for this actor
+    let isDescendantOfAssigned = false;
+    let isAncestorOfAssigned = false;
+    if (actorId && node.projectId && !canManage && !canWork && !isReviewer) {
+      const allProjectNodes = await this.prisma.node.findMany({
+        where: {
+          projectId: node.projectId,
+          deletedAt: null,
+        },
+        select: { id: true, path: true, ownerId: true, collaboratorIds: true },
+      });
+
+      const actorTasks = (allProjectNodes || []).filter(
+        (t) => t.ownerId === actorId || (Array.isArray(t.collaboratorIds) && (t.collaboratorIds as string[]).includes(actorId))
+      );
+
+      const nodePath = node.path || `/${node.id}`;
+      for (const t of actorTasks) {
+        const tPath = t.path || `/${t.id}`;
+        if (nodePath.startsWith(`${tPath}/`)) {
+          isDescendantOfAssigned = true;
+          break;
+        }
+        if (tPath.startsWith(`${nodePath}/`)) {
+          isAncestorOfAssigned = true;
+        }
+      }
     }
 
     // Confidentiality check
@@ -318,34 +405,29 @@ export class NodesService {
 
     let canView = false;
     if (isConfidential) {
-      const isPrivileged =
-        isWorkspaceAdmin ||
-        isPlatformAdmin ||
-        isProjectOwner ||
-        isResponsibleManager ||
-        isProjectMemberManager ||
-        isManagerOrLead;
-      const isAssociated = canWork || isReviewer || isDirectOwnerOrAssignee || isInScopeSubtree;
-      if (isPrivileged || isAssociated) {
+      const isAssociated = canWork || isReviewer || isProjectOwner || isResponsibleManager || isDescendantOfAssigned;
+      if (isAssociated) {
         canView = true;
       } else {
+        // Platform admin or unrelated manager alone does NOT get business content access to confidential tasks!
         const hasGrant = this.authService
           ? await this.authService.hasValidAccessGrant({ id: actorId, workspaceId: node.workspaceId }, node.projectId)
           : null;
         canView = Boolean(hasGrant);
       }
     } else {
-      // Non-confidential: Any workspace member, project member, project owner/manager, assignee, collaborator, reviewer, or privileged role can view
-      canView =
-        isWorkspaceMember ||
-        Boolean(projectMemberRecord) ||
-        isProjectOwner ||
-        isResponsibleManager ||
-        canWork ||
-        isReviewer ||
-        isWorkspaceAdmin ||
-        isPlatformAdmin ||
-        isManagerOrLead;
+      // Non-confidential: Managers in scope, assignees, collaborators, reviewers, descendants, and ancestors can view.
+      if (canManage || isWorkspaceAdmin || isPlatformAdmin) {
+        canView = true;
+      } else if (canWork || isReviewer || isDescendantOfAssigned || isAncestorOfAssigned) {
+        canView = true;
+      } else if (projectMemberRecord && projectMemberRecord.role !== Role.GUEST) {
+        // Full project members can view tasks in their project with read-only capabilities
+        canView = true;
+      } else {
+        // Limited project members (Role.GUEST) cannot view tasks assigned to others
+        canView = false;
+      }
     }
 
     const can = {
@@ -634,21 +716,6 @@ export class NodesService {
         }
       }
 
-      // Project scope: if project has restricted members, assignee must belong to the project
-      if (this.prisma.projectMember) {
-        const projectMembersCount = await this.prisma.projectMember.count({
-          where: { projectId },
-        });
-        if (projectMembersCount > 0) {
-          const inProject = await this.prisma.projectMember.findUnique({
-            where: { projectId_userId: { projectId, userId: assigneeId } },
-          });
-          if (!inProject) {
-            throw new ForbiddenException('Cross-project access denied: Assignee is not a member of this project.');
-          }
-        }
-      }
-
       // Team scope: if task has a team, assignee must belong to the team
       if (teamId && this.prisma.teamMember) {
         const inTeam = await this.prisma.teamMember.findUnique({
@@ -669,20 +736,6 @@ export class NodesService {
         });
         if (!revWsMember || (revWsMember.user && (!revWsMember.user.isActive || revWsMember.user.deletedAt))) {
           throw new BadRequestException('Designated reviewer does not belong to this organization or account is inactive.');
-        }
-      }
-
-      if (this.prisma.projectMember) {
-        const projectMembersCount = await this.prisma.projectMember.count({
-          where: { projectId },
-        });
-        if (projectMembersCount > 0) {
-          const inProject = await this.prisma.projectMember.findUnique({
-            where: { projectId_userId: { projectId, userId: reviewerId } },
-          });
-          if (!inProject) {
-            throw new ForbiddenException('Cross-project access denied: Reviewer is not a member of this project.');
-          }
         }
       }
     }
@@ -750,13 +803,32 @@ export class NodesService {
         }
         const parentNode = await this.prisma.node.findUnique({
           where: { id: dto.parentNodeId },
-          select: { ownerId: true },
+          select: { ownerId: true, collaboratorIds: true },
         });
-        if (parentNode?.ownerId !== actorId) {
+        const isParentOwner = parentNode?.ownerId === actorId;
+        const isParentCollab = Array.isArray(parentNode?.collaboratorIds) && (parentNode?.collaboratorIds as string[]).includes(actorId);
+        if (!isParentOwner && !isParentCollab) {
           throw new ForbiddenException('Forbidden: Members can only create sub-tasks under tasks assigned to them.');
         }
         if (dto.ownerId && dto.ownerId !== actorId) {
           throw new ForbiddenException('Forbidden: Members cannot assign tasks to others.');
+        }
+      }
+
+      // Rule: Completed or approved parent task cannot receive a new required subtask
+      if (dto.parentNodeId) {
+        const parentNode = await this.prisma.node.findUnique({
+          where: { id: dto.parentNodeId },
+          include: { status: true },
+        });
+        if (parentNode) {
+          const isParentClosed = parentNode.status?.category === 'done' || parentNode.approvalStatus === 'approved';
+          const isChildRequired = dto.isRequired !== false;
+          if (isParentClosed && isChildRequired) {
+            throw new BadRequestException(
+              'A completed or approved parent task cannot receive a new required subtask. Please reopen the parent task first or mark this child task as optional.'
+            );
+          }
         }
       }
 
@@ -776,14 +848,17 @@ export class NodesService {
       const membership = await this.prisma.membership.findUnique({
         where: { workspaceId_userId: { workspaceId, userId: actorId } },
       });
-      const check = canAssignTask({
-        userRole: membership?.role,
-        userId: actorId,
-        targetAssigneeId: dto.ownerId,
-        targetReviewerId: dto.reviewerId,
-      });
-      if (!check.allowed) {
-        throw new ForbiddenException(check.reason);
+      const isSelfAssignment = dto.ownerId === actorId && !dto.reviewerId && !dto.teamId;
+      if (!isSelfAssignment) {
+        const check = canAssignTask({
+          userRole: membership?.role,
+          userId: actorId,
+          targetAssigneeId: dto.ownerId,
+          targetReviewerId: dto.reviewerId,
+        });
+        if (!check.allowed) {
+          throw new ForbiddenException(check.reason);
+        }
       }
 
       await this.validateTaskAssignmentScope({
@@ -961,25 +1036,59 @@ export class NodesService {
       },
     });
 
+    // Auto-grant limited project membership to assignee and collaborators
+    if (dto.ownerId && this.prisma.projectMember) {
+      const existingMember = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId: dto.projectId, userId: dto.ownerId } },
+      });
+      if (!existingMember) {
+        await this.prisma.projectMember.create({
+          data: {
+            projectId: dto.projectId,
+            userId: dto.ownerId,
+            role: Role.GUEST,
+          },
+        }).catch(() => null);
+      }
+    }
+
+    if (Array.isArray(dto.collaboratorIds) && this.prisma.projectMember) {
+      for (const cid of dto.collaboratorIds) {
+        const existingCollab = await this.prisma.projectMember.findUnique({
+          where: { projectId_userId: { projectId: dto.projectId, userId: cid } },
+        });
+        if (!existingCollab) {
+          await this.prisma.projectMember.create({
+            data: {
+              projectId: dto.projectId,
+              userId: cid,
+              role: Role.GUEST,
+            },
+          }).catch(() => null);
+        }
+      }
+    }
+
     // Audit log
-    if (this.auditService) {
+    const effectiveActorId = actorId || dto.ownerId;
+    if (this.auditService && effectiveActorId) {
       await this.auditService.log({
         workspaceId,
         projectId: dto.projectId,
         entityName: 'Node',
         entityId: created.id,
-        actorId: created.ownerId || 'system',
+        actorId: effectiveActorId,
         action: 'CREATE',
         newValues: { title: created.title, status: (created.status?.labelI18n as any)?.en || created.status?.key },
       });
-    } else {
+    } else if (effectiveActorId) {
       await this.prisma.auditLog.create({
         data: {
           workspaceId,
           projectId: dto.projectId,
           entityName: 'Node',
           entityId: created.id,
-          actorId: created.ownerId || 'system',
+          actorId: effectiveActorId,
           action: 'CREATE',
           newValues: { title: created.title, status: (created.status?.labelI18n as any)?.en || created.status?.key },
         },
@@ -1285,9 +1394,9 @@ export class NodesService {
       sanitizedCustomData = valResult.sanitized;
     }
 
-    // Workflow Transition and Completion Rules Validation
+    // Workflow Transition and Completion Rules Validation (Bug 3: Completion is decoupled from progress percentage)
     const isStatusChanging = dto.statusId !== undefined && dto.statusId !== existing.statusId;
-    const isMarkingComplete = dto.progressPct === 100 || (isStatusChanging && dto.statusId);
+    const isMarkingComplete = isStatusChanging && Boolean(dto.statusId);
 
     if (isStatusChanging || isMarkingComplete) {
       let targetStatus = null;
@@ -1304,7 +1413,7 @@ export class NodesService {
         ? await this.prisma.status.findUnique({ where: { id: existing.statusId } })
         : null;
 
-      const targetCategory = targetStatus?.category || (dto.progressPct === 100 ? 'done' : 'active');
+      const targetCategory = targetStatus?.category || 'active';
 
       // Rule 2 & 8: Check open children if target category is 'done'
       const uncompletedChildrenCount = await this.prisma.node.count({
@@ -1478,31 +1587,77 @@ export class NodesService {
       }
     }
 
-    // Create audit log for assignment change
+    // Bug 1: Automatic project membership grant & reassignment revocation
+    if (dto.ownerId && this.prisma.projectMember) {
+      const existingMember = await this.prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId: existing.projectId, userId: dto.ownerId } },
+      });
+      if (!existingMember) {
+        await this.prisma.projectMember.create({
+          data: {
+            projectId: existing.projectId,
+            userId: dto.ownerId,
+            role: Role.GUEST,
+          },
+        }).catch(() => null);
+      }
+    }
+
+    if (existing.ownerId && dto.ownerId !== undefined && existing.ownerId !== dto.ownerId && this.prisma.projectMember) {
+      const allProjectNodes = await this.prisma.node.findMany({
+        where: {
+          projectId: existing.projectId,
+          deletedAt: null,
+          id: { not: existing.id },
+        },
+        select: { id: true, ownerId: true, collaboratorIds: true },
+      });
+
+      const otherTasksCount = (allProjectNodes || []).filter(
+        (t) => t.ownerId === existing.ownerId || (Array.isArray(t.collaboratorIds) && (t.collaboratorIds as string[]).includes(existing.ownerId))
+      ).length;
+
+      const project = await this.prisma.project.findUnique({
+        where: { id: existing.projectId },
+        select: { ownerId: true, responsibleManagerId: true },
+      });
+
+      const isProjectPrivileged = project?.ownerId === existing.ownerId || project?.responsibleManagerId === existing.ownerId;
+      if (otherTasksCount === 0 && !isProjectPrivileged) {
+        await this.prisma.projectMember.deleteMany({
+          where: { projectId: existing.projectId, userId: existing.ownerId },
+        }).catch(() => null);
+      }
+    }
+
+    // Create audit log for assignment / reassignment
+    const effectiveAuditActor = actorId || existing.ownerId;
     if (
       (dto.ownerId !== undefined && dto.ownerId !== existing.ownerId) ||
       (dto.reviewerId !== undefined && dto.reviewerId !== existing.reviewerId)
     ) {
-      if (this.auditService) {
+      const isReassignment = dto.ownerId !== undefined && dto.ownerId !== existing.ownerId;
+      const actionType = isReassignment ? 'REASSIGNMENT' : 'ASSIGNMENT_CHANGE';
+      if (this.auditService && effectiveAuditActor) {
         await this.auditService.log({
           workspaceId: existing.workspaceId,
           projectId: existing.projectId,
           entityName: 'Node',
           entityId: existing.id,
-          actorId: actorId || existing.ownerId || 'system',
-          action: 'ASSIGNMENT_CHANGE',
+          actorId: effectiveAuditActor,
+          action: actionType,
           oldValues: { ownerId: existing.ownerId, reviewerId: existing.reviewerId },
-          newValues: { ownerId: updated.ownerId, reviewerId: updated.reviewerId },
+          newValues: { ownerId: updated.ownerId, reviewerId: updated.reviewerId, reason: (dto as any).reassignReason || 'Task reassigned' },
         });
-      } else {
+      } else if (effectiveAuditActor) {
         await this.prisma.auditLog.create({
           data: {
             workspaceId: existing.workspaceId,
             projectId: existing.projectId,
             entityName: 'Node',
             entityId: existing.id,
-            actorId: actorId || existing.ownerId || 'system',
-            action: 'ASSIGNMENT_CHANGE',
+            actorId: effectiveAuditActor,
+            action: actionType,
             oldValues: { ownerId: existing.ownerId, reviewerId: existing.reviewerId },
             newValues: { ownerId: updated.ownerId, reviewerId: updated.reviewerId },
           },

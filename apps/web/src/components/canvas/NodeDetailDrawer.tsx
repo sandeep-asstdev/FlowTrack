@@ -44,7 +44,10 @@ import {
   ExternalLink,
   Zap,
   CheckSquare,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { compressImage } from '../../utils/imageCompressor';
 import { getRolePermissions, isComplexApproval } from '../../utils/permissions';
 import { groupMembersByRole } from '../../utils/memberGrouping';
 
@@ -164,9 +167,30 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   // Subtasks / Checklist
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [newSubtaskOwnerId, setNewSubtaskOwnerId] = useState('');
+  const [newSubtaskDueDate, setNewSubtaskDueDate] = useState('');
   const [creatingSubtask, setCreatingSubtask] = useState(false);
   const [newChecklistText, setNewChecklistText] = useState('');
   const [isSavingChecklist, setIsSavingChecklist] = useState(false);
+
+  // Phase 11 Bug 4: Photo Evidence & Work Updates
+  const [workUpdates, setWorkUpdates] = useState<any[]>([]);
+  const [updateNote, setUpdateNote] = useState('');
+  const [stagedFiles, setStagedFiles] = useState<
+    Array<{
+      file: File;
+      name: string;
+      size: number;
+      type: string;
+      category: 'Photo' | 'Document' | 'Drawing' | 'Other';
+      caption: string;
+      dataUrl: string;
+    }>
+  >([]);
+  const [isPostingUpdate, setIsPostingUpdate] = useState(false);
+  const [zoomedPhotoUrl, setZoomedPhotoUrl] = useState<string | null>(null);
+  const mobileCameraRef = useRef<HTMLInputElement>(null);
+  const mobileFilesRef = useRef<HTMLInputElement>(null);
 
   const handleToggleChecklistItem = async (itemId: string) => {
     if (!nodeId) return;
@@ -381,6 +405,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       try {
         const readiness = await ApiClient.getNodeCompletionReadiness(id);
         setCompletionReadiness(readiness);
+      } catch {}
+
+      try {
+        const updates = await ApiClient.getWorkUpdates(id);
+        setWorkUpdates(updates || []);
       } catch {}
 
       try {
@@ -633,7 +662,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
-  const assignedUser = node.owner || workspaceMembers.find((m) => (m.user?.id || m.userId) === ownerId)?.user || (customData?.assigneeName ? { fullName: customData.assigneeName, avatarUrl: customData.assigneeAvatar } : null);
+  const assignedUser = node.owner || workspaceMembers.find((m) => (m.user?.id || m.userId) === ownerId)?.user || null;
   const canSubmitWork = Boolean(
     user?.id &&
     (node.ownerId === user.id || !node.ownerId || currentRole === 'TEAM_LEAD' || currentRole === 'MANAGER' || currentRole === 'ADMIN')
@@ -744,9 +773,10 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         nodeTypeId: node.nodeTypeId,
         title: newSubtaskTitle.trim(),
         description: `Subtask of ${node.title}`,
+        ownerId: newSubtaskOwnerId || undefined,
+        dueDate: newSubtaskDueDate ? new Date(newSubtaskDueDate).toISOString() : undefined,
         positionX: childX,
         positionY: childY,
-        progressPct: 0,
       });
 
       // Connect parent to child
@@ -759,10 +789,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       });
 
       setNewSubtaskTitle('');
+      setNewSubtaskOwnerId('');
+      setNewSubtaskDueDate('');
       await loadNode(node.id);
       onNodeUpdated();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create subtask', err);
+      alert(err.message || 'Failed to create subtask');
     } finally {
       setCreatingSubtask(false);
     }
@@ -789,6 +822,98 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       alert(err.message || 'Failed to upload document');
     } finally {
       setUploadingDoc(false);
+    }
+  };
+
+  // Phase 11 Bug 4: File Selection & Compression for Work Updates
+  const handleSelectFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newItems: Array<{
+      file: File;
+      name: string;
+      size: number;
+      type: string;
+      category: 'Photo' | 'Document' | 'Drawing' | 'Other';
+      caption: string;
+      dataUrl: string;
+    }> = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.size > 50 * 1024 * 1024) {
+        alert(`File "${f.name}" exceeds the 50MB limit.`);
+        continue;
+      }
+      try {
+        if (f.type.startsWith('image/') && f.type !== 'image/svg+xml') {
+          const compressed = await compressImage(f);
+          newItems.push({
+            file: compressed.file,
+            name: f.name,
+            size: compressed.compressedSize,
+            type: compressed.file.type,
+            category: 'Photo',
+            caption: '',
+            dataUrl: compressed.dataUrl,
+          });
+        } else {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(f);
+          });
+          const cat = f.name.endsWith('.dwg') || f.name.endsWith('.dxf') ? 'Drawing' : 'Document';
+          newItems.push({
+            file: f,
+            name: f.name,
+            size: f.size,
+            type: f.type || 'application/octet-stream',
+            category: cat,
+            caption: '',
+            dataUrl,
+          });
+        }
+      } catch (err: any) {
+        console.error('File processing error:', err);
+        alert(`Failed to process ${f.name}: ${err.message}`);
+      }
+    }
+    setStagedFiles((prev) => [...prev, ...newItems]);
+    e.target.value = '';
+  };
+
+  const handlePostWorkUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!node || (!updateNote.trim() && stagedFiles.length === 0)) return;
+    try {
+      setIsPostingUpdate(true);
+      const attachments = stagedFiles.map((s) => ({
+        fileName: s.name,
+        fileType: s.type,
+        fileSize: s.size,
+        fileUrl: s.dataUrl,
+        category: s.category,
+        caption: s.caption || undefined,
+      }));
+
+      await ApiClient.createWorkUpdate(node.id, {
+        notes: updateNote.trim(),
+        attachments,
+      });
+
+      setUpdateNote('');
+      setStagedFiles([]);
+      const updates = await ApiClient.getWorkUpdates(node.id);
+      setWorkUpdates(updates || []);
+      await loadNode(node.id);
+      onNodeUpdated();
+    } catch (err: any) {
+      console.error('Failed to post work update:', err);
+      alert(err.message || 'Failed to post work update');
+    } finally {
+      setIsPostingUpdate(false);
     }
   };
 
@@ -1335,20 +1460,8 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     onChange={(e) => {
                       const nextOwner = e.target.value;
                       setOwnerId(nextOwner);
-                      const chosen = workspaceMembers.find(
-                        (m) => (m.user?.id || m.userId) === nextOwner
-                      );
-                      const assigneeName = chosen?.user?.fullName || chosen?.user?.email;
-                      const assigneeAvatar = chosen?.user?.avatarUrl;
-                      const updatedCustom = {
-                        ...customData,
-                        assigneeName: assigneeName || undefined,
-                        assigneeAvatar: assigneeAvatar || undefined,
-                      };
-                      setCustomData(updatedCustom);
                       saveNodeUpdates({
                         ownerId: nextOwner || null,
-                        customData: updatedCustom,
                       });
                     }}
                     className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1741,24 +1854,34 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
             )}
 
-            {/* Work Progress Slider */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+            {/* Factual Work Status (No Progress %) */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-bold">
-                <span className="text-slate-700 dark:text-slate-300">Work Progress</span>
-                <span className="text-blue-600 dark:text-blue-400 font-mono">{progressPct}%</span>
+                <span className="text-slate-700 dark:text-slate-300">Task Status & Breakdown</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  node.status?.category === 'done'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                }`}>
+                  {node.status?.labelI18n?.en || node.status?.name || node.state || 'Active'}
+                </span>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                value={progressPct}
-                onChange={(e) => setProgressPct(Number(e.target.value))}
-                onMouseUp={() => saveNodeUpdates({ progressPct })}
-                onTouchEnd={() => saveNodeUpdates({ progressPct })}
-                disabled={!can.work && !can.manage}
-                className="w-full accent-blue-600 cursor-pointer"
-              />
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  <div className="text-[10px] text-slate-400 font-semibold">Checklist Items</div>
+                  <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                    {checklist.length > 0 ? `${checklist.filter((c) => c.completed).length} of ${checklist.length} done` : 'None required'}
+                  </div>
+                </div>
+                <div className="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  <div className="text-[10px] text-slate-400 font-semibold">Child Subtasks</div>
+                  <div className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                    {(node.children || []).length > 0
+                      ? `${(node.children || []).filter((c: any) => c.status?.category === 'done').length} of ${(node.children || []).length} completed`
+                      : 'None'}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Progressive Disclosure: Advanced Settings */}
@@ -1921,57 +2044,121 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
             </div>
 
-            {/* 2. Child Subtasks / Hierarchy */}
-            {((node.children || []).length > 0 || onDrillDown) && (
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
+            {/* 2. Subtasks (Child tasks with their own owner and due date) */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Child Subtasks / Hierarchy ({(node.children || []).length})</span>
+                    <span>Subtasks (child tasks with their own owner and due date)</span>
                   </h4>
-                  {onDrillDown && (
-                    <button
-                      type="button"
-                      onClick={() => onDrillDown({ id: node.id, title: node.title })}
-                      className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
-                    >
-                      <span>Open Sub-Canvas</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
-                  )}
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {(node.children || []).length} child tasks under this task
+                  </p>
                 </div>
+                {onDrillDown && (
+                  <button
+                    type="button"
+                    onClick={() => onDrillDown({ id: node.id, title: node.title })}
+                    className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1 min-h-[44px]"
+                  >
+                    <span>Open Sub-Canvas</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
 
-                {/* Subtasks List */}
-                <div className="space-y-1.5">
-                  {(node.children || []).length === 0 ? (
-                    <p className="text-xs text-slate-400 py-2 text-center italic">
-                      No nested child nodes in hierarchy
-                    </p>
-                  ) : (
-                    node.children.map((sub: any) => (
-                      <div
-                        key={sub.id}
-                        className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              sub.status?.category === 'done' ? 'bg-emerald-500' : 'bg-blue-500'
-                            }`}
-                          />
-                          <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
+              {/* Add Subtask Form */}
+              {(can.manage || can.work) && (
+                <form onSubmit={handleCreateSubtask} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    Add Child Subtask
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    placeholder="Subtask title (e.g. Inspect plumbing connection)..."
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px]"
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <select
+                      value={newSubtaskOwnerId}
+                      onChange={(e) => setNewSubtaskOwnerId(e.target.value)}
+                      className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white min-h-[44px]"
+                    >
+                      <option value="">-- Assignee (Optional) --</option>
+                      {groupMembersByRole(workspaceMembers).map((group) => (
+                        <optgroup key={group.role} label={group.groupName}>
+                          {group.members.map((m: any) => {
+                            const u = m.user || {};
+                            const uid = u.id || m.userId;
+                            return (
+                              <option key={m.id || uid} value={uid}>
+                                {u.fullName || u.email || 'Member'}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <input
+                      type="date"
+                      value={newSubtaskDueDate}
+                      onChange={(e) => setNewSubtaskDueDate(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white min-h-[44px]"
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={creatingSubtask || !newSubtaskTitle.trim()}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm min-h-[44px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      {creatingSubtask && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Add Subtask</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Subtasks List */}
+              <div className="space-y-1.5">
+                {(node.children || []).length === 0 ? (
+                  <p className="text-xs text-slate-400 py-2 text-center italic">
+                    No child subtasks yet. Add one above.
+                  </p>
+                ) : (
+                  node.children.map((sub: any) => (
+                    <div
+                      key={sub.id}
+                      onClick={() => loadNode(sub.id)}
+                      className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-600 cursor-pointer flex items-center justify-between gap-2 min-h-[44px] transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            sub.status?.category === 'done' ? 'bg-emerald-500' : 'bg-blue-500'
+                          }`}
+                        />
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
                             {sub.title}
                           </span>
+                          <span className="text-[10px] text-slate-400">
+                            {sub.owner?.fullName || 'Unassigned'} {sub.dueDate ? `• Due ${formatShortDate(sub.dueDate)}` : ''}
+                          </span>
                         </div>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                          {sub.status?.labelI18n?.en || sub.status?.name || sub.progressPct + '%'}
-                        </span>
                       </div>
-                    ))
-                  )}
-                </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0">
+                        {sub.status?.labelI18n?.en || sub.status?.name || 'Active'}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
-            )}
+            </div>
 
             {/* 2. Dependencies & Blockers */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
@@ -2021,7 +2208,243 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               )}
             </div>
 
-            {/* 3. Attachments & Evidence Deliverables */}
+            {/* 3. Post Work Update & Photo Evidence (Phase 11 Bug 4) */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Post Work Update &amp; Photo Evidence</span>
+                </h4>
+              </div>
+
+              <form onSubmit={handlePostWorkUpdate} className="space-y-3">
+                <textarea
+                  value={updateNote}
+                  onChange={(e) => setUpdateNote(e.target.value)}
+                  placeholder="Describe what you worked on, status changes, or site conditions..."
+                  rows={2}
+                  className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none min-h-[44px]"
+                />
+
+                {/* Mobile Camera & File Selection */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="file"
+                    ref={mobileCameraRef}
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleSelectFiles}
+                    className="hidden"
+                  />
+                  <input
+                    type="file"
+                    ref={mobileFilesRef}
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.dwg,.dxf"
+                    onChange={handleSelectFiles}
+                    className="hidden"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => mobileCameraRef.current?.click()}
+                    className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-400 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 min-h-[44px] transition-colors"
+                  >
+                    <Camera className="w-4 h-4 text-blue-500" />
+                    <span>Take Photo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => mobileFilesRef.current?.click()}
+                    className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-400 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 min-h-[44px] transition-colors"
+                  >
+                    <ImageIcon className="w-4 h-4 text-emerald-500" />
+                    <span>Add Photos or Files</span>
+                  </button>
+
+                  <div className="ml-auto">
+                    <button
+                      type="submit"
+                      disabled={isPostingUpdate || (!updateNote.trim() && stagedFiles.length === 0)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm min-h-[44px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      {isPostingUpdate && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Post Update</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Staged File Previews */}
+                {stagedFiles.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Staged Files ({stagedFiles.length})
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {stagedFiles.map((sf, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2"
+                        >
+                          <div className="flex items-start gap-2">
+                            {sf.category === 'Photo' ? (
+                              <img
+                                src={sf.dataUrl}
+                                alt={sf.name}
+                                className="w-12 h-12 rounded-lg object-cover border border-slate-100 dark:border-slate-700 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center shrink-0">
+                                <FileCheck className="w-6 h-6 text-blue-500" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
+                                {sf.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {Math.round(sf.size / 1024)} KB
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setStagedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                              className="p-1 text-slate-400 hover:text-rose-500 rounded min-h-[32px] min-w-[32px] flex items-center justify-center"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <select
+                              value={sf.category}
+                              onChange={(e) => {
+                                const nextCat = e.target.value as any;
+                                setStagedFiles((prev) =>
+                                  prev.map((item, i) => (i === idx ? { ...item, category: nextCat } : item))
+                                );
+                              }}
+                              className="p-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                            >
+                              <option value="Photo">Photo</option>
+                              <option value="Document">Document</option>
+                              <option value="Drawing">Drawing</option>
+                              <option value="Other">Other</option>
+                            </select>
+                            <input
+                              type="text"
+                              placeholder="Caption..."
+                              value={sf.caption}
+                              onChange={(e) => {
+                                const nextCap = e.target.value;
+                                setStagedFiles((prev) =>
+                                  prev.map((item, i) => (i === idx ? { ...item, caption: nextCap } : item))
+                                );
+                              }}
+                              className="p-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </form>
+
+              {/* Updates Timeline with photo gallery & documents */}
+              <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Timeline ({workUpdates.length})
+                </div>
+                {workUpdates.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-2 text-center italic">
+                    No work updates posted yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {workUpdates.map((u: any) => {
+                      const links = Array.isArray(u.links) ? u.links : [];
+                      return (
+                        <div
+                          key={u.id}
+                          className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2 text-xs"
+                        >
+                          <div className="flex items-center justify-between text-[11px] text-slate-400">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {u.actor?.fullName || u.actor?.email || 'Member'}
+                            </span>
+                            <span>{new Date(u.createdAt).toLocaleString()}</span>
+                          </div>
+                          {u.notes && (
+                            <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                              {u.notes}
+                            </p>
+                          )}
+                          {links.length > 0 && (
+                            <div className="space-y-1.5 pt-1">
+                              {/* Photo attachments with tap-to-zoom */}
+                              <div className="flex flex-wrap gap-2">
+                                {links
+                                  .filter((att: any) => att.fileUrl && (att.category === 'Photo' || att.fileType?.startsWith('image/')))
+                                  .map((att: any, attIdx: number) => (
+                                    <div key={attIdx} className="space-y-0.5">
+                                      <img
+                                        src={att.fileUrl}
+                                        alt={att.fileName || 'Photo'}
+                                        onClick={() => setZoomedPhotoUrl(att.fileUrl)}
+                                        className="w-20 h-20 rounded-lg object-cover border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-90 transition-opacity"
+                                        title="Tap to zoom"
+                                      />
+                                      {att.caption && (
+                                        <span className="text-[10px] text-slate-500 block truncate max-w-[80px]">
+                                          {att.caption}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                              </div>
+
+                              {/* Document attachments */}
+                              <div className="space-y-1">
+                                {links
+                                  .filter((att: any) => !(att.category === 'Photo' || att.fileType?.startsWith('image/')))
+                                  .map((att: any, attIdx: number) => (
+                                    <div
+                                      key={attIdx}
+                                      className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2"
+                                    >
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <FileCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                        <span className="text-xs font-medium truncate text-slate-800 dark:text-slate-200">
+                                          {att.fileName || 'Attachment'}
+                                        </span>
+                                      </div>
+                                      {att.fileUrl && (
+                                        <a
+                                          href={att.fileUrl}
+                                          download={att.fileName || 'attachment'}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[11px] font-bold text-blue-600 hover:underline shrink-0"
+                                        >
+                                          Download
+                                        </a>
+                                      )}
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Attachments & Evidence Deliverables */}
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -2613,6 +3036,27 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           onNodeUpdated();
         }}
       />
+      {/* Photo Evidence Lightbox */}
+      {zoomedPhotoUrl && (
+        <div
+          className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[250] flex items-center justify-center p-4 cursor-pointer animate-in fade-in duration-150"
+          onClick={() => setZoomedPhotoUrl(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] p-2" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={zoomedPhotoUrl}
+              alt="Evidence zoom"
+              className="max-w-full max-h-[85vh] rounded-2xl object-contain shadow-2xl"
+            />
+            <button
+              onClick={() => setZoomedPhotoUrl(null)}
+              className="absolute top-4 right-4 p-2 bg-slate-900/80 text-white rounded-full hover:bg-slate-900 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

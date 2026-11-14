@@ -263,6 +263,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
   // Simplified Task Creation Modal State (Section 5)
   const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [parentTaskId, setParentTaskId] = useState<string | null>(null);
   const [taskName, setTaskName] = useState('');
   const [taskAssigneeId, setTaskAssigneeId] = useState('');
   const [taskDueDate, setTaskDueDate] = useState('');
@@ -434,58 +435,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     [project.id, currentParent.id]
   );
 
-  // Add interconnected child task directly below parent node (User Request 7)
+  // Add interconnected child task directly below parent node (Bug 2)
   const handleAddChildNode = useCallback(
-    async (parentNodeId: string) => {
-      try {
-        const parentNode = nodesRef.current.find((n) => n.id === parentNodeId);
-        if (!parentNode) return;
-        const typeObj =
-          nodeTypesListRef.current.find((t: any) => t.key === 'task') || nodeTypesListRef.current[0];
-        if (!typeObj) return;
-
-        setSavedStatus('saving');
-        const parentTitle = (parentNode.data as any)?.title || 'Task';
-
-        // Place below parent with collision avoidance
-        const targetPos = getNonOverlappingPosition(
-          { x: parentNode.position.x, y: parentNode.position.y + 230 },
-          nodesRef.current,
-          'down'
-        );
-
-        const newNode = await ApiClient.createNode({
-          projectId: project.id,
-          parentNodeId: parentNode.id,
-          nodeTypeId: typeObj.id,
-          title: `Child: ${parentTitle.slice(0, 16)}`,
-          description: `Interconnected sub-task of ${parentTitle}`,
-          positionX: targetPos.x,
-          positionY: targetPos.y,
-          progressPct: 0,
-        });
-
-        // Interconnect parent to child with a sequence edge!
-        await ApiClient.createEdge({
-          projectId: project.id,
-          sourceNodeId: parentNode.id,
-          targetNodeId: newNode.id,
-          kind: 'sequence',
-          metadata: {
-            sourceHandle: 'bottom',
-            targetHandle: 'top',
-          },
-        });
-
-        await loadGraph();
-        setNodeContextMenu(null);
-        setSavedStatus('saved');
-        showToast('Interconnected child task added below');
-      } catch (err) {
-        console.error('Failed to add child node:', err);
-      }
+    (parentNodeId: string) => {
+      setParentTaskId(parentNodeId);
+      setTaskName('');
+      setTaskDescription('');
+      setTaskAssigneeId('');
+      setTaskDueDate('');
+      setTaskPriority('MEDIUM');
+      setCreateTaskModalOpen(true);
     },
-    [project.id, currentParent.id]
+    []
   );
 
   // Like / Kudos toggle handler (User Request 8)
@@ -561,24 +522,60 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       };
       const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
 
+      // Smart viewport position or place below parent with collision avoidance
+      let targetX = smartPos.x;
+      let targetY = smartPos.y;
+
+      if (parentTaskId) {
+        const parentNode = nodesRef.current.find((n) => n.id === parentTaskId);
+        if (parentNode) {
+          const childPos = getNonOverlappingPosition(
+            { x: parentNode.position.x, y: parentNode.position.y + 230 },
+            nodesRef.current,
+            'down'
+          );
+          targetX = childPos.x;
+          targetY = childPos.y;
+        }
+      }
+
       const created = await ApiClient.createNode({
         projectId: project.id,
-        parentNodeId: currentParent.id,
+        parentNodeId: parentTaskId || currentParent.id,
         nodeTypeId: defaultTaskType.id,
         title: taskName.trim(),
         description: taskDescription.trim() || undefined,
         ownerId: taskAssigneeId || undefined,
         dueDate: taskDueDate ? new Date(taskDueDate).toISOString() : undefined,
         priority: taskPriority as any,
-        positionX: smartPos.x,
-        positionY: smartPos.y,
-        progressPct: 0,
+        positionX: targetX,
+        positionY: targetY,
         customData: {
           durationDays: taskDurationDays > 0 ? Number(taskDurationDays) : 1,
           approvalStatus: taskRequiresApproval ? 'pending' : 'not_required',
         },
       });
 
+      if (parentTaskId && created?.id) {
+        // Interconnect parent to child with a sequence edge
+        try {
+          await ApiClient.createEdge({
+            projectId: project.id,
+            sourceNodeId: parentTaskId,
+            targetNodeId: created.id,
+            kind: 'sequence',
+            metadata: {
+              sourceHandle: 'bottom',
+              targetHandle: 'top',
+            },
+          });
+        } catch (edgeErr) {
+          console.warn('Failed to auto-create sequence edge to child task:', edgeErr);
+        }
+      }
+
+      const wasChild = Boolean(parentTaskId);
+      setParentTaskId(null);
       setTaskName('');
       setTaskDescription('');
       setTaskAssigneeId('');
@@ -593,7 +590,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       if (created?.id) {
         setSelectedNodeId(created.id);
       }
-      showToast(`Task "${taskName.trim()}" created successfully`);
+      showToast(wasChild ? `Child task "${taskName.trim()}" created successfully` : `Task "${taskName.trim()}" created successfully`);
     } catch (err: any) {
       console.error('Failed to create task:', err);
       showToast(err.message || 'Failed to create task');
@@ -669,7 +666,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             statusName: n.status?.labelI18n?.en || n.status?.name || n.status?.key || 'To Do',
             statusCategory: n.status?.category || 'active',
             statusColour: n.status?.colour || '#3b82f6',
-            progressPct: n.progressPct,
             priority: n.priority,
             nodeTypeKey,
             isGroup,
@@ -694,9 +690,9 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             reviewerId: n.reviewerId,
             teamId: n.teamId,
             team: n.team,
-            ownerName: n.owner?.fullName || n.owner?.email || n.customData?.assigneeName,
-            ownerAvatar: n.owner?.avatarUrl || n.customData?.assigneeAvatar,
-            isLive: n.customData?.isLive !== undefined ? n.customData.isLive : (n.owner?.fullName ? true : false),
+            ownerName: n.owner?.fullName || n.owner?.email,
+            ownerAvatar: n.owner?.avatarUrl,
+            isLive: Boolean(n.owner?.fullName || n.owner?.email),
             lastRemark: n.remarks?.[0]?.body,
             likes: n.customData?.likes || { count: 0, users: [] },
             collaborators: n.customData?.collaboratorIds || [],
@@ -2117,7 +2113,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             onSelectNode={(id) => {
               setSelectedNodeId(id);
             }}
-            onAddNode={() => {
+            onAddNode={(parentId?: string) => {
+              setParentTaskId(parentId || null);
               setTaskName('');
               setTaskDescription('');
               setTaskAssigneeId('');
@@ -2438,16 +2435,19 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                 </div>
                 <div>
                   <h3 id="create-task-title" className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight">
-                    Add Task
+                    {parentTaskId ? 'Add Subtask (Child Task)' : 'Add Task'}
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Create a task on the project canvas
+                    {parentTaskId ? 'Create an interconnected child task with its own owner and due date' : 'Create a task on the project canvas'}
                   </p>
                 </div>
               </div>
               <button
                 id="create-task-close-btn"
-                onClick={() => setCreateTaskModalOpen(false)}
+                onClick={() => {
+                  setParentTaskId(null);
+                  setCreateTaskModalOpen(false);
+                }}
                 aria-label="Close"
                 className="w-10 h-10 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
               >
@@ -2597,7 +2597,10 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               <div className="pt-2 flex items-center justify-end gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setCreateTaskModalOpen(false)}
+                  onClick={() => {
+                    setParentTaskId(null);
+                    setCreateTaskModalOpen(false);
+                  }}
                   className="px-4 py-2.5 min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   Cancel
@@ -2609,7 +2612,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                   className="px-5 py-2.5 min-h-[44px] bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5"
                 >
                   {isSubmittingTask && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{isSubmittingTask ? 'Creating...' : 'Create Task'}</span>
+                  <span>{isSubmittingTask ? 'Creating...' : parentTaskId ? 'Add Subtask' : 'Create Task'}</span>
                 </button>
               </div>
             </form>

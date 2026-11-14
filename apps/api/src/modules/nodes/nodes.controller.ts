@@ -55,18 +55,24 @@ export class NodesController {
     }
     const effectiveOwnerId = assignedToMe === 'true' ? req.user?.id : ownerId;
     const effectiveAssignedById = assignedByMe === 'true' ? req.user?.id : assignedById;
-    return this.nodesService.listProjectNodes(projectId, parentNodeId, {
-      search,
-      customFieldKey,
-      customFieldValue,
-      ownerId: effectiveOwnerId,
-      assignedById: effectiveAssignedById,
-      teamId,
-      statusId,
-      approvalStatus,
-      dueBefore,
-      dueAfter,
-    });
+    return this.nodesService.listProjectNodes(
+      projectId,
+      parentNodeId,
+      {
+        search,
+        customFieldKey,
+        customFieldValue,
+        ownerId: effectiveOwnerId,
+        assignedById: effectiveAssignedById,
+        teamId,
+        statusId,
+        approvalStatus,
+        dueBefore,
+        dueAfter,
+      },
+      req.user?.id,
+      req.user?.role
+    );
   }
 
   @Get('review-queue')
@@ -170,8 +176,8 @@ export class NodesController {
   }
 
   @Get(':id/work-updates')
-  listWorkUpdates(@Param('id') id: string) {
-    return this.lifecycleService.listWorkUpdates(id);
+  listWorkUpdates(@Req() req: any, @Param('id') id: string) {
+    return this.lifecycleService.listWorkUpdates(id, req.user?.id);
   }
 
   @Post(':id/evidence')

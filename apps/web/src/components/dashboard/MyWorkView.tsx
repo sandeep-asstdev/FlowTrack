@@ -104,7 +104,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
     } else if (filterStatus === 'overdue') {
       matchesStatus = Boolean(task.isOverdue);
     } else if (filterStatus === 'done') {
-      matchesStatus = task.statusCategory === 'done' || task.progressPct === 100;
+      matchesStatus = task.statusCategory === 'done';
     }
 
     return matchesSearch && matchesPriority && matchesStatus;
@@ -415,22 +415,18 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                         {task.title}
                       </h3>
 
-                      {/* Progress Bar & Quick Complete */}
-                      <div className="mt-3">
-                        <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
-                          <span>{task.statusKey}</span>
-                          <span className={isTaskDone ? 'text-emerald-600 font-bold' : ''}>
-                            {Math.round(task.progressPct)}%
-                          </span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              isTaskDone ? 'bg-emerald-500' : 'bg-blue-600'
-                            }`}
-                            style={{ width: `${Math.min(100, Math.max(0, task.progressPct))}%` }}
-                          />
-                        </div>
+                      {/* Factual Status Indicator */}
+                      <div className="mt-3 flex items-center justify-between text-[11px] font-semibold">
+                        <span className={`px-2 py-0.5 rounded-full ${
+                          isTaskDone
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                        }`}>
+                          {task.statusKey || (isTaskDone ? 'Done' : 'Active')}
+                        </span>
+                        {task.isOverdue && !isTaskDone && (
+                          <span className="text-[10px] text-rose-500 font-bold">Overdue</span>
+                        )}
                       </div>
                     </div>
 

@@ -553,6 +553,33 @@ export class ApiClient {
     return this.request(`/documents/${docId}/verify-evidence`, { method: 'POST', body: JSON.stringify(body) });
   }
 
+  static getWorkUpdates(nodeId: string) {
+    return this.request(`/nodes/${nodeId}/work-updates`);
+  }
+
+  static createWorkUpdate(
+    nodeId: string,
+    body: {
+      notes?: string;
+      attachments?: Array<{
+        fileName: string;
+        fileType: string;
+        fileSize: number;
+        fileUrl: string;
+        category?: string;
+        caption?: string;
+      }>;
+      links?: string[];
+      status?: string;
+      blockers?: string;
+    }
+  ) {
+    return this.request(`/nodes/${nodeId}/work-updates`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
   static getNodeHistory(nodeId: string) {
     return this.request(`/nodes/${nodeId}/history`);
   }

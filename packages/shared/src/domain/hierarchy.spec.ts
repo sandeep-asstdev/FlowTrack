@@ -54,10 +54,15 @@ describe('Hierarchy Validation Engine', () => {
       { id: 'L3', parentNodeId: 'L2' },
       { id: 'L4', parentNodeId: 'L3' },
       { id: 'L5', parentNodeId: 'L4' },
-      { id: 'L6', parentNodeId: null },
+      { id: 'L6', parentNodeId: 'L5' },
+      { id: 'L7', parentNodeId: 'L6' },
+      { id: 'L8', parentNodeId: 'L7' },
+      { id: 'L9', parentNodeId: 'L8' },
+      { id: 'L10', parentNodeId: 'L9' },
+      { id: 'L11', parentNodeId: null },
     ];
 
-    const res = validateParentAssignment('L6', 'L5', deepChain);
+    const res = validateParentAssignment('L11', 'L10', deepChain);
     expect(res.isValid).toBe(false);
     expect(res.error).toContain(`Maximum allowed depth is ${MAX_HIERARCHY_DEPTH}`);
   });

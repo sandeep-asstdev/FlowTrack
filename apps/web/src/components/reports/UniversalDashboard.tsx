@@ -378,25 +378,19 @@ export const UniversalDashboard: React.FC<UniversalDashboardProps> = ({
 
                 {/* Progress & Milestone Health Row */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Physical Progress Card */}
+                  {/* Physical Completion Card */}
                   <div className="md:col-span-2 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                          Physical Completion Index
+                          Task Completion Overview
                         </div>
                         <span className="text-2xl font-black text-blue-600 dark:text-blue-400">
-                          {metrics.overview.physicalProgressPct}%
+                          {metrics.overview.completedTasks} / {metrics.overview.totalTasks} Done
                         </span>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-3.5 rounded-full overflow-hidden p-0.5">
-                        <div
-                          className="bg-gradient-to-r from-blue-600 to-indigo-600 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${metrics.overview.physicalProgressPct}%` }}
-                        ></div>
-                      </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                        Derived strictly from task completion weights and node progress. Strictly separated from financial expenditure.
+                        Derived strictly from verified task completions. Strictly separated from financial expenditure.
                       </p>
                     </div>
 
@@ -413,16 +407,10 @@ export const UniversalDashboard: React.FC<UniversalDashboardProps> = ({
                           >
                             <div className="flex items-center justify-between text-xs font-bold mb-1">
                               <span className="truncate max-w-[140px] text-slate-800 dark:text-slate-200">{st.name}</span>
-                              <span className="text-blue-600">{st.progressPct}%</span>
-                            </div>
-                            <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                              <div
-                                className="bg-blue-500 h-full rounded-full"
-                                style={{ width: `${st.progressPct}%` }}
-                              ></div>
+                              <span className="text-blue-600 font-bold">{st.completedTasks}/{st.totalTasks} Done</span>
                             </div>
                             <div className="text-[10px] text-slate-400 mt-1 flex justify-between">
-                              <span>{st.completedTasks}/{st.totalTasks} Done</span>
+                              <span>{st.completedTasks}/{st.totalTasks} Delivered</span>
                               {st.isOverdue && <span className="text-rose-500 font-bold">Overdue</span>}
                             </div>
                           </div>
@@ -550,20 +538,14 @@ export const UniversalDashboard: React.FC<UniversalDashboardProps> = ({
 
                             <div className="flex items-center gap-3">
                               <div className="text-right">
-                                <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                                  {m.progressPct}% Complete
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                  m.statusCategory === 'done' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                                }`}>
+                                  {m.statusCategory === 'done' ? 'Verified Done' : 'In Progress'}
+                                </span>
+                                <div className="text-[10px] text-slate-400 mt-1">
+                                  {m.statusCategory === 'done' ? 'Milestone Achieved' : `${m.daysRemaining} days remaining`}
                                 </div>
-                                <div className="text-[10px] text-slate-400">
-                                  {m.statusCategory === 'done' ? 'Verified' : `${m.daysRemaining} days remaining`}
-                                </div>
-                              </div>
-                              <div className="w-20 bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${
-                                    m.statusCategory === 'done' ? 'bg-emerald-500' : 'bg-blue-600'
-                                  }`}
-                                  style={{ width: `${m.progressPct}%` }}
-                                ></div>
                               </div>
                             </div>
                           </div>
@@ -711,14 +693,8 @@ export const UniversalDashboard: React.FC<UniversalDashboardProps> = ({
                       <div className="space-y-4">
                         <div>
                           <div className="flex items-center justify-between text-xs font-bold mb-1.5">
-                            <span className="text-blue-600 dark:text-blue-400">Physical Work Progress</span>
-                            <span>{fin.physicalProgressPct}%</span>
-                          </div>
-                          <div className="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-full overflow-hidden">
-                            <div
-                              className="bg-blue-600 h-full rounded-full transition-all duration-500"
-                              style={{ width: `${fin.physicalProgressPct}%` }}
-                            ></div>
+                            <span className="text-blue-600 dark:text-blue-400">Physical Work Completed</span>
+                            <span>{metrics.overview.completedTasks} / {metrics.overview.totalTasks} Tasks Done</span>
                           </div>
                         </div>
 

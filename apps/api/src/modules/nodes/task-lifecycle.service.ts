@@ -527,6 +527,15 @@ export class TaskLifecycleService {
       actualFinish?: string | Date;
       notes?: string;
       links?: string[];
+      attachments?: Array<{
+        fileName: string;
+        fileType: string;
+        fileSize: number;
+        fileUrl?: string;
+        storageKey?: string;
+        category?: string;
+        caption?: string;
+      }>;
     }
   ) {
     const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
@@ -551,33 +560,27 @@ export class TaskLifecycleService {
       throw new ForbiddenException('Forbidden: Only the task assignee or collaborators can submit work updates.');
     }
 
+    const linksData = dto.attachments && dto.attachments.length > 0 ? dto.attachments : (dto.links || []);
+
     const workUpdate = await this.prisma.workUpdate.create({
       data: {
         workspaceId: node.workspaceId,
         nodeId,
         authorId: actorId,
         status: dto.status || node.state || 'In Progress',
-        progressPct: dto.progressPct !== undefined ? Math.min(100, Math.max(0, dto.progressPct)) : node.progressPct,
+        progressPct: dto.progressPct !== undefined ? Math.min(100, Math.max(0, dto.progressPct)) : (node.progressPct || 0),
         doneSinceLast: dto.doneSinceLast || null,
         nextPlanned: dto.nextPlanned || null,
         blockers: dto.blockers || null,
         actualStart: dto.actualStart ? new Date(dto.actualStart) : null,
         actualFinish: dto.actualFinish ? new Date(dto.actualFinish) : null,
         notes: dto.notes || null,
-        links: dto.links || [],
+        links: linksData as any,
+      },
+      include: {
+        author: { select: { id: true, fullName: true, avatarUrl: true } },
       },
     });
-
-    if (dto.progressPct !== undefined) {
-      // Progress = 100% does NOT complete the task
-      await this.prisma.node.update({
-        where: { id: nodeId },
-        data: {
-          progressPct: Math.min(100, Math.max(0, dto.progressPct)),
-          version: { increment: 1 },
-        },
-      });
-    }
 
     if (this.auditService) {
       await this.auditService.recordAuditEvent({
@@ -586,25 +589,67 @@ export class TaskLifecycleService {
         action: 'WORK_UPDATE_RECORDED',
         targetType: 'task',
         targetId: nodeId,
-        afterValues: { progressPct: dto.progressPct, doneSinceLast: dto.doneSinceLast },
+        afterValues: { doneSinceLast: dto.doneSinceLast, attachmentsCount: dto.attachments?.length || 0 },
         outcome: 'SUCCESS',
       });
     }
 
-    return workUpdate;
+    return {
+      ...workUpdate,
+      attachments: linksData,
+    };
   }
 
   /**
    * Lists work progress updates for a task.
    */
-  async listWorkUpdates(nodeId: string) {
-    return this.prisma.workUpdate.findMany({
+  async listWorkUpdates(nodeId: string, actorId?: string) {
+    const node = await this.prisma.node.findUnique({
+      where: { id: nodeId },
+      include: {
+        project: {
+          include: {
+            members: true,
+          },
+        },
+      },
+    });
+    if (!node || node.deletedAt) {
+      throw new NotFoundException('Task not found');
+    }
+
+    if (actorId) {
+      const isOwner = node.ownerId === actorId;
+      const isCollaborator = Array.isArray(node.collaboratorIds) && (node.collaboratorIds as string[]).includes(actorId);
+      const isReviewer = node.reviewerId === actorId || node.backupReviewerId === actorId;
+      const isProjectOwner = node.project?.ownerId === actorId;
+      const isResponsibleManager = node.project?.responsibleManagerId === actorId;
+      const projectMemberRecord = node.project?.members?.find((m: any) => m.userId === actorId);
+      const isProjectMemberManager = projectMemberRecord && (projectMemberRecord.role === 'MANAGER' || projectMemberRecord.role === 'ADMIN');
+
+      const membership = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: actorId } },
+      });
+      const isWorkspaceAdmin = membership?.role === 'ADMIN';
+
+      const canView = isOwner || isCollaborator || isReviewer || isProjectOwner || isResponsibleManager || Boolean(isProjectMemberManager) || isWorkspaceAdmin;
+      if (!canView) {
+        throw new ForbiddenException('Forbidden: You do not have permission to view work updates for this task.');
+      }
+    }
+
+    const updates = await this.prisma.workUpdate.findMany({
       where: { nodeId },
       include: {
         author: { select: { id: true, fullName: true, avatarUrl: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return updates.map((u) => ({
+      ...u,
+      attachments: Array.isArray(u.links) ? u.links : [],
+    }));
   }
 
   /**

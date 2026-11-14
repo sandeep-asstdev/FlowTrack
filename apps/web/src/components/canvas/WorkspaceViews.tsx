@@ -181,9 +181,25 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                       </div>
                       <span className="truncate">{task.owner?.fullName || 'Unassigned'}</span>
                     </div>
-                    <span className="text-[11px] font-medium text-slate-400">
-                      {task.dueDate ? new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No due date'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {onAddNode && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddNode(task.id);
+                          }}
+                          className="px-2.5 py-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 rounded-lg text-xs font-bold flex items-center gap-1 min-h-[44px]"
+                          title="Add child subtask"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Subtask</span>
+                        </button>
+                      )}
+                      <span className="text-[11px] font-medium text-slate-400">
+                        {task.dueDate ? new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'No due date'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))
@@ -201,7 +217,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                     <th className="py-3 px-3">Priority</th>
                     <th className="py-3 px-3">Assignee</th>
                     <th className="py-3 px-3">Due Date</th>
-                    <th className="py-3 px-3">Progress</th>
+                    <th className="py-3 px-3">Subtasks</th>
                     <th className="py-3 px-3">Confidentiality</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
@@ -299,15 +315,10 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                             )}
                           </td>
                           <td className="py-3 px-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-16 h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                                <div
-                                  className="h-full bg-blue-600 rounded-full"
-                                  style={{ width: `${task.progressPct}%` }}
-                                />
-                              </div>
-                              <span className="text-[10px] font-bold text-slate-500">
-                                {task.progressPct}%
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                              <Layers className="w-3.5 h-3.5 text-blue-500" />
+                              <span>
+                                {parsedNodes.filter((n) => n.parentNodeId === task.id).length} subtasks
                               </span>
                             </div>
                           </td>
@@ -317,15 +328,32 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSelectNode(task.id);
-                              }}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-lg text-slate-700 dark:text-slate-300 text-xs font-semibold"
-                            >
-                              Details
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {onAddNode && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAddNode(task.id);
+                                  }}
+                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors min-h-[32px]"
+                                  title="Add child subtask"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Subtask</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelectNode(task.id);
+                                }}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-lg text-slate-700 dark:text-slate-300 text-xs font-semibold min-h-[32px]"
+                              >
+                                Details
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -454,7 +482,10 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                             <Clock className="w-3 h-3 text-slate-400" />
                             <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No date'}</span>
                           </div>
-                          <span className="font-bold">{task.progressPct}%</span>
+                          <div className="flex items-center gap-1 font-semibold text-slate-500">
+                            <Layers className="w-3 h-3 text-slate-400" />
+                            <span>{parsedNodes.filter((n) => n.parentNodeId === task.id).length} subtasks</span>
+                          </div>
                         </div>
                       </div>
                     ))
@@ -481,7 +512,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                 <FolderTree className="w-4 h-4 text-emerald-600" />
                 <span>Task Breakdown Structure (Tree)</span>
               </h2>
-              <p className="text-xs text-slate-500">Materialized parent-child hierarchy with progress rollups</p>
+              <p className="text-xs text-slate-500">Materialized parent-child hierarchy</p>
             </div>
           </div>
 
@@ -497,6 +528,7 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                     node={rootNode}
                     allNodes={parsedNodes}
                     onSelectNode={onSelectNode}
+                    onAddNode={onAddNode}
                     depth={0}
                   />
                 ))
@@ -561,14 +593,14 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                   </h4>
                   <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-700/60">
                     <span>{task.owner?.fullName || 'Unassigned'}</span>
-                    <span>{task.progressPct}% complete</span>
+                    <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No due date'}</span>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Desktop Timeline with Gantt Progress */}
+          {/* Desktop Timeline with Schedule */}
           <div className="hidden md:block bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-xs space-y-3">
             {parsedNodes.map((task) => (
               <div
@@ -585,13 +617,10 @@ export const WorkspaceViews: React.FC<WorkspaceViewsProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-4 shrink-0">
-                  <div className="w-40 sm:w-60 h-3 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative">
-                    <div
-                      className="h-full bg-purple-600 rounded-full"
-                      style={{ width: `${task.progressPct}%` }}
-                    />
-                  </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                    {task.state}
+                  </span>
                   <div className="text-right text-[11px] font-semibold text-slate-600 dark:text-slate-400 min-w-[90px]">
                     {task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'No Due Date'}
                   </div>
@@ -657,8 +686,9 @@ const TreeNodeItem: React.FC<{
   node: any;
   allNodes: any[];
   onSelectNode: (nodeId: string) => void;
+  onAddNode?: (parentId?: string) => void;
   depth: number;
-}> = ({ node, allNodes, onSelectNode, depth }) => {
+}> = ({ node, allNodes, onSelectNode, onAddNode, depth }) => {
   const [expanded, setExpanded] = useState(true);
   const children = allNodes.filter((n) => n.parentNodeId === node.id);
 
@@ -695,13 +725,29 @@ const TreeNodeItem: React.FC<{
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
             {node.state}
           </span>
-          <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 w-10 text-right">
-            {node.progressPct}%
-          </span>
+          {children.length > 0 && (
+            <span className="text-[10px] text-slate-500 font-medium">
+              {children.filter((c: any) => c.state === 'Approved/Done' || c.statusCategory === 'done').length}/{children.length} done
+            </span>
+          )}
+          {onAddNode && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddNode(node.id);
+              }}
+              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg text-xs font-semibold flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center transition-colors"
+              title="Add child subtask"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">Child</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -713,6 +759,7 @@ const TreeNodeItem: React.FC<{
               node={child}
               allNodes={allNodes}
               onSelectNode={onSelectNode}
+              onAddNode={onAddNode}
               depth={depth + 1}
             />
           ))}

@@ -11,7 +11,7 @@ export interface HierarchyValidationResult {
   depth?: number;
 }
 
-export const MAX_HIERARCHY_DEPTH = 5;
+export const MAX_HIERARCHY_DEPTH = 10;
 
 /**
  * Validates a proposed parent-child assignment in the hierarchy.
@@ -20,7 +20,8 @@ export const MAX_HIERARCHY_DEPTH = 5;
 export function validateParentAssignment(
   nodeId: string,
   newParentId: string | null | undefined,
-  allNodes: MinimalHierarchyNode[]
+  allNodes: MinimalHierarchyNode[],
+  maxDepth = MAX_HIERARCHY_DEPTH
 ): HierarchyValidationResult {
   // If moving to root, always valid
   if (!newParentId) {
@@ -61,10 +62,10 @@ export function validateParentAssignment(
   let current: MinimalHierarchyNode | undefined = parent;
   while (current && current.parentNodeId) {
     depth++;
-    if (depth > MAX_HIERARCHY_DEPTH) {
+    if (depth > maxDepth) {
       return {
         isValid: false,
-        error: `Hierarchy depth exceeded: Maximum allowed depth is ${MAX_HIERARCHY_DEPTH} levels.`,
+        error: `Hierarchy depth exceeded: Maximum allowed depth is ${maxDepth} levels.`,
       };
     }
     current = nodeMap.get(current.parentNodeId);

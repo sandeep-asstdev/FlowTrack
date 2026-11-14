@@ -105,8 +105,8 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
   const isConfidentialHidden = isLocked && !permissions.canViewConfidential;
   const managerReview = customData?.managerReview;
 
-  const assignedName = owner?.fullName || ownerName || customData?.assigneeName;
-  const assignedAvatar = owner?.avatarUrl || ownerAvatar || customData?.assigneeAvatar;
+  const assignedName = owner?.fullName || owner?.email || ownerName;
+  const assignedAvatar = owner?.avatarUrl || ownerAvatar;
   const isLivePresence =
     customData?.isLive !== undefined
       ? Boolean(customData.isLive)
@@ -513,25 +513,38 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         </div>
       </div>
 
-      {/* 5. One Clear Progress Indicator */}
-      <div className="px-3.5 py-1">
+      {/* 5. Factual Indicators (Bug 3: Progress % Removed) */}
+      <div className="px-3.5 py-1 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 font-medium bg-slate-50/70 dark:bg-slate-800/40 rounded-lg mx-3.5 my-1">
         <div className="flex items-center gap-2">
-          <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${
-                isMilestoneNode
-                  ? 'bg-amber-500'
-                  : isApprovalNode
-                  ? 'bg-purple-500'
-                  : 'bg-blue-600'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(0, progressPct))}%` }}
-            />
-          </div>
-          <span className="text-[10px] font-mono font-medium text-slate-400 dark:text-slate-500 shrink-0">
-            {progressPct}%
-          </span>
+          {childCount > 0 ? (
+            <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-semibold" title={`${childCount} subtasks`}>
+              <Layers className="w-3 h-3" />
+              {childCount} subtask{childCount > 1 ? 's' : ''}
+            </span>
+          ) : (
+            <span className="text-slate-400">Task item</span>
+          )}
+          {docCount > 0 && (
+            <span className="flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400" title={`${docCount} evidence attachments`}>
+              <Paperclip className="w-2.5 h-2.5" />
+              {docCount}
+            </span>
+          )}
         </div>
+        {data.onAddChild && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onAddChild(id);
+            }}
+            className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 transition-colors"
+            title="Add Child Subtask connected beneath this node"
+          >
+            <Plus className="w-3 h-3" />
+            <span>+ Child</span>
+          </button>
+        )}
       </div>
 
       {/* 6. Compact Footer Showing Duration and Planned Finish Date */}

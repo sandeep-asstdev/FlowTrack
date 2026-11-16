@@ -51,7 +51,7 @@ export const createNodeSchema = z.object({
   actualCost: z.number().nullable().optional(),
   allocatedHours: z.number().nullable().optional(),
   actualHours: z.number().nullable().optional(),
-  currency: z.string().default('USD'),
+  currency: z.string().default('INR'),
   approvalStatus: z.enum(['not_required', 'pending', 'approved', 'rejected']).default('not_required'),
   approvedAt: isoDateTimeSchema,
   approvalFeedback: z.string().nullable().optional(),

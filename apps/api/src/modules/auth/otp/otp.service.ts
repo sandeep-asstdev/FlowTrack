@@ -269,13 +269,18 @@ export class OtpService {
     const masked = cleanPhone.length > 4 ? `+91******${cleanPhone.slice(-4)}` : cleanPhone;
     console.log(`\n========================================\n[DEV OTP] ${masked} -> ${rawOtp}\n========================================\n`);
 
+    const shouldExposeDevOtp =
+      (process.env.DEV_EXPOSE_OTP === 'true' || process.env.NODE_ENV === 'test') &&
+      process.env.NODE_ENV !== 'production';
+
     return {
       success: true,
       channel: isConsoleChannel ? 'console' : channelUsed,
       isDevSimulation: isConsoleChannel,
-      devOtpCode: rawOtp,
-      otpCode: rawOtp,
-      message: `Verification code: ${rawOtp}. OTP sent successfully.`,
+      ...(shouldExposeDevOtp ? { devOtpCode: rawOtp, otpCode: rawOtp } : {}),
+      message: shouldExposeDevOtp
+        ? `Verification code: ${rawOtp}. OTP sent successfully.`
+        : 'OTP sent successfully.',
       resendCooldownSeconds: OtpService.RESEND_COOLDOWN_SECONDS,
       phone: cleanPhone,
     };

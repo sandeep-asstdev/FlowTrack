@@ -104,6 +104,13 @@ describe('Phase 9 — User Isolation & Task Checklist Real DB HTTP Verification'
     };
 
     // Mount Real Controller Routes
+    app.post('/api/v1/nodes', authMiddleware, async (req, res, next) => {
+      try {
+        const result = await nodesController.create(req, req.body);
+        res.status(201).json(result);
+      } catch (e) { next(e); }
+    });
+
     app.get('/api/v1/nodes/:id', authMiddleware, async (req, res, next) => {
       try {
         const result = await nodesController.get(req, req.params.id);
@@ -661,6 +668,44 @@ describe('Phase 9 — User Isolation & Task Checklist Real DB HTTP Verification'
       expect(res.body.can.manage).toBe(true);
       expect(res.body.can.changeDates).toBe(true);
       expect(res.body.can.tickChecklist).toBe(false); // manager cannot tick assignee's checklist
+    });
+  });
+
+  describe('Requirement 8: Assignee Limited Project Membership & Child Task Creation', () => {
+    it('proves Assignee Suresh can create a child subtask under their assigned parent task', async () => {
+      const res = await request(app)
+        .post('/api/v1/nodes')
+        .set('Authorization', `Bearer ${sureshToken}`)
+        .send({
+          projectId: projectP.id,
+          parentNodeId: sureshTaskId,
+          nodeTypeId: nodeType.id,
+          title: 'Suresh Subtask 1',
+          ownerId: sureshUser.id,
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.parentNodeId).toBe(sureshTaskId);
+      expect(res.body.ownerId).toBe(sureshUser.id);
+      expect(res.body.depth).toBe(2);
+
+      // Clean up subtask
+      await prisma.node.delete({ where: { id: res.body.id } }).catch(() => null);
+    });
+
+    it('proves Sandeep CANNOT create a child subtask under Suresh parent task (403 Forbidden)', async () => {
+      const res = await request(app)
+        .post('/api/v1/nodes')
+        .set('Authorization', `Bearer ${sandeepToken}`)
+        .send({
+          projectId: projectP.id,
+          parentNodeId: sureshTaskId,
+          nodeTypeId: nodeType.id,
+          title: 'Sandeep Illegal Child Subtask',
+          ownerId: sandeepUser.id,
+        });
+
+      expect(res.status).toBe(403);
     });
   });
 });

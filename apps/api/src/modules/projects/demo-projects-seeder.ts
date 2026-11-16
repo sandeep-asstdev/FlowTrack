@@ -1,6 +1,11 @@
 import { PrismaClient, Role, Priority, ConfidentialityLevel } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
+// Strict Production Guard
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: demo-projects-seeder is development-only and cannot run in production!');
+}
+
 export const DEMO_AVATARS = {
   sandeep: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=256&h=256&fit=crop&crop=faces',
   admin: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=256&h=256&fit=crop&crop=faces',
@@ -13,30 +18,7 @@ export const DEMO_AVATARS = {
 };
 
 export async function ensureDemoUsers(prisma: any) {
-  const sandeepPasswordHash = await bcrypt.hash('sandeep@1234', 10);
   const defaultPasswordHash = await bcrypt.hash('Admin@12345', 10);
-
-  const sandeep = await prisma.user.upsert({
-    where: { email: 'sandeep@gmail.com' },
-    update: {
-      fullName: 'Sandeep Raichur',
-      phone: '+919606019427',
-      avatarUrl: DEMO_AVATARS.sandeep,
-      avatarThumbnailUrl: DEMO_AVATARS.sandeep,
-      isActive: true,
-      phoneVerified: true,
-    },
-    create: {
-      email: 'sandeep@gmail.com',
-      fullName: 'Sandeep Raichur',
-      phone: '+919606019427',
-      passwordHash: sandeepPasswordHash,
-      avatarUrl: DEMO_AVATARS.sandeep,
-      avatarThumbnailUrl: DEMO_AVATARS.sandeep,
-      isActive: true,
-      phoneVerified: true,
-    },
-  });
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@flowtrack.dev' },
@@ -164,7 +146,7 @@ export async function ensureDemoUsers(prisma: any) {
     },
   });
 
-  return { sandeep, admin, manager1, manager2, lead3, member1, member4 };
+  return { sandeep: manager1, admin, manager1, manager2, lead3, member1, member4 };
 }
 
 async function cleanProjectByKey(prisma: any, workspaceId: string, projectKey: string) {
@@ -197,12 +179,12 @@ export async function seedAllDummyProjects(prisma: any, workspaceId: string, act
 
   const primaryActorId = actorUserId || sandeep.id;
 
-  // 1. Memberships
-  for (const u of [sandeep, admin, manager1, manager2, lead3, member1, member4]) {
+  // 1. Memberships (1 Admin, 2 Managers, 1 Team Lead, 2 Members)
+  for (const u of [admin, manager1, manager2, lead3, member1, member4]) {
     await prisma.membership.upsert({
       where: { workspaceId_userId: { workspaceId, userId: u.id } },
-      update: { role: u.id === sandeep.id || u.id === manager1.id || u.id === manager2.id ? Role.MANAGER : u.id === admin.id ? Role.ADMIN : u.id === lead3.id ? Role.TEAM_LEAD : Role.MEMBER },
-      create: { workspaceId, userId: u.id, role: u.id === sandeep.id || u.id === manager1.id || u.id === manager2.id ? Role.MANAGER : u.id === admin.id ? Role.ADMIN : u.id === lead3.id ? Role.TEAM_LEAD : Role.MEMBER },
+      update: { role: u.id === admin.id ? Role.ADMIN : (u.id === manager1.id || u.id === manager2.id) ? Role.MANAGER : u.id === lead3.id ? Role.TEAM_LEAD : Role.MEMBER },
+      create: { workspaceId, userId: u.id, role: u.id === admin.id ? Role.ADMIN : (u.id === manager1.id || u.id === manager2.id) ? Role.MANAGER : u.id === lead3.id ? Role.TEAM_LEAD : Role.MEMBER },
     });
   }
 

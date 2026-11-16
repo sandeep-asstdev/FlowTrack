@@ -9,9 +9,9 @@
  */
 export function formatLocalizedCurrency(
   val: number | null | undefined,
-  currencyCode: string = 'USD',
-  locale: string = 'en-US',
-  fallbackSymbol?: string
+  currencyCode: string = 'INR',
+  locale: string = 'en-IN',
+  fallbackSymbol: string = '₹'
 ): string {
   if (val === null || val === undefined) {
     return 'Not specified';

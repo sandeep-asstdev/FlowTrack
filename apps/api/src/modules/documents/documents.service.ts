@@ -4,17 +4,20 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CollaborationGateway } from '../collaboration/collaboration.gateway';
+import { AuthorizationService } from '../auth/authorization.service';
 import {
   CreateDocumentDto,
   EvidenceReviewDto,
   MAX_DOCUMENT_SIZE_BYTES,
   BLOCKED_EXTENSIONS,
+  GRANULAR_PERMISSIONS,
 } from '@flowtrack/shared';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,7 +31,8 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
-    private readonly gateway: CollaborationGateway
+    private readonly gateway: CollaborationGateway,
+    @Optional() private readonly authService?: AuthorizationService
   ) {
     this.vaultPath = path.resolve(process.cwd(), 'vault_storage');
     if (!fs.existsSync(this.vaultPath)) {
@@ -80,9 +84,11 @@ export class DocumentsService {
       throw new ForbiddenException('You do not have access to upload documents in this workspace.');
     }
 
-    const userAdminMembership = await this.prisma.membership.findFirst({
-      where: { userId, role: Role.ADMIN },
-    });
+    const userAdminMembership = this.prisma.membership?.findFirst
+      ? await this.prisma.membership.findFirst({
+          where: { userId, role: Role.ADMIN },
+        })
+      : null;
     const isPlatformAdmin = Boolean(userAdminMembership);
     const isWorkspaceAdmin = member.role === Role.ADMIN || isPlatformAdmin;
 
@@ -217,9 +223,23 @@ export class DocumentsService {
    * Retrieves all documents for a node.
    */
   async getNodeDocuments(nodeId: string, userId: string) {
-    const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
+    const node = await this.prisma.node.findUnique({
+      where: { id: nodeId },
+      include: { project: true },
+    });
     if (!node || node.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    if (this.authService && node.project) {
+      const evalResult = await this.authService.evaluate(
+        { id: userId, workspaceId: node.workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_VIEW,
+        { project: node.project }
+      );
+      if (!evalResult.allowed) {
+        throw new NotFoundException('Node not found');
+      }
     }
 
     const docs = await this.prisma.document.findMany({
@@ -243,13 +263,24 @@ export class DocumentsService {
     const doc = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: {
-        node: true,
+        node: { include: { project: true } },
         workspace: true,
       },
     });
 
     if (!doc || doc.deletedAt) {
       throw new NotFoundException('Document not found');
+    }
+
+    if (this.authService && doc.node?.project) {
+      const evalResult = await this.authService.evaluate(
+        { id: userId, workspaceId: doc.workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_VIEW,
+        { project: doc.node.project }
+      );
+      if (!evalResult.allowed) {
+        throw new NotFoundException('Document not found');
+      }
     }
 
     // Verify workspace membership
@@ -392,9 +423,11 @@ export class DocumentsService {
       const member = await this.prisma.membership.findUnique({
         where: { workspaceId_userId: { workspaceId: doc.workspaceId, userId } },
       });
-      const userAdminMembership = await this.prisma.membership.findFirst({
-        where: { userId, role: Role.ADMIN },
-      });
+      const userAdminMembership = this.prisma.membership?.findFirst
+        ? await this.prisma.membership.findFirst({
+            where: { userId, role: Role.ADMIN },
+          })
+        : null;
       const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
       if (!isWorkspaceAdmin) {
         throw new ForbiddenException(

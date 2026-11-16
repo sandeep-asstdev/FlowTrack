@@ -31,16 +31,12 @@ interface DemoUserSpec {
 }
 
 const DEMO_USERS: DemoUserSpec[] = [
-  { key: 'cara', email: 'cara@acme.dev', fullName: 'Cara Vance', jobTitle: 'Chief Executive Officer (CEO)', org: 'acme', orgRole: Role.ADMIN, notes: 'Executive Head & Project Owner' },
-  { key: 'dan', email: 'dan@acme.dev', fullName: 'Dan Miller', jobTitle: 'Engineering Director', org: 'acme', orgRole: Role.MANAGER, notes: 'Reports to Cara' },
-  { key: 'mia', email: 'mia@acme.dev', fullName: 'Mia Wong', jobTitle: 'Engineering Manager', org: 'acme', orgRole: Role.MANAGER, notes: 'Reports to Dan; Manager for P1 & P2' },
-  { key: 'omar', email: 'omar@acme.dev', fullName: 'Omar Farooq', jobTitle: 'Operations Manager', org: 'acme', orgRole: Role.MANAGER, notes: 'Peer Manager in Acme' },
-  { key: 'tom', email: 'tom@acme.dev', fullName: 'Tom Hayes', jobTitle: 'Technical Team Lead', org: 'acme', orgRole: Role.TEAM_LEAD, notes: 'Reports to Mia; P1 Member & Approver' },
-  { key: 'maya', email: 'maya@acme.dev', fullName: 'Maya Patel', jobTitle: 'Senior Software Engineer', org: 'acme', orgRole: Role.MEMBER, notes: 'Reports to Tom; Assignee A1.1, A2, B1' },
-  { key: 'sam', email: 'sam@acme.dev', fullName: 'Sam Taylor', jobTitle: 'DevOps & Systems Engineer', org: 'acme', orgRole: Role.MEMBER, notes: 'Reports to Tom; Assignee A1.2, B2, Atlas' },
-  { key: 'nina', email: 'nina@acme.dev', fullName: 'Nina Simone', jobTitle: 'QA Engineer', org: 'acme', orgRole: Role.MEMBER, notes: 'Reports to Tom; Acme Member' },
-  { key: 'alex', email: 'alex@acme.dev', fullName: 'Alex Mercer', jobTitle: 'System Administrator', org: 'acme', orgRole: Role.ADMIN, notes: 'Technical Admin Only (No Business Content)' },
-  { key: 'zoe', email: 'zoe@rival.dev', fullName: 'Zoe Saldana', jobTitle: 'General Manager', org: 'rival', orgRole: Role.MANAGER, notes: 'Rival Corp Manager' },
+  { key: 'cara', email: 'cara@acme.dev', fullName: 'Cara Vance', jobTitle: 'Chief Executive Officer (CEO)', org: 'acme', orgRole: Role.ADMIN, notes: 'Executive Head & Project Owner (Admin)' },
+  { key: 'dan', email: 'dan@acme.dev', fullName: 'Dan Miller', jobTitle: 'Engineering Director', org: 'acme', orgRole: Role.MANAGER, notes: 'Reports to Cara (Manager 1)' },
+  { key: 'mia', email: 'mia@acme.dev', fullName: 'Mia Wong', jobTitle: 'Engineering Manager', org: 'acme', orgRole: Role.MANAGER, notes: 'Reports to Dan; Manager for P1 & P2 (Manager 2)' },
+  { key: 'tom', email: 'tom@acme.dev', fullName: 'Tom Hayes', jobTitle: 'Technical Team Lead', org: 'acme', orgRole: Role.TEAM_LEAD, notes: 'Reports to Mia; P1 Member & Approver (Team Leader)' },
+  { key: 'maya', email: 'maya@acme.dev', fullName: 'Maya Patel', jobTitle: 'Senior Software Engineer', org: 'acme', orgRole: Role.MEMBER, notes: 'Reports to Tom; Assignee A1.1, A2, B1 (Member 1)' },
+  { key: 'sam', email: 'sam@acme.dev', fullName: 'Sam Taylor', jobTitle: 'DevOps & Systems Engineer', org: 'acme', orgRole: Role.MEMBER, notes: 'Reports to Tom; Assignee A1.2, B2, Atlas (Member 2)' },
 ];
 
 async function runSeed() {
@@ -83,19 +79,15 @@ async function runSeed() {
     }
     console.log(`   ✔ ${DEMO_USERS.length} Demo Users ready.`);
 
-    const cara = userMap.get('cara');
-    const dan = userMap.get('dan');
-    const mia = userMap.get('mia');
-    const omar = userMap.get('omar');
-    const tom = userMap.get('tom');
-    const maya = userMap.get('maya');
-    const sam = userMap.get('sam');
-    const nina = userMap.get('nina');
-    const alex = userMap.get('alex');
-    const zoe = userMap.get('zoe');
+    const cara = userMap.get('cara')!;
+    const dan = userMap.get('dan')!;
+    const mia = userMap.get('mia')!;
+    const tom = userMap.get('tom')!;
+    const maya = userMap.get('maya')!;
+    const sam = userMap.get('sam')!;
 
     // =========================================================================
-    // 2. SEED WORKSPACES (Acme Motors & Rival Corp)
+    // 2. SEED WORKSPACES (Acme Motors)
     // =========================================================================
     console.log('🏢 Seeding Organizations (Workspaces)...');
 
@@ -111,20 +103,6 @@ async function runSeed() {
       console.log('   ✔ Created workspace: Acme Motors (acme-motors)');
     } else {
       console.log('   ✔ Reusing existing workspace: Acme Motors');
-    }
-
-    // Rival Corp
-    let rivalWs = await prisma.workspace.findUnique({ where: { slug: 'rival-corp' } });
-    if (!rivalWs) {
-      rivalWs = await workspacesService.createWorkspace(zoe.id, {
-        name: 'Rival Corp',
-        slug: 'rival-corp',
-        logoUrl: 'https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=128&q=80',
-        themeSettings: { accentColour: '#dc2626', density: 'comfortable' },
-      });
-      console.log('   ✔ Created workspace: Rival Corp (rival-corp)');
-    } else {
-      console.log('   ✔ Reusing existing workspace: Rival Corp');
     }
 
     // Ensure Default NodeTypes and StatusSets exist for Acme
@@ -185,8 +163,8 @@ async function runSeed() {
     // =========================================================================
     console.log('🤝 Assigning Workspace Memberships...');
     for (const spec of DEMO_USERS) {
-      const user = userMap.get(spec.key);
-      const wsId = spec.org === 'acme' ? acmeWs.id : rivalWs.id;
+      const user = userMap.get(spec.key)!;
+      const wsId = acmeWs.id;
       await prisma.membership.upsert({
         where: { workspaceId_userId: { workspaceId: wsId, userId: user.id } },
         update: { role: spec.orgRole },
@@ -311,28 +289,6 @@ async function runSeed() {
     }
 
     console.log('   ✔ Reporting hierarchy established: Maya, Sam -> Tom -> Mia -> Dan -> Cara');
-
-    // =========================================================================
-    // 5. GRANT ALEX ONLY TECHNICAL-ADMIN PERMISSIONS (NO BUSINESS CONTENT)
-    // =========================================================================
-    console.log('🔒 Configuring Technical Administrator Isolation for Alex...');
-    const existingAlexScoped = await prisma.scopedRoleAssignment.findFirst({
-      where: { workspaceId: acmeWs.id, userId: alex.id, scope: RoleScopeType.ORGANIZATION },
-    });
-    if (!existingAlexScoped) {
-      await prisma.scopedRoleAssignment.create({
-        data: {
-          workspaceId: acmeWs.id,
-          userId: alex.id,
-          role: 'SYSTEM_ADMINISTRATOR',
-          scope: RoleScopeType.ORGANIZATION,
-          resourceId: acmeWs.id,
-          grantedById: cara.id,
-        },
-      });
-    }
-    // Alex is not given project memberships or access grants to Project 1 or Project 2!
-    console.log('   ✔ Alex configured with workspace technical-admin role; business content access isolated.');
 
     // =========================================================================
     // 6. SEED APPROVAL POLICIES
@@ -847,8 +803,8 @@ async function runSeed() {
     console.log('     -d \'{"email":"cara@acme.dev","password":"Demo@12345"}\'\n');
 
     console.log('🛡️ SECURITY & GOVERNANCE NOTES:');
-    console.log('   1. Alex (alex@acme.dev) has Technical-Admin permissions only: zero access to Project 1 or Project 2.');
-    console.log('   2. Project Atlas is CONFIDENTIAL: hidden with HTTP 404 from non-members (Tom, Maya, Nina, Alex).');
+    console.log('   1. Standard Scenario: 1 Admin (Cara), 2 Managers (Dan, Mia), 1 Team Leader (Tom), 2 Members (Maya, Sam).');
+    console.log('   2. Project Atlas is CONFIDENTIAL: hidden with HTTP 404 from non-members (Tom, Maya).');
     console.log('   3. Separation of duties is active on all approval requests: submitters cannot self-approve.\n');
 
     console.log('✨ Seed script completed successfully!\n');

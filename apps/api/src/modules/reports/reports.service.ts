@@ -2,19 +2,25 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuthorizationService } from '../auth/authorization.service';
 import {
   calculateUniversalDashboardMetrics,
   generateProjectCsv,
   ReportFilterOptions,
   UniversalDashboardMetrics,
   RoleScopedDashboardResponse,
+  GRANULAR_PERMISSIONS,
 } from '@flowtrack/shared';
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly authService?: AuthorizationService
+  ) {}
 
   /**
    * Validates user membership in the workspace.
@@ -56,6 +62,17 @@ export class ReportsService {
 
     if (!project) {
       throw new NotFoundException('Project not found');
+    }
+
+    if (this.authService) {
+      const evalResult = await this.authService.evaluate(
+        { id: userId, role: member.role, workspaceId },
+        GRANULAR_PERMISSIONS.PROJECT_VIEW,
+        { project }
+      );
+      if (!evalResult.allowed) {
+        throw new NotFoundException('Project not found');
+      }
     }
 
     // Load nodes with relations for comprehensive reporting
@@ -131,12 +148,19 @@ export class ReportsService {
    * Cross-project workspace summary for the authenticated user
    */
   async getWorkspaceDashboard(workspaceId: string, userId: string) {
-    await this.getMembership(workspaceId, userId);
+    const member = await this.getMembership(workspaceId, userId);
+
+    const visibilityFilter = this.authService
+      ? this.authService.getProjectVisibilityFilter({
+          id: userId,
+          role: member.role,
+          workspaceId,
+        })
+      : { workspaceId, deletedAt: null };
 
     const projects = await this.prisma.project.findMany({
       where: {
-        workspaceId,
-        deletedAt: null,
+        ...visibilityFilter,
       },
       select: {
         id: true,

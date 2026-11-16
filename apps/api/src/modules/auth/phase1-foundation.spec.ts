@@ -10,6 +10,8 @@ import {
   validateTaskDepth,
   isConfidentialityStricterOrEqual,
   calculateGovernanceProgressRollup,
+  WORKSPACE_ROLES,
+  hasWorkspaceRolePermission,
 } from '@flowtrack/shared';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RoleScopeType } from '@prisma/client';
@@ -582,6 +584,61 @@ describe('PHASE 1 - FOUNDATION: Organization, Governance, Tasks, and Confidentia
         where: { workspaceId: 'ws-1', ownerId: 'departing-user', deletedAt: null },
         data: expect.objectContaining({ ownerId: 'successor-user' }),
       });
+    });
+  });
+
+  // =========================================================================
+  // 10. ROLE STORAGE, MAPPING & SERVER AUTHORITY
+  // =========================================================================
+  describe('10. Role Storage, Mapping & Server Authority', () => {
+    it('evaluates role permissions against standard WORKSPACE_ROLE_PERMISSIONS vocabulary', () => {
+      // ADMIN possesses high-privilege project operations
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.ADMIN, GRANULAR_PERMISSIONS.PROJECT_DELETE)).toBe(true);
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.ADMIN, GRANULAR_PERMISSIONS.PROJECT_PURGE)).toBe(true);
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.ADMIN, GRANULAR_PERMISSIONS.CONFIDENTIALITY_CHANGE)).toBe(true);
+
+      // MANAGER can edit projects but cannot purge projects or change confidentiality without grant
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.MANAGER, GRANULAR_PERMISSIONS.PROJECT_EDIT)).toBe(true);
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.MANAGER, GRANULAR_PERMISSIONS.PROJECT_PURGE)).toBe(false);
+
+      // TEAM_LEAD can view and create tasks, but cannot delete or edit projects
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.TEAM_LEAD, GRANULAR_PERMISSIONS.TASK_CREATE)).toBe(true);
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.TEAM_LEAD, GRANULAR_PERMISSIONS.PROJECT_EDIT)).toBe(false);
+
+      // MEMBER can submit work and update assigned tasks, but cannot assign tasks to others
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.MEMBER, GRANULAR_PERMISSIONS.WORK_SUBMIT)).toBe(true);
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.MEMBER, GRANULAR_PERMISSIONS.TASK_ASSIGN)).toBe(false);
+
+      // GUEST has read-only view
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.GUEST, GRANULAR_PERMISSIONS.PROJECT_VIEW)).toBe(true);
+      expect(hasWorkspaceRolePermission(WORKSPACE_ROLES.GUEST, GRANULAR_PERMISSIONS.WORK_SUBMIT)).toBe(false);
+    });
+
+    it('enforces database membership role over any client-crafted user.role claim in AuthorizationService', async () => {
+      // Client context claims role: 'ADMIN', but database membership record is 'MEMBER'
+      mockPrisma.membership.findUnique.mockResolvedValue({
+        workspaceId: 'ws-1',
+        userId: 'user-spoofer',
+        role: 'MEMBER',
+      });
+      mockPrisma.accessGrant.findMany.mockResolvedValue([]);
+      mockPrisma.scopedRoleAssignment.findMany.mockResolvedValue([]);
+
+      const result = await authService.evaluate(
+        { id: 'user-spoofer', role: 'ADMIN', workspaceId: 'ws-1' }, // Spoofed client claim
+        GRANULAR_PERMISSIONS.PROJECT_DELETE,
+        {
+          project: {
+            id: 'proj-1',
+            workspaceId: 'ws-1',
+            classification: CONFIDENTIALITY_LEVELS.INTERNAL,
+          },
+        }
+      );
+
+      // Denied! The user is resolved from the database membership as MEMBER
+      expect(result.allowed).toBe(false);
+      expect(result.statusCode).toBe(403);
     });
   });
 });

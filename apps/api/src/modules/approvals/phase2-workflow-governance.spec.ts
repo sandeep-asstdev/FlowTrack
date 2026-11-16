@@ -27,6 +27,7 @@ describe('PHASE 2 - WORKFLOW GOVERNANCE (Master Spec Test Suite)', () => {
     mockPrisma = {
       approvalPolicy: {
         findMany: vi.fn(),
+        findFirst: vi.fn(),
         findUnique: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
@@ -105,6 +106,7 @@ describe('PHASE 2 - WORKFLOW GOVERNANCE (Master Spec Test Suite)', () => {
 
     mockAuthService = {
       can: vi.fn().mockResolvedValue(true),
+      getEligibleApprovers: vi.fn().mockResolvedValue([]),
     };
 
     mockGateway = {
@@ -356,6 +358,7 @@ describe('PHASE 2 - WORKFLOW GOVERNANCE (Master Spec Test Suite)', () => {
         workspaceId: 'ws-1',
         title: 'API Security Spec',
         state: 'Changes Requested',
+        ownerId: 'author-1',
       };
 
       mockPrisma.node.findUnique.mockResolvedValue(mockNode);
@@ -568,6 +571,7 @@ describe('PHASE 2 - WORKFLOW GOVERNANCE (Master Spec Test Suite)', () => {
         state: 'In Progress',
         progressPct: 50,
         version: 1,
+        ownerId: 'dev-1',
       };
 
       mockPrisma.node.findUnique.mockResolvedValue(inProgressTask);
@@ -867,6 +871,84 @@ describe('PHASE 2 - WORKFLOW GOVERNANCE (Master Spec Test Suite)', () => {
         where: { id: 'task-extend' },
         data: { dueDate: new Date('2026-12-15T00:00:00.000Z') },
       });
+    });
+  });
+
+  // =========================================================================
+  // SCENARIO 15: SINGLE CHOSEN-APPROVER FLOW
+  // =========================================================================
+  describe('Scenario 15: Single Chosen-Approver Flow', () => {
+    it('creates an approval request directly for a chosen approver with single stage instance', async () => {
+      const mockTask = {
+        id: 'task-chosen-1',
+        workspaceId: 'ws-1',
+        title: 'Security Architecture Diagram',
+        ownerId: 'dev-1',
+        assignedById: 'lead-1',
+        nodeTypeId: 'nt-task',
+        project: { id: 'proj-1', classification: 'INTERNAL' },
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockTask);
+      mockPrisma.membership.findUnique.mockResolvedValue({ role: 'MEMBER' });
+      mockAuthService.getEligibleApprovers.mockResolvedValue([
+        { id: 'lead-1', fullName: 'Lata Lead', email: 'lead@test.com', role: 'TEAM_LEAD' },
+        { id: 'mgr-1', fullName: 'Manoj Manager', email: 'mgr@test.com', role: 'MANAGER' },
+      ]);
+      mockPrisma.approvalPolicy.findFirst.mockResolvedValue({ id: 'policy-default', version: 1 });
+      mockPrisma.approvalRequest.create.mockResolvedValue({
+        id: 'req-chosen-1',
+        submitterId: 'dev-1',
+        status: 'PENDING',
+        stageInstances: [
+          {
+            id: 'stage-chosen-1',
+            stageOrder: 1,
+            primaryApproverId: 'lead-1',
+            assignedApproverIds: ['lead-1'],
+          },
+        ],
+      });
+      mockPrisma.node.update.mockResolvedValue({ ...mockTask, approvalStatus: 'pending', reviewerId: 'lead-1' });
+
+      const result = await approvalsService.createApprovalRequest('ws-1', 'dev-1', {
+        nodeId: 'task-chosen-1',
+        chosenApproverId: 'lead-1',
+        payload: { notes: 'Please review architecture' },
+      });
+
+      expect(result.id).toBe('req-chosen-1');
+      expect(mockAuditService.recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'APPROVAL_REQUEST_CREATED',
+          targetId: 'req-chosen-1',
+          afterValues: expect.objectContaining({ chosenApproverId: 'lead-1' }),
+        })
+      );
+      expect(mockNotificationsService.sendNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'lead-1',
+          type: 'APPROVAL_REQUEST',
+        })
+      );
+    });
+
+    it('rejects attempt when submitter selects themselves as the chosen approver (separation of duties 403)', async () => {
+      const mockTask = {
+        id: 'task-chosen-self',
+        workspaceId: 'ws-1',
+        title: 'Self-selected Task',
+        ownerId: 'dev-1',
+        nodeTypeId: 'nt-task',
+      };
+      mockPrisma.node.findUnique.mockResolvedValue(mockTask);
+
+      await expect(
+        approvalsService.createApprovalRequest('ws-1', 'dev-1', {
+          nodeId: 'task-chosen-self',
+          chosenApproverId: 'dev-1',
+        })
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

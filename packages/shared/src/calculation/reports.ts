@@ -168,8 +168,8 @@ export function calculateUniversalDashboardMetrics(
   const defaultTerm = DEFAULT_INDUSTRY_TERMINOLOGY[industry] || DEFAULT_INDUSTRY_TERMINOLOGY.general;
   const terminology: Record<string, string> = { ...defaultTerm, ...customTerminology };
 
-  const currencySymbol = settings.currency?.symbol || '$';
-  const currencyCode = settings.currency?.code || 'USD';
+  const currencySymbol = settings.currency?.symbol || '₹';
+  const currencyCode = settings.currency?.code || 'INR';
 
   // Apply filters
   const filteredNodes = rawNodes.filter((node) => {

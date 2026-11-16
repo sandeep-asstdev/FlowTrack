@@ -5,7 +5,6 @@ import { useAuthStore } from '../../stores/authStore';
 import {
   Layers,
   ChevronDown,
-  Globe,
   Bell,
   LogOut,
   Plus,
@@ -43,7 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onViewChange,
   projectName,
 }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const {
     user,
     workspaces,
@@ -51,14 +50,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     setActiveWorkspace,
     logout,
     getActiveRole,
-    setSimulatedRole,
-    simulatedRole,
   } = useAuthStore();
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [showWsMenu, setShowWsMenu] = useState(false);
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
-  const [showLangMenu, setShowLangMenu] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -69,8 +64,6 @@ export const Navbar: React.FC<NavbarProps> = ({
       if (e.key === 'Escape') {
         setMobileDrawerOpen(false);
         setShowWsMenu(false);
-        setShowRoleMenu(false);
-        setShowLangMenu(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -140,11 +133,6 @@ export const Navbar: React.FC<NavbarProps> = ({
       document.documentElement.removeAttribute('data-theme');
       document.documentElement.classList.remove('dark');
     }
-  };
-
-  const changeLanguage = (lang: string) => {
-    i18n.changeLanguage(lang);
-    setShowLangMenu(false);
   };
 
   const handleMobileNav = (view: 'dashboard' | 'canvas' | 'reports' | 'users' | 'approvals' | 'my-work') => {
@@ -307,138 +295,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-        {/* Active Role Selector (Desktop >= md screens; on mobile it lives in Avatar Menu) */}
-        <div className="relative hidden md:block">
-          <button
-            id="role-menu-btn"
-            onClick={() => setShowRoleMenu(!showRoleMenu)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] rounded-xl border text-xs font-bold transition-all shadow-sm ${permissions.roleBadgeColor}`}
-            title="Switch Active Access Role (Admin / Manager / Team Lead / Member)"
+        {/* Active Role Indicator (Desktop >= md screens - Read-Only server-enforced role) */}
+        {user && (
+          <div
+            id="role-indicator-badge"
+            className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] rounded-xl border text-xs font-bold shadow-sm ${permissions.roleBadgeColor}`}
+            title={`Assigned Role: ${permissions.roleLabel}`}
           >
             <Shield className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden md:inline font-semibold text-[11px]">{permissions.roleLabel}</span>
-            <ChevronDown className="w-3 h-3 opacity-70" />
-          </button>
-
-          {showRoleMenu && (
-            <div className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-1.5rem)] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="px-2.5 py-1.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Access Control Role
-                </span>
-                {simulatedRole && (
-                  <button
-                    onClick={() => {
-                      setSimulatedRole(null);
-                      setShowRoleMenu(false);
-                    }}
-                    className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-1 space-y-1">
-                {[
-                  {
-                    id: 'ADMIN',
-                    label: 'Super Admin',
-                    icon: '👑',
-                    desc: 'Full app & layout design editor, controls all members',
-                    color: 'text-purple-600 dark:text-purple-400',
-                  },
-                  {
-                    id: 'MANAGER',
-                    label: 'Manager',
-                    icon: '👔',
-                    desc: 'Creates projects, assigns tasks, approves work & locks confidential assets',
-                    color: 'text-blue-600 dark:text-blue-400',
-                  },
-                  {
-                    id: 'TEAM_LEAD',
-                    label: 'Team Lead',
-                    icon: '🧢',
-                    desc: 'Assigns tasks to team members, creates child nodes, restricted from confidential docs',
-                    color: 'text-amber-600 dark:text-amber-400',
-                  },
-                  {
-                    id: 'MEMBER',
-                    label: 'Member',
-                    icon: '💻',
-                    desc: 'Creates child tasks, uploads work; requests approval for deadline extensions',
-                    color: 'text-emerald-600 dark:text-emerald-400',
-                  },
-                ].map((item) => {
-                  const isSelected = permissions.role === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setSimulatedRole(item.id);
-                        setShowRoleMenu(false);
-                      }}
-                      className={`w-full p-2 rounded-xl text-left flex items-start gap-2.5 transition-colors ${
-                        isSelected
-                          ? 'bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800'
-                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-transparent'
-                      }`}
-                    >
-                      <span className="text-base shrink-0">{item.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-xs font-bold ${item.color}`}>{item.label}</span>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-600" />}
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
-                          {item.desc}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Language Switcher (Desktop >= md screens) */}
-        <div className="relative hidden md:block">
-          <button
-            onClick={() => setShowLangMenu(!showLangMenu)}
-            className="p-2 min-h-[36px] rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs flex items-center gap-1.5"
-            title="Switch Language"
-          >
-            <Globe className="w-4 h-4" />
-            <span className="uppercase font-semibold">{i18n.language}</span>
-          </button>
-
-          {showLangMenu && (
-            <div className="absolute right-0 top-full mt-1.5 w-36 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1 z-50">
-              <button
-                onClick={() => changeLanguage('en')}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between"
-              >
-                <span>English</span>
-                {i18n.language === 'en' && <Check className="w-3.5 h-3.5 text-blue-600" />}
-              </button>
-              <button
-                onClick={() => changeLanguage('hi')}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between"
-              >
-                <span>हिन्दी (Hindi)</span>
-                {i18n.language === 'hi' && <Check className="w-3.5 h-3.5 text-blue-600" />}
-              </button>
-              <button
-                onClick={() => changeLanguage('kn')}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between"
-              >
-                <span>ಕನ್ನಡ (Kannada)</span>
-                {i18n.language === 'kn' && <Check className="w-3.5 h-3.5 text-blue-600" />}
-              </button>
-            </div>
-          )}
-        </div>
+            <span className="font-semibold text-[11px]">{permissions.roleLabel}</span>
+          </div>
+        )}
 
         {/* Theme Toggle (Desktop/Tablet >= sm screens; in Avatar menu on mobile) */}
         <button
@@ -591,48 +458,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               )}
 
-              {/* Active Role Selector (Mobile Drawer) */}
+              {/* Active Role Indicator (Mobile Drawer - Read-Only) */}
               {user && (
                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                       Access Control Role
                     </span>
-                    {simulatedRole && (
-                      <button
-                        onClick={() => setSimulatedRole(null)}
-                        className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold"
-                      >
-                        Reset to Default
-                      </button>
-                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      { id: 'ADMIN', label: 'Admin', icon: '👑' },
-                      { id: 'MANAGER', label: 'Manager', icon: '👔' },
-                      { id: 'TEAM_LEAD', label: 'Team Lead', icon: '🧢' },
-                      { id: 'MEMBER', label: 'Member', icon: '💻' },
-                    ].map((roleItem) => {
-                      const isSelected = permissions.role === roleItem.id;
-                      return (
-                        <button
-                          key={roleItem.id}
-                          onClick={() => setSimulatedRole(roleItem.id)}
-                          className={`p-2 min-h-[44px] rounded-xl text-xs font-bold flex items-center justify-between transition-colors border ${
-                            isSelected
-                              ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-400 text-blue-600 dark:text-blue-400'
-                              : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <span>{roleItem.icon}</span>
-                            <span>{roleItem.label}</span>
-                          </span>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
-                        </button>
-                      );
-                    })}
+                  <div
+                    className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border ${permissions.roleBadgeColor}`}
+                  >
+                    <Shield className="w-4 h-4 shrink-0" />
+                    <span>{permissions.roleLabel}</span>
                   </div>
                 </div>
               )}
@@ -749,33 +587,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
 
-              {/* Language & Theme Controls in Drawer */}
+              {/* Theme Controls in Drawer */}
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3 shrink-0">
-                <div>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Language
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {[
-                      { id: 'en', label: 'English' },
-                      { id: 'hi', label: 'हिन्दी' },
-                      { id: 'kn', label: 'ಕನ್ನಡ' },
-                    ].map((lang) => (
-                      <button
-                        key={lang.id}
-                        onClick={() => changeLanguage(lang.id)}
-                        className={`py-2 px-2 min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                          i18n.language === lang.id
-                            ? 'bg-blue-50 dark:bg-blue-950 border-blue-500 text-blue-600 dark:text-blue-400'
-                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                        }`}
-                      >
-                        {lang.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                     Theme Appearance

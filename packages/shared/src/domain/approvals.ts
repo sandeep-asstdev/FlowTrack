@@ -32,6 +32,67 @@ export const PRIVILEGED_OPERATIONS = {
 
 export type PrivilegedOperation = (typeof PRIVILEGED_OPERATIONS)[keyof typeof PRIVILEGED_OPERATIONS];
 
+export interface ChosenApproverRequestDto {
+  taskId?: string;
+  nodeId?: string;
+  projectId?: string;
+  chosenApproverId: string;
+  notes?: string;
+  operationType?: string;
+  payload?: any;
+}
+
+export interface EligibleApprover {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  avatarUrl?: string | null;
+}
+
+/**
+ * Validates a chosen approver selection, enforcing separation of duties.
+ */
+export function validateChosenApproverSelection(params: {
+  submitterId: string;
+  taskOwnerId?: string | null;
+  chosenApproverId: string;
+  eligibleApproverIds?: string[];
+}): { isValid: boolean; reason?: string } {
+  const { submitterId, taskOwnerId, chosenApproverId, eligibleApproverIds } = params;
+
+  if (!chosenApproverId) {
+    return { isValid: false, reason: 'A valid approver must be selected.' };
+  }
+
+  // Separation of duties: Submitter cannot select themselves
+  if (chosenApproverId === submitterId) {
+    return {
+      isValid: false,
+      reason: 'Separation of duties violation: Submitter cannot select themselves as the approver.',
+    };
+  }
+
+  // Separation of duties: Task owner cannot be the approver
+  if (taskOwnerId && chosenApproverId === taskOwnerId) {
+    return {
+      isValid: false,
+      reason: 'Separation of duties violation: Task assignee cannot be their own approver.',
+    };
+  }
+
+  if (eligibleApproverIds && eligibleApproverIds.length > 0) {
+    if (!eligibleApproverIds.includes(chosenApproverId)) {
+      return {
+        isValid: false,
+        reason: 'Selected user is not an eligible approver for this task.',
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
 export interface ApprovalPolicySelectorCriteria {
   workspaceId: string;
   operationType?: string;

@@ -63,6 +63,28 @@ export class ApprovalsController {
     return this.approvalsService.listPolicies(workspaceId, operationType);
   }
 
+  @Get('eligible-approvers')
+  async getEligibleApprovers(
+    @Request() req: any,
+    @Query('taskId') taskId?: string,
+    @Query('nodeId') nodeId?: string,
+    @Query('projectId') projectId?: string,
+    @Query('workspaceId') workspaceIdQuery?: string
+  ) {
+    const workspaceId =
+      workspaceIdQuery ||
+      req.headers?.['x-workspace-id'] ||
+      req.user?.activeWorkspaceId ||
+      req.user?.workspaceId ||
+      req.user?.memberships?.[0]?.workspaceId;
+    if (!workspaceId) throw new BadRequestException('workspaceId is required');
+    return this.approvalsService.getEligibleApprovers(workspaceId, {
+      taskId: taskId || nodeId,
+      projectId,
+      submitterId: req.user?.id,
+    });
+  }
+
   @Post('requests')
   async createApprovalRequest(
     @Request() req: any,

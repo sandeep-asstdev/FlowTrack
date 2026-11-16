@@ -482,8 +482,34 @@ export class ApiClient {
     return this.request(`/nodes/${nodeId}/approve`, { method: 'POST', body: JSON.stringify(body) });
   }
 
-  static submitTask(nodeId: string, body?: { notes?: string }) {
+  static submitTask(nodeId: string, body?: { notes?: string; targetApproverId?: string; chosenApproverId?: string }) {
     return this.request(`/nodes/${nodeId}/submit`, { method: 'POST', body: JSON.stringify(body || {}) });
+  }
+
+  static getEligibleApprovers(params?: { taskId?: string; nodeId?: string; projectId?: string; workspaceId?: string }) {
+    const query = new URLSearchParams();
+    if (params?.taskId) query.append('taskId', params.taskId);
+    if (params?.nodeId) query.append('nodeId', params.nodeId);
+    if (params?.projectId) query.append('projectId', params.projectId);
+    if (params?.workspaceId) query.append('workspaceId', params.workspaceId);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return this.request(`/approvals/eligible-approvers${qs}`);
+  }
+
+  static createApprovalRequest(body: {
+    taskId?: string;
+    nodeId?: string;
+    projectId?: string;
+    operationType?: string;
+    notes?: string;
+    targetApproverId?: string;
+    chosenApproverId?: string;
+    context?: Record<string, any>;
+  }) {
+    return this.request('/approvals/requests', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   }
 
   static getTaskApprovals(nodeId: string) {

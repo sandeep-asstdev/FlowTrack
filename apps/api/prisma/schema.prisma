@@ -168,6 +168,8 @@ model Membership {
   user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
+  @@index([workspaceId, role])
+  @@index([role])
   @@map("memberships")
 }
 
@@ -327,7 +329,7 @@ model Node {
   actualCost   Decimal?     @map("actual_cost") @db.Decimal(14, 2)
   allocatedHours Decimal?   @map("allocated_hours") @db.Decimal(8, 2)
   actualHours  Decimal?     @map("actual_hours") @db.Decimal(8, 2)
-  currency     String?      @default("USD")
+  currency     String?      @default("INR")
   path         String?      @map("path")
   depth        Int          @default(1) @map("depth")
   isRequired   Boolean      @default(true) @map("is_required")

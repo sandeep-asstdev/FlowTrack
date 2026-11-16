@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProjectsService } from './projects.service';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('ProjectsService - Creation, Cloning, and Data Isolation', () => {
   let service: ProjectsService;
   let mockPrisma: any;
+  let mockAuthService: any;
 
   beforeEach(() => {
     mockPrisma = {
@@ -17,14 +18,20 @@ describe('ProjectsService - Creation, Cloning, and Data Isolation', () => {
       node: {
         findMany: vi.fn(),
         create: vi.fn(),
+        updateMany: vi.fn(),
       },
       edge: {
+        findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn(),
+        updateMany: vi.fn(),
       },
       template: {
         create: vi.fn(),
       },
       auditLog: {
+        create: vi.fn(),
+      },
+      auditEvent: {
         create: vi.fn(),
       },
       fieldDefinition: {
@@ -37,7 +44,14 @@ describe('ProjectsService - Creation, Cloning, and Data Isolation', () => {
       $transaction: vi.fn((callback) => callback(mockPrisma)),
     };
 
-    service = new ProjectsService(mockPrisma);
+    mockAuthService = {
+      getProjectVisibilityFilter: vi.fn().mockReturnValue({ workspaceId: 'ws-100', deletedAt: null }),
+      evaluate: vi.fn().mockResolvedValue({ allowed: true }),
+      enforce: vi.fn().mockResolvedValue(undefined),
+      can: vi.fn().mockResolvedValue(true),
+    };
+
+    service = new ProjectsService(mockPrisma, mockAuthService);
   });
 
   describe('createProject (Blank Canvas - No Predefined Industry Required)', () => {
@@ -336,6 +350,149 @@ describe('ProjectsService - Creation, Cloning, and Data Isolation', () => {
       });
 
       expect(template.id).toBe('tmpl-new-saved');
+    });
+  });
+
+  describe('listWorkspaceProjects & getProject (Visibility & Confidentiality)', () => {
+    it('applies centralized getProjectVisibilityFilter from AuthorizationService', async () => {
+      mockPrisma.project.findMany.mockResolvedValue([
+        { id: 'proj-vis-1', name: 'Open Project', workspaceId: 'ws-100', metrics: {} },
+      ]);
+      mockPrisma.node.findMany.mockResolvedValue([]);
+
+      const result = await service.listWorkspaceProjects('ws-100', { id: 'user-regular', role: 'MEMBER' });
+
+      expect(mockAuthService.getProjectVisibilityFilter).toHaveBeenCalledWith({
+        id: 'user-regular',
+        role: 'MEMBER',
+        workspaceId: 'ws-100',
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('proj-vis-1');
+    });
+
+    it('returns 404 when project is confidential and user lacks access', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({
+        id: 'proj-secret-1',
+        name: 'Top Secret Initiative',
+        workspaceId: 'ws-100',
+        classification: 'HIGHLY_CONFIDENTIAL',
+        ownerId: 'ceo-user',
+        responsibleManagerId: null,
+      });
+
+      mockAuthService.evaluate.mockResolvedValue({
+        allowed: false,
+        statusCode: 404,
+        reason: 'Project not found or unauthorized under confidentiality classification',
+      });
+
+      await expect(
+        service.getProject('proj-secret-1', 'ws-100', { id: 'unauthorized-user', role: 'MEMBER' })
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('returns project details when user has access clearance', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({
+        id: 'proj-clear-1',
+        name: 'Authorized Initiative',
+        workspaceId: 'ws-100',
+        classification: 'INTERNAL',
+        ownerId: 'actor-1',
+      });
+      mockAuthService.evaluate.mockResolvedValue({ allowed: true, statusCode: 200 });
+
+      const project = await service.getProject('proj-clear-1', 'ws-100', { id: 'actor-1', role: 'MANAGER' });
+      expect(project.id).toBe('proj-clear-1');
+      expect(project.name).toBe('Authorized Initiative');
+    });
+  });
+
+  describe('deleteProject, listTrashProjects, and restoreProject (Lifecycle & Trash)', () => {
+    it('requires mandatory non-empty reason for project soft-deletion', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({
+        id: 'proj-del-1',
+        workspaceId: 'ws-100',
+        name: 'Project to Delete',
+        deletedAt: null,
+      });
+
+      await expect(
+        service.deleteProject('proj-del-1', 'ws-100', 'actor-1', 'ADMIN', { reason: '   ' })
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('soft-deletes project and marks deletedAt in database', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({
+        id: 'proj-del-2',
+        workspaceId: 'ws-100',
+        name: 'Project to Delete',
+        deletedAt: null,
+      });
+      mockPrisma.project.update.mockResolvedValue({
+        id: 'proj-del-2',
+        deletedAt: new Date(),
+      });
+
+      const deleted = await service.deleteProject(
+        'proj-del-2',
+        'ws-100',
+        'actor-admin',
+        'ADMIN',
+        { reason: 'Initiative completed and archived' }
+      );
+
+      expect(deleted.id).toBe('proj-del-2');
+      expect(mockPrisma.project.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'proj-del-2' },
+          data: expect.objectContaining({
+            deletedAt: expect.any(Date),
+          }),
+        })
+      );
+    });
+
+    it('lists soft-deleted projects in trash with includeDeleted filter', async () => {
+      mockPrisma.project.findMany.mockResolvedValue([
+        { id: 'proj-trash-1', name: 'Deleted Project', deletedAt: new Date() },
+      ]);
+
+      const trash = await service.listTrashProjects('ws-100', { id: 'actor-admin', role: 'ADMIN' });
+      expect(trash).toHaveLength(1);
+      expect(trash[0].id).toBe('proj-trash-1');
+    });
+
+    it('restores soft-deleted project from trash setting deletedAt to null', async () => {
+      mockPrisma.project.findFirst.mockResolvedValue({
+        id: 'proj-trash-1',
+        workspaceId: 'ws-100',
+        name: 'Restorable Project',
+        deletedAt: new Date(),
+      });
+      mockPrisma.project.update.mockResolvedValue({
+        id: 'proj-trash-1',
+        deletedAt: null,
+      });
+
+      const restored = await service.restoreProject(
+        'proj-trash-1',
+        'ws-100',
+        'actor-admin',
+        'ADMIN',
+        { reason: 'Accidental deletion' }
+      );
+
+      expect(restored.id).toBe('proj-trash-1');
+      expect(restored.deletedAt).toBeNull();
+      expect(mockPrisma.project.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'proj-trash-1' },
+          data: expect.objectContaining({
+            deletedAt: null,
+          }),
+        })
+      );
     });
   });
 });

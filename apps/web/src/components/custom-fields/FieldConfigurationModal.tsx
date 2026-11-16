@@ -208,7 +208,7 @@ export const FieldConfigurationModal: React.FC<FieldConfigurationModalProps> = (
         displayOrder: Number(displayOrder) || 0,
         options: {
           choices: choicesArray,
-          defaultCurrency: type === 'currency' ? 'USD' : undefined,
+          defaultCurrency: type === 'currency' ? 'INR' : undefined,
         },
         validation,
         editableRoles,

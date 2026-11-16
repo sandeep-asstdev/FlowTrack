@@ -625,6 +625,7 @@ describe('PHASE 3 - LIFECYCLE SAFETY, EXPERIENCE AND VERIFICATION (Master Spec S
         id: 'prj-1',
         workspaceId: 'ws-1',
         name: 'Original Name',
+        ownerId: 'user-1',
         version: 1,
         classification: 'INTERNAL',
       });

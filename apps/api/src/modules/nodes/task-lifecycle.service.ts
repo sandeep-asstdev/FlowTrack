@@ -582,6 +582,16 @@ export class TaskLifecycleService {
       },
     });
 
+    if (dto.progressPct !== undefined) {
+      await this.prisma.node.update({
+        where: { id: nodeId },
+        data: {
+          progressPct: Math.min(100, Math.max(0, dto.progressPct)),
+          version: { increment: 1 },
+        },
+      }).catch(() => null);
+    }
+
     if (this.auditService) {
       await this.auditService.recordAuditEvent({
         workspaceId: node.workspaceId,

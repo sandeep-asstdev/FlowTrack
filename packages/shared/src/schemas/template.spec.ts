@@ -16,8 +16,8 @@ describe('Universal Project Settings Schema', () => {
     const settings = projectSettingsSchema.parse({});
     expect(settings.industry).toBe('general');
     expect(settings.methodology).toBe('stage_gate');
-    expect(settings.currency.code).toBe('USD');
-    expect(settings.currency.symbol).toBe('$');
+    expect(settings.currency.code).toBe('INR');
+    expect(settings.currency.symbol).toBe('₹');
     expect(settings.dateFormat).toBe('YYYY-MM-DD');
     expect(settings.features.budgetTracking).toBe(true);
     expect(settings.features.approvals).toBe(true);

@@ -70,13 +70,17 @@ export class FieldDefinitionsService {
   }
 
   async create(workspaceId: string, dto: CreateFieldDefinitionDto, actorId?: string) {
-    if (actorId) {
-      const member = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId: actorId } },
-      });
-      const userAdminMembership = await this.prisma.membership.findFirst({
-        where: { userId: actorId, role: Role.ADMIN },
-      });
+    if (actorId && this.prisma.membership) {
+      const member = this.prisma.membership.findUnique
+        ? await this.prisma.membership.findUnique({
+            where: { workspaceId_userId: { workspaceId, userId: actorId } },
+          })
+        : null;
+      const userAdminMembership = this.prisma.membership.findFirst
+        ? await this.prisma.membership.findFirst({
+            where: { userId: actorId, role: Role.ADMIN },
+          })
+        : null;
       const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
       if (!isWorkspaceAdmin && member?.role !== Role.MANAGER) {
         throw new ForbiddenException('Forbidden: Only Administrators and Managers can create custom field definitions.');
@@ -171,13 +175,17 @@ export class FieldDefinitionsService {
   async update(id: string, dto: UpdateFieldDefinitionDto, actorId?: string) {
     const existing = await this.getById(id);
 
-    if (actorId) {
-      const member = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
-      });
-      const userAdminMembership = await this.prisma.membership.findFirst({
-        where: { userId: actorId, role: Role.ADMIN },
-      });
+    if (actorId && this.prisma.membership) {
+      const member = this.prisma.membership.findUnique
+        ? await this.prisma.membership.findUnique({
+            where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
+          })
+        : null;
+      const userAdminMembership = this.prisma.membership.findFirst
+        ? await this.prisma.membership.findFirst({
+            where: { userId: actorId, role: Role.ADMIN },
+          })
+        : null;
       const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
       if (!isWorkspaceAdmin && member?.role !== Role.MANAGER) {
         throw new ForbiddenException('Forbidden: Only Administrators and Managers can update custom field definitions.');
@@ -244,13 +252,17 @@ export class FieldDefinitionsService {
   async delete(id: string, permanent: boolean = false, actorId?: string) {
     const existing = await this.getById(id);
 
-    if (actorId) {
-      const member = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
-      });
-      const userAdminMembership = await this.prisma.membership.findFirst({
-        where: { userId: actorId, role: Role.ADMIN },
-      });
+    if (actorId && this.prisma.membership) {
+      const member = this.prisma.membership.findUnique
+        ? await this.prisma.membership.findUnique({
+            where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
+          })
+        : null;
+      const userAdminMembership = this.prisma.membership.findFirst
+        ? await this.prisma.membership.findFirst({
+            where: { userId: actorId, role: Role.ADMIN },
+          })
+        : null;
       const isWorkspaceAdmin = member?.role === Role.ADMIN || Boolean(userAdminMembership);
       if (!isWorkspaceAdmin && member?.role !== Role.MANAGER) {
         throw new ForbiddenException('Forbidden: Only Administrators and Managers can delete custom field definitions.');

@@ -45,6 +45,10 @@ export class RolesGuard implements CanActivate {
       );
     }
 
+    // Security Hardening: Ensure req.user.role strictly reflects verified database membership
+    // ignoring any client-supplied x-role, x-role-override, query, or body role parameters.
+    user.role = membership.role;
+
     return true;
   }
 }

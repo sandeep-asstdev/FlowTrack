@@ -59,7 +59,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const { passwordHash: _hash, ...safeUser } = user;
     const activeWorkspaceId = payload.activeWorkspaceId || user.memberships?.[0]?.workspaceId;
     const activeMembership = user.memberships?.find((m) => m.workspaceId === activeWorkspaceId) || user.memberships?.[0];
-    const role = (payload.role as any) || activeMembership?.role || 'MEMBER';
+    
+    // Security Hardening: The authenticated user's role MUST strictly come from their verified
+    // database membership in the active workspace. Never allow client-supplied or token payload role
+    // to override or elevate their permissions. Client headers (x-role, x-role-override) are strictly ignored.
+    const role: Role = (activeMembership?.role as Role) || Role.MEMBER;
 
     return {
       ...safeUser,

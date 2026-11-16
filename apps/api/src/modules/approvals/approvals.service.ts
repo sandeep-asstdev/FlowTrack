@@ -61,6 +61,8 @@ export interface CreateApprovalRequestDto {
   submissionVersion?: number;
   operationType?: string;
   payload?: any;
+  targetApproverId?: string;
+  chosenApproverId?: string;
 }
 
 export interface SubmitDecisionDto {
@@ -247,7 +249,17 @@ export class ApprovalsService {
   }
 
   /**
-   * Creates an approval request bound to the matched policy version.
+   * Retrieves eligible approvers for a given task, project, or workspace.
+   */
+  async getEligibleApprovers(
+    workspaceId: string,
+    options: { taskId?: string; projectId?: string; submitterId?: string }
+  ) {
+    return this.authService.getEligibleApprovers(workspaceId, options);
+  }
+
+  /**
+   * Creates an approval request bound to a chosen approver (or matched policy version).
    */
   async createApprovalRequest(
     workspaceId: string,
@@ -272,6 +284,181 @@ export class ApprovalsService {
 
     const opType = dto.operationType || 'TASK_COMPLETION';
 
+    const explicitChosenApprover =
+      dto.chosenApproverId ||
+      dto.targetApproverId ||
+      (dto.payload?.chosenApproverId as string) ||
+      (dto.payload?.targetApproverId as string) ||
+      (dto.payload?.approverId as string);
+
+    // =========================================================================
+    // Primary Flow: Single Chosen-Approver Request
+    // =========================================================================
+    if (explicitChosenApprover) {
+      // Rule 1: Separation of duties
+      if (explicitChosenApprover === submitterId) {
+        throw new ForbiddenException(
+          'Separation of duties violation: Submitter cannot select themselves as the approver.'
+        );
+      }
+      if (task?.ownerId && explicitChosenApprover === task.ownerId) {
+        throw new ForbiddenException(
+          'Separation of duties violation: Task assignee cannot be their own approver.'
+        );
+      }
+
+      // Rule 2: RBAC member assigner constraints (Members only request approval from assigner or parent owner)
+      const submitterMembership = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: submitterId } },
+      });
+      const submitterRole = submitterMembership?.role || 'MEMBER';
+
+      if (submitterRole === 'MEMBER') {
+        const assignerId = task?.assignedById;
+        let parentOwnerId: string | null = null;
+        if (task?.parentNodeId) {
+          const parent = await this.prisma.node.findUnique({
+            where: { id: task.parentNodeId },
+            select: { ownerId: true, assignedById: true },
+          });
+          parentOwnerId = parent?.ownerId || parent?.assignedById || null;
+        }
+
+        const validAssigners = [assignerId, parentOwnerId].filter(Boolean) as string[];
+        if (validAssigners.length > 0 && !validAssigners.includes(explicitChosenApprover)) {
+          throw new ForbiddenException(
+            'Forbidden: Members can only request approval from the person who assigned them the task.'
+          );
+        }
+      }
+
+      // Rule 3: Validate eligibility via authorization service
+      if (this.authService?.getEligibleApprovers) {
+        const eligible = await this.authService.getEligibleApprovers(workspaceId, {
+          taskId: task?.id,
+          projectId: project?.id,
+          submitterId,
+        });
+        const eligibleIds = eligible.map((e) => e.id);
+        if (eligibleIds.length > 0 && !eligibleIds.includes(explicitChosenApprover)) {
+          throw new ForbiddenException(
+            'Selected user is not an authorized eligible approver for this task.'
+          );
+        }
+      }
+
+      const submissionVersion = dto.submissionVersion || 1;
+
+      // Find or create default policy container for single chosen-approver request
+      let activePolicy = this.prisma.approvalPolicy?.findFirst
+        ? await this.prisma.approvalPolicy.findFirst({
+            where: { workspaceId, isActive: true },
+            orderBy: { version: 'desc' },
+          })
+        : (await this.prisma.approvalPolicy?.findMany?.({ where: { workspaceId, isActive: true } }))?.[0];
+      if (!activePolicy) {
+        activePolicy = await this.prisma.approvalPolicy.create({
+          data: {
+            workspaceId,
+            name: 'Single Chosen-Approver Flow',
+            version: 1,
+            isDefault: true,
+            isActive: true,
+          },
+        });
+      }
+
+      const request = await this.prisma.$transaction(async (tx) => {
+        const createdReq = await tx.approvalRequest.create({
+          data: {
+            workspaceId,
+            projectId: project?.id || null,
+            nodeId: task?.id || null,
+            submissionId: dto.submissionId || null,
+            submissionVersion,
+            operationType: opType,
+            policyId: activePolicy.id,
+            policyVersion: activePolicy.version,
+            submitterId,
+            status: 'PENDING',
+            currentStageIndex: 0,
+            payload: {
+              ...(dto.payload || {}),
+              chosenApproverId: explicitChosenApprover,
+            },
+            stageInstances: {
+              create: [
+                {
+                  stageOrder: 1,
+                  name: 'Review & Sign-Off',
+                  mode: 'SEQUENTIAL',
+                  rule: 'ANY_ONE_APPROVES',
+                  status: 'PENDING',
+                  primaryApproverId: explicitChosenApprover,
+                  assignedApproverIds: [explicitChosenApprover],
+                },
+              ],
+            },
+          },
+          include: {
+            stageInstances: { orderBy: { stageOrder: 'asc' } },
+            policy: true,
+          },
+        });
+
+        if (task) {
+          await tx.node.update({
+            where: { id: task.id },
+            data: {
+              approvalStatus: 'pending',
+              submitterId,
+              submittedAt: new Date(),
+              reviewerId: explicitChosenApprover,
+            },
+          });
+        }
+
+        return createdReq;
+      });
+
+      // Record audit event
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId: submitterId,
+        action: 'APPROVAL_REQUEST_CREATED',
+        targetType: 'approval_request',
+        targetId: request.id,
+        afterValues: {
+          operationType: opType,
+          chosenApproverId: explicitChosenApprover,
+          submissionVersion,
+          stageCount: 1,
+        },
+        policyReference: `${activePolicy.id}:v${activePolicy.version}`,
+        outcome: 'SUCCESS',
+      });
+
+      // Send notification to the chosen approver
+      if (this.notificationsService?.sendNotification) {
+        await this.notificationsService.sendNotification({
+          workspaceId,
+          projectId: project?.id || undefined,
+          userId: explicitChosenApprover,
+          actorId: submitterId,
+          type: 'APPROVAL_REQUEST',
+          title: `Approval Requested: ${task?.title || opType}`,
+          body: `You have been selected as the approver for "${task?.title || opType}".`,
+          entityType: 'approval_request',
+          entityId: request.id,
+        }).catch(() => null);
+      }
+
+      return request;
+    }
+
+    // =========================================================================
+    // [LEGACY / UNUSED] Multi-stage policy routing - kept for backwards compatibility
+    // =========================================================================
     // RBAC: Check submitter role constraints
     const submitterMembership = await this.prisma.membership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: submitterId } },
@@ -450,11 +637,31 @@ export class ApprovalsService {
 
     // Self-approval is strictly forbidden
     if (request.submitterId === actorId) {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId,
+        action: 'UNAUTHORIZED_APPROVAL_ATTEMPT',
+        targetType: 'approval_request',
+        targetId: requestId,
+        reason: 'Self-approval is forbidden: You cannot approve your own request.',
+        policyReference: `${request.policyId}:v${request.policyVersion}`,
+        outcome: 'BLOCKED',
+      }).catch(() => null);
       throw new ForbiddenException('Self-approval is forbidden: You cannot approve your own request.');
     }
 
     // Members cannot approve
     if (userRole === 'MEMBER') {
+      await this.auditService.recordAuditEvent({
+        workspaceId,
+        actorId,
+        action: 'UNAUTHORIZED_APPROVAL_ATTEMPT',
+        targetType: 'approval_request',
+        targetId: requestId,
+        reason: 'Forbidden: Members cannot approve or reject approval requests.',
+        policyReference: `${request.policyId}:v${request.policyVersion}`,
+        outcome: 'BLOCKED',
+      }).catch(() => null);
       throw new ForbiddenException('Forbidden: Members cannot approve or reject approval requests.');
     }
 

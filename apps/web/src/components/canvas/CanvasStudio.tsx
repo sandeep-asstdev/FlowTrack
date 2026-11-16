@@ -74,7 +74,6 @@ import {
   Maximize2,
   Calendar,
 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../stores/authStore';
 import { getRolePermissions } from '../../utils/permissions';
 
@@ -106,14 +105,13 @@ export function getLogicalState(data: {
   if (data.statusCategory === 'done' || data.approvalStatus === 'approved') {
     return 'Approved/Done';
   }
-  if (data.statusCategory === 'todo' || (data.progressPct ?? 0) === 0) {
+  if (data.statusCategory === 'todo' || data.state === 'Draft' || data.state === 'Proposed') {
     return 'Open';
   }
   return 'In Progress';
 }
 
 function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
-  const { t } = useTranslation();
   const reactFlowInstance = useReactFlow();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -233,8 +231,8 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       const isDone =
         data.state === 'Completed' ||
         data.state === 'Done' ||
-        data.statusCategory === 'done' ||
-        data.progressPct === 100;
+        data.state === 'Approved' ||
+        data.statusCategory === 'done';
       if (isDone) return false;
       if (data.isOverdue) return true;
       if (data.dueDate) {
@@ -700,7 +698,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             isChild: !!n.parentNodeId,
             customData: n.customData || {},
             terminology: project.settings?.terminology,
-            currency: project.settings?.currency || 'USD',
+            currency: project.settings?.currency || 'INR',
             canEdit: permissions.canEditProject,
             onDrillDown: (groupNode: { id: string; title: string }) => {
               setBreadcrumbTrail((prev) => [...prev, { id: groupNode.id, title: groupNode.title }]);

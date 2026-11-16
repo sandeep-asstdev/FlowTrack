@@ -218,9 +218,9 @@ export class NodesController {
   submit(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() body: { notes?: string }
+    @Body() body: { notes?: string; targetApproverId?: string; chosenApproverId?: string }
   ) {
-    return this.nodesService.submitTask(id, req.user.id, body?.notes);
+    return this.nodesService.submitTask(id, req.user.id, body?.notes, body?.targetApproverId || body?.chosenApproverId);
   }
 
   @Get(':id/approvals')

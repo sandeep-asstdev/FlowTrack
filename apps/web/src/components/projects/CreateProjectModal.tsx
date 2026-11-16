@@ -48,11 +48,11 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [targetDate, setTargetDate] = useState('');
-  const [classification, setClassification] = useState<'INTERNAL' | 'RESTRICTED' | 'CONFIDENTIAL' | 'HIGHLY_CONFIDENTIAL'>('CONFIDENTIAL');
+  const [classification, setClassification] = useState<'INTERNAL' | 'RESTRICTED' | 'CONFIDENTIAL' | 'HIGHLY_CONFIDENTIAL'>('INTERNAL');
   const [ownerId, setOwnerId] = useState('');
   const [responsibleManagerId, setResponsibleManagerId] = useState('');
   const [currencyCode, setCurrencyCode] = useState('INR');
-  const [budget, setBudget] = useState<number | string>('50000000');
+  const [budget, setBudget] = useState<number | string>('');
 
   // Templates
   const [templates, setTemplates] = useState<any[]>([]);
@@ -71,37 +71,32 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch templates and members when modal opens
+  // Fetch templates and members when modal opens (starts completely empty every time)
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
       setStep('config');
       setName('');
       setDescription('');
-      setStartDate(new Date().toISOString().slice(0, 10));
+      setStartDate('');
       setTargetDate('');
-      setClassification('CONFIDENTIAL');
+      setClassification('INTERNAL');
       setOwnerId('');
       setResponsibleManagerId('');
       setCurrencyCode('INR');
-      setBudget('50000000');
+      setBudget('');
       setError(null);
       setCreatedProject(null);
       setTaskDurationOverrides({});
       setRoleAssignments({});
+      setSelectedTemplateId('');
 
-      // Fetch templates
+      // Fetch templates (do NOT auto-pick; templates fill form only after an explicit click)
       setLoadingTemplates(true);
       ApiClient.getTemplates()
         .then((res: any) => {
           const list = Array.isArray(res) ? res : [];
           setTemplates(list);
-          const defaultTmpl = list.find((t: any) => t.name === 'Plotted Real Estate Layout (50 acres)') || list[0];
-          if (defaultTmpl) {
-            setSelectedTemplateId(defaultTmpl.id);
-            setName(defaultTmpl.name === 'Plotted Real Estate Layout (50 acres)' ? 'Green Valley Layout, 50 Acres' : defaultTmpl.name);
-            setDescription(defaultTmpl.description || '');
-          }
         })
         .catch(() => {})
         .finally(() => setLoadingTemplates(false));
@@ -216,8 +211,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           responsibleManagerId: responsibleManagerId || undefined,
           budget: budget ? Number(budget) : undefined,
           currency: {
-            code: currencyCode,
-            symbol: currencyCode === 'INR' ? '₹' : currencyCode === 'EUR' ? '€' : '$',
+            code: 'INR',
+            symbol: '₹',
           },
           taskDurations: taskDurationOverrides,
         });
@@ -246,8 +241,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             industry: 'general',
             methodology: 'stage_gate',
             currency: {
-              code: currencyCode,
-              symbol: currencyCode === 'INR' ? '₹' : currencyCode === 'EUR' ? '€' : '$',
+              code: 'INR',
+              symbol: '₹',
             },
           },
         });
@@ -384,8 +379,9 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                           key={tmpl.id}
                           onClick={() => {
                             setSelectedTemplateId(tmpl.id);
-                            setName(tmpl.name === 'Plotted Real Estate Layout (50 acres)' ? 'Green Valley Layout, 50 Acres' : tmpl.name);
+                            setName(tmpl.name);
                             setDescription(tmpl.description || '');
+                            setCurrencyCode('INR');
                           }}
                           className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
                             isSelected
@@ -666,24 +662,22 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                     Currency
                   </label>
                   <select
-                    value={currencyCode}
-                    onChange={(e) => setCurrencyCode(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value="INR"
+                    disabled
+                    className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white cursor-not-allowed opacity-90"
                   >
                     <option value="INR">INR (₹) Indian Rupee</option>
-                    <option value="USD">USD ($) US Dollar</option>
-                    <option value="EUR">EUR (€) Euro</option>
                   </select>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
-                    Total Project Budget
+                    Total Project Budget (INR ₹)
                   </label>
                   <input
                     type="number"
                     value={budget}
                     onChange={(e) => setBudget(e.target.value)}
-                    placeholder="e.g. 50000000"
+                    placeholder="Enter project budget in INR (optional)"
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -742,7 +736,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                 {rolePlaceholders.map((roleName) => (
                   <div
                     key={roleName}
-                    className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/60 flex items-center justify-between gap-3"
+                    className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                   >
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 dark:text-white">
@@ -761,7 +755,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                           [roleName]: e.target.value,
                         }))
                       }
-                      className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[200px]"
+                      className="w-full sm:w-auto px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 sm:min-w-[200px]"
                     >
                       <option value="">Leave Unassigned</option>
                       {groupMembersByRole(members).map((group) => (

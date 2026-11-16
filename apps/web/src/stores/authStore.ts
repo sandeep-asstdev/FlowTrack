@@ -23,13 +23,11 @@ interface AuthState {
   token: string | null;
   activeWorkspaceId: string | null;
   workspaces: WorkspaceItem[];
-  simulatedRole: string | null;
   isLoading: boolean;
   error: string | null;
 
   setAuth: (user: User, token: string, workspaceId: string, workspaces: WorkspaceItem[]) => void;
   setActiveWorkspace: (workspaceId: string) => void;
-  setSimulatedRole: (role: string | null) => void;
   getActiveRole: () => string;
   logout: () => void;
   loadInitialAuth: () => Promise<void>;
@@ -41,7 +39,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: ApiClient.getToken(),
   activeWorkspaceId: ApiClient.getActiveWorkspaceId(),
   workspaces: [],
-  simulatedRole: null,
   isLoading: true,
   error: null,
 
@@ -56,13 +53,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ activeWorkspaceId: workspaceId });
   },
 
-  setSimulatedRole: (role) => {
-    set({ simulatedRole: role });
-  },
-
   getActiveRole: () => {
     const state = get();
-    if (state.simulatedRole) return state.simulatedRole;
     const activeWs = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
     return activeWs?.role || 'MEMBER';
   },
@@ -70,7 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     ApiClient.setToken(null);
     ApiClient.setActiveWorkspaceId(null);
-    set({ user: null, token: null, activeWorkspaceId: null, workspaces: [], simulatedRole: null });
+    set({ user: null, token: null, activeWorkspaceId: null, workspaces: [] });
   },
 
   fetchWorkspaces: async () => {

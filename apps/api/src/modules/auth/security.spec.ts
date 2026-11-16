@@ -5,7 +5,9 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { TeamsService } from '../teams/teams.service';
 import { ProjectsService } from '../projects/projects.service';
-import { ForbiddenException, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException, BadRequestException, NotFoundException, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { RolesGuard } from './roles.guard';
 import { Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
@@ -1429,6 +1431,127 @@ describe('Security & Authorization Hardening', () => {
           newValues: expect.objectContaining({ ownerId: 'dev-2' }),
         })
       );
+    });
+  });
+
+  describe('Client Role Spoofing Prevention & Server Role Authority', () => {
+    it('derives role strictly from database membership and ignores forged role in JWT payload', async () => {
+      // Attacker crafts or submits a JWT token with role: 'ADMIN', but database record is MEMBER
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'user-member-1',
+        email: 'member@company.com',
+        fullName: 'Standard Member',
+        passwordHash: 'hash',
+        isActive: true,
+        deletedAt: null,
+        memberships: [
+          {
+            workspaceId: 'ws-1',
+            role: Role.MEMBER, // True DB role is MEMBER
+            workspace: { id: 'ws-1', name: 'Acme Corp' },
+          },
+        ],
+      });
+
+      const validated = await jwtStrategy.validate({
+        sub: 'user-member-1',
+        email: 'member@company.com',
+        activeWorkspaceId: 'ws-1',
+        role: Role.ADMIN, // Malicious / client-supplied role claim
+      });
+
+      // The server MUST ignore the client-claimed role and assign Role.MEMBER
+      expect(validated.role).toBe(Role.MEMBER);
+    });
+
+    it('RolesGuard denies access when client sends x-role or x-role-override header without DB role', () => {
+      const reflector = new Reflector();
+      vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue([Role.ADMIN]);
+      const guard = new RolesGuard(reflector);
+
+      const mockExecutionContext = {
+        getHandler: vi.fn(),
+        getClass: vi.fn(),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            headers: {
+              'x-workspace-id': 'ws-1',
+              'x-role': 'ADMIN',
+              'x-role-override': 'ADMIN',
+            },
+            user: {
+              id: 'user-attacker',
+              activeWorkspaceId: 'ws-1',
+              memberships: [
+                {
+                  workspaceId: 'ws-1',
+                  role: Role.MEMBER, // DB membership is only MEMBER
+                },
+              ],
+            },
+          }),
+        }),
+      } as unknown as ExecutionContext;
+
+      expect(() => guard.canActivate(mockExecutionContext)).toThrow(ForbiddenException);
+    });
+
+    it('RolesGuard grants access when verified DB membership has required role', () => {
+      const reflector = new Reflector();
+      vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue([Role.ADMIN]);
+      const guard = new RolesGuard(reflector);
+
+      const mockUser = {
+        id: 'admin-user-1',
+        activeWorkspaceId: 'ws-1',
+        memberships: [
+          {
+            workspaceId: 'ws-1',
+            role: Role.ADMIN,
+          },
+        ],
+      };
+
+      const mockExecutionContext = {
+        getHandler: vi.fn(),
+        getClass: vi.fn(),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            headers: {
+              'x-workspace-id': 'ws-1',
+            },
+            user: mockUser,
+          }),
+        }),
+      } as unknown as ExecutionContext;
+
+      const allowed = guard.canActivate(mockExecutionContext);
+      expect(allowed).toBe(true);
+      expect((mockUser as any).role).toBe(Role.ADMIN);
+    });
+
+    it('strictly forbids non-admin users from changing member roles via workspacesService', async () => {
+      prismaMock.membership.findUnique.mockResolvedValue({
+        workspaceId: 'ws-1',
+        userId: 'attacker-id',
+        role: Role.MEMBER, // Attacker is only a member
+      });
+
+      await expect(
+        workspacesService.updateMemberRole('ws-1', 'attacker-id', 'target-user', Role.ADMIN)
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('strictly forbids self-role modification even for an administrator', async () => {
+      prismaMock.membership.findUnique.mockResolvedValue({
+        workspaceId: 'ws-1',
+        userId: 'admin-id',
+        role: Role.ADMIN,
+      });
+
+      await expect(
+        workspacesService.updateMemberRole('ws-1', 'admin-id', 'admin-id', Role.MEMBER)
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

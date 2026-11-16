@@ -10,10 +10,10 @@ export const projectSettingsSchema = z.object({
   industry: z.enum(UNIVERSAL_INDUSTRIES).default('general'),
   methodology: z.enum(PROJECT_METHODOLOGIES).default('stage_gate'),
   currency: z.object({
-    code: z.string().min(1).default('USD'),
-    symbol: z.string().min(1).default('$'),
+    code: z.string().min(1).default('INR'),
+    symbol: z.string().min(1).default('₹'),
     name: z.string().optional(),
-  }).default({ code: 'USD', symbol: '$' }),
+  }).default({ code: 'INR', symbol: '₹' }),
   dateFormat: z.enum(DATE_FORMATS).default('YYYY-MM-DD'),
   timezone: z.string().default('UTC'),
   terminology: z.record(z.string()).default({

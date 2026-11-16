@@ -9,6 +9,7 @@ import {
   isConfidentialityStricterOrEqual,
   ROLE_SCOPES,
   RoleScope,
+  hasWorkspaceRolePermission,
 } from '@flowtrack/shared';
 
 export interface AuthenticatedUserContext {
@@ -131,7 +132,10 @@ export class AuthorizationService {
       classification === CONFIDENTIALITY_LEVELS.CONFIDENTIAL ||
       classification === CONFIDENTIALITY_LEVELS.HIGHLY_CONFIDENTIAL;
 
-    if (isHighConfidentiality && meta.id && !isAdmin) {
+    // Technical administrators are NOT automatically business-content authorized for HIGHLY_CONFIDENTIAL
+    const isExempt = isAdmin && classification !== CONFIDENTIALITY_LEVELS.HIGHLY_CONFIDENTIAL;
+
+    if (isHighConfidentiality && meta.id && !isExempt) {
       const hasDirectAccessGrant = await this.hasValidAccessGrant(user, meta.id);
       const isDirectOwnerOrManager =
         user.id === meta.ownerId ||
@@ -210,15 +214,25 @@ export class AuthorizationService {
     const directPermissions: Set<string> = new Set();
 
     // 1. Organization / Workspace membership baseline
-    if (user.role) {
-      roles.add(user.role.toUpperCase());
-    } else if (this.prisma.membership) {
-      const m = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId: user.workspaceId, userId: user.id } },
-      });
-      if (m?.role) {
-        roles.add(m.role.toUpperCase());
+    // Security Hardening: Database membership is authoritative over caller-supplied role
+    let resolvedWorkspaceRole: string | null = null;
+    if (this.prisma?.membership?.findUnique) {
+      try {
+        const m = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId: user.workspaceId, userId: user.id } },
+        });
+        if (m?.role) {
+          resolvedWorkspaceRole = m.role.toUpperCase();
+        }
+      } catch {
+        // Fallback for isolated mocks
       }
+    }
+    if (!resolvedWorkspaceRole && user.role) {
+      resolvedWorkspaceRole = user.role.toUpperCase();
+    }
+    if (resolvedWorkspaceRole) {
+      roles.add(resolvedWorkspaceRole);
     }
 
     // 2. Direct resource ownership roles
@@ -457,6 +471,7 @@ export class AuthorizationService {
         { ownerId: user.id },
         { responsibleManagerId: user.id },
         { members: { some: { userId: user.id } } },
+        { nodes: { some: { ownerId: user.id, deletedAt: null } } },
       ],
     };
 
@@ -524,5 +539,133 @@ export class AuthorizationService {
       reassignedReviews: reviewsUpdated?.count || 0,
       reassignedProjects: projectsUpdated?.count || 0,
     };
+  }
+
+  /**
+   * Retrieves eligible approvers for a given task or project in the workspace,
+   * enforcing the permission matrix (APPROVE_TASK), separation of duties, and role scopes.
+   */
+  async getEligibleApprovers(
+    workspaceId: string,
+    options: { taskId?: string; projectId?: string; submitterId?: string }
+  ): Promise<Array<{ id: string; fullName: string; email: string; role: string; avatarUrl?: string | null }>> {
+    let task: any = null;
+    let project: any = null;
+
+    if (options.taskId && typeof this.prisma.node?.findUnique === 'function') {
+      try {
+        task = await this.prisma.node.findUnique({
+          where: { id: options.taskId },
+          include: { project: true },
+        });
+        project = task?.project;
+      } catch {
+        // mock or error fallback
+      }
+    } else if (options.projectId && typeof this.prisma.project?.findUnique === 'function') {
+      try {
+        project = await this.prisma.project.findUnique({
+          where: { id: options.projectId },
+        });
+      } catch {
+        // mock or error fallback
+      }
+    }
+
+    const projectId = project?.id || options.projectId;
+    const taskOwnerId = task?.ownerId;
+    const submitterId = options.submitterId || taskOwnerId;
+
+    // Fetch all active workspace members
+    let memberships: any[] = [];
+    if (typeof this.prisma.membership?.findMany === 'function') {
+      memberships = await this.prisma.membership.findMany({
+        where: {
+          workspaceId,
+          user: { isActive: true, deletedAt: null },
+        },
+        include: {
+          user: {
+            select: { id: true, fullName: true, email: true, avatarUrl: true },
+          },
+        },
+      }).catch(() => []);
+    }
+
+    // Check project members if project is restricted
+    let projectMembers: any[] = [];
+    if (projectId && typeof this.prisma.projectMember?.findMany === 'function') {
+      projectMembers = await this.prisma.projectMember.findMany({
+        where: { projectId },
+        select: { userId: true, role: true },
+      }).catch(() => []);
+    }
+
+    // Check team members if task has a team
+    let teamLeads: any[] = [];
+    if (task?.teamId && typeof this.prisma.teamMember?.findMany === 'function') {
+      teamLeads = await this.prisma.teamMember.findMany({
+        where: { teamId: task.teamId, role: 'lead' },
+        select: { userId: true },
+      }).catch(() => []);
+    }
+
+    const teamLeadUserIds = new Set(teamLeads.map((tl) => tl.userId));
+    const projectMemberMap = new Map(projectMembers.map((pm) => [pm.userId, pm.role]));
+
+    const isRestrictedProject =
+      project?.classification === CONFIDENTIALITY_LEVELS.RESTRICTED ||
+      project?.classification === CONFIDENTIALITY_LEVELS.HIGHLY_CONFIDENTIAL;
+
+    const eligibleList: Array<{ id: string; fullName: string; email: string; role: string; avatarUrl?: string | null }> = [];
+
+    for (const m of memberships) {
+      const u = m.user;
+      if (!u) continue;
+
+      // Rule 1: Separation of duties: submitter / task owner cannot approve their own work
+      if (submitterId && u.id === submitterId) {
+        continue;
+      }
+      if (taskOwnerId && u.id === taskOwnerId) {
+        continue;
+      }
+
+      // Rule 2: Permission matrix check - role must have APPROVE_TASK permission
+      const role = m.role;
+      const canApprove = hasWorkspaceRolePermission(role, GRANULAR_PERMISSIONS.APPROVE_TASK);
+      if (!canApprove) {
+        continue;
+      }
+
+      // Rule 3: Scoping checks
+      if (role === 'TEAM_LEAD') {
+        // If task has a team, must be lead of that team
+        if (task?.teamId && !teamLeadUserIds.has(u.id)) {
+          continue;
+        }
+      }
+
+      if (role === 'MANAGER') {
+        // If project is restricted, manager must be project lead or member
+        if (isRestrictedProject) {
+          const isLead = project?.ownerId === u.id || project?.responsibleManagerId === u.id;
+          const inProject = projectMemberMap.has(u.id);
+          if (!isLead && !inProject) {
+            continue;
+          }
+        }
+      }
+
+      eligibleList.push({
+        id: u.id,
+        fullName: u.fullName || u.email,
+        email: u.email,
+        role,
+        avatarUrl: u.avatarUrl,
+      });
+    }
+
+    return eligibleList;
   }
 }

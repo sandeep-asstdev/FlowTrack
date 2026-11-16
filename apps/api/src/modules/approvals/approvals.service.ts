@@ -307,32 +307,7 @@ export class ApprovalsService {
         );
       }
 
-      // Rule 2: RBAC member assigner constraints (Members only request approval from assigner or parent owner)
-      const submitterMembership = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId: submitterId } },
-      });
-      const submitterRole = submitterMembership?.role || 'MEMBER';
-
-      if (submitterRole === 'MEMBER') {
-        const assignerId = task?.assignedById;
-        let parentOwnerId: string | null = null;
-        if (task?.parentNodeId) {
-          const parent = await this.prisma.node.findUnique({
-            where: { id: task.parentNodeId },
-            select: { ownerId: true, assignedById: true },
-          });
-          parentOwnerId = parent?.ownerId || parent?.assignedById || null;
-        }
-
-        const validAssigners = [assignerId, parentOwnerId].filter(Boolean) as string[];
-        if (validAssigners.length > 0 && !validAssigners.includes(explicitChosenApprover)) {
-          throw new ForbiddenException(
-            'Forbidden: Members can only request approval from the person who assigned them the task.'
-          );
-        }
-      }
-
-      // Rule 3: Validate eligibility via authorization service
+      // Validate eligibility via authorization service
       if (this.authService?.getEligibleApprovers) {
         const eligible = await this.authService.getEligibleApprovers(workspaceId, {
           taskId: task?.id,
@@ -340,7 +315,7 @@ export class ApprovalsService {
           submitterId,
         });
         const eligibleIds = eligible.map((e) => e.id);
-        if (eligibleIds.length > 0 && !eligibleIds.includes(explicitChosenApprover)) {
+        if (!eligibleIds.includes(explicitChosenApprover)) {
           throw new ForbiddenException(
             'Selected user is not an authorized eligible approver for this task.'
           );
@@ -384,6 +359,7 @@ export class ApprovalsService {
             currentStageIndex: 0,
             payload: {
               ...(dto.payload || {}),
+              notes: (dto as any).notes || dto.payload?.notes || undefined,
               chosenApproverId: explicitChosenApprover,
             },
             stageInstances: {

@@ -129,6 +129,9 @@ describe('Single Chosen-Approver Flow (chosen-approver.spec.ts)', () => {
     await prisma.projectMember.create({
       data: { projectId: normalProject.id, userId: managerUser.id, role: Role.MANAGER },
     });
+    await prisma.projectMember.create({
+      data: { projectId: normalProject.id, userId: teamLeadUser.id, role: Role.TEAM_LEAD },
+    });
 
     restrictedProject = await prisma.project.create({
       data: {
@@ -255,9 +258,10 @@ describe('Single Chosen-Approver Flow (chosen-approver.spec.ts)', () => {
       expect(Array.isArray(res.body)).toBe(true);
 
       const approverIds = res.body.map((u: any) => u.id);
-      // Must include manager and admin
+      // Chunk 8: Member -> Manager or Team Leader on project (Admins excluded for Member)
       expect(approverIds).toContain(managerUser.id);
-      expect(approverIds).toContain(adminUser.id);
+      expect(approverIds).toContain(teamLeadUser.id);
+      expect(approverIds).not.toContain(adminUser.id);
       // Separation of duties: MUST NOT include the task assignee / submitter
       expect(approverIds).not.toContain(submitterMemberUser.id);
       // Must NOT include unrelated member without APPROVE_TASK permission

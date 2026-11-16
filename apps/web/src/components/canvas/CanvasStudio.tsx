@@ -105,7 +105,7 @@ export function getLogicalState(data: {
   if (data.statusCategory === 'done' || data.approvalStatus === 'approved') {
     return 'Approved/Done';
   }
-  if (data.statusCategory === 'todo' || data.state === 'Draft' || data.state === 'Proposed') {
+  if (data.statusCategory === 'todo' || (data as any).state === 'Draft' || (data as any).state === 'Proposed') {
     return 'Open';
   }
   return 'In Progress';
@@ -1432,13 +1432,9 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       return;
     }
 
-    const isStage = typeKey === 'stage';
-    const isMilestone = typeKey === 'milestone';
-    const isApproval = typeKey === 'approval';
-
     const typeObj =
-      nodeTypesList.find((t) => t.key === typeKey) ||
-      nodeTypesList.find((t) => (isStage ? t.isGroup : !t.isGroup)) ||
+      nodeTypesList.find((t) => t.key === 'task') ||
+      nodeTypesList.find((t) => !t.isGroup) ||
       nodeTypesList[0];
 
     if (!typeObj) return;
@@ -1462,13 +1458,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         posY = smartPos.y;
       }
 
-      const titlePrefix = isMilestone
-        ? 'Project Milestone Sign-Off'
-        : isApproval
-        ? 'Approval Gate Review'
-        : isStage
-        ? 'Stage Phase Group'
-        : `New ${typeObj.name || 'Task'} Item`;
+      const titlePrefix = 'New Task Item';
 
       const created = await ApiClient.createNode({
         projectId: project.id,
@@ -1479,7 +1469,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         positionX: posX,
         positionY: posY,
         progressPct: 0,
-        isMilestone: isMilestone ? true : false,
+        isMilestone: false,
       });
 
       // If source node was provided (dragged from handle onto empty space), auto-connect!
@@ -1488,7 +1478,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           projectId: project.id,
           sourceNodeId: sourceNodeToConnect,
           targetNodeId: created.id,
-          kind: isMilestone || isApproval ? 'dependency' : 'sequence',
+          kind: 'sequence',
           metadata: {
             sourceHandle: 'right',
             targetHandle: 'left',
@@ -1516,7 +1506,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
       setSavedStatus('saved');
       setQuickAddMenu(null);
-      showToast(isMilestone ? 'Milestone added' : isApproval ? 'Approval Gate added' : 'Task added');
+      showToast('Task added');
     } catch (err: any) {
       console.error('Failed to add node:', err);
       showToast(err.message || 'Failed to add node');
@@ -1908,19 +1898,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               </select>
             )}
 
-            {/* Type Filter */}
-            <select
-              value={typeFilter}
-              onChange={(e: any) => setTypeFilter(e.target.value)}
-              className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
-            >
-              <option value="all">All Types</option>
-              <option value="task">Tasks</option>
-              <option value="stage">Stage Groups</option>
-              <option value="milestone">Milestones</option>
-              <option value="approval">Approval Gates</option>
-            </select>
-
             {/* Priority Filter */}
             <select
               value={priorityFilter}
@@ -1935,7 +1912,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             </select>
 
             {/* Reset Filters */}
-            {(searchQuery || statusFilter !== 'all' || typeFilter !== 'all' || priorityFilter !== 'all' || assignmentFilter !== 'all' || logicalStatusFilter !== 'all' || dueDateFilter !== 'all' || teamFilter !== 'all') && (
+            {(searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || assignmentFilter !== 'all' || logicalStatusFilter !== 'all' || dueDateFilter !== 'all' || teamFilter !== 'all') && (
               <button
                 onClick={() => {
                   setSearchQuery('');
@@ -2037,55 +2014,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                   Workflow Canvas is Empty
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Start designing your universal project workflow. Add stage phases, tasks, milestones, or approval gates to begin organizing.
+                  Start designing your project workflow. Create a task, then add child tasks under it.
                 </p>
               </div>
 
               {permissions.canEditProject ? (
-                <div className="grid grid-cols-2 gap-2 pt-1 text-left">
-                  <button
-                    onClick={() => handleAddNode('stage')}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:border-blue-300 transition-all group"
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-blue-600">
-                      <Layers className="w-4 h-4 text-purple-500" />
-                      + Stage Group
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">High-level project phases</p>
-                  </button>
-
+                <div className="pt-2 text-center space-y-2">
                   <button
                     onClick={() => handleAddNode('task')}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:border-blue-300 transition-all group"
+                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-blue-600">
-                      <Plus className="w-4 h-4 text-blue-500" />
-                      + Task Step
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Actionable work package</p>
+                    <Plus className="w-4 h-4" />
+                    <span>+ Add task</span>
                   </button>
-
-                  <button
-                    onClick={() => handleAddNode('milestone')}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-300 transition-all group"
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-amber-600">
-                      <Flag className="w-4 h-4 text-amber-500" />
-                      + Milestone
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Key completion target</p>
-                  </button>
-
-                  <button
-                    onClick={() => handleAddNode('approval')}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-300 transition-all group"
-                  >
-                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-200 group-hover:text-emerald-600">
-                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                      + Approval Gate
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Formal sign-off step</p>
-                  </button>
+                  <p className="text-[11px] text-slate-400">
+                    Create a task, then add child tasks under it
+                  </p>
                 </div>
               ) : (
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-xs text-slate-500 flex items-center justify-center gap-2">
@@ -2303,51 +2247,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
                 className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2"
               >
                 <CheckSquare className="w-4 h-4 text-blue-500" />
-                Regular Task
-              </button>
-
-              <button
-                onClick={() => {
-                  const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
-                  handleAddNode('stage', pos, quickAddMenu.sourceNodeId);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-950/40 hover:text-purple-600 flex items-center gap-2"
-              >
-                <Layers className="w-4 h-4 text-purple-500" />
-                Stage / Group
-              </button>
-
-              <button
-                onClick={() => {
-                  const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
-                  handleAddNode('milestone', pos, quickAddMenu.sourceNodeId);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-600 flex items-center gap-2"
-              >
-                <Flag className="w-4 h-4 text-amber-500" />
-                Milestone Target
-              </button>
-
-              <button
-                onClick={() => {
-                  const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
-                  handleAddNode('approval', pos, quickAddMenu.sourceNodeId);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 flex items-center gap-2"
-              >
-                <Sparkles className="w-4 h-4 text-emerald-500" />
-                Approval Sign-Off
-              </button>
-
-              <button
-                onClick={() => {
-                  const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
-                  handleAddNode('doc_request', pos, quickAddMenu.sourceNodeId);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-600 flex items-center gap-2"
-              >
-                <FileText className="w-4 h-4 text-amber-500" />
-                Document Checkpoint
+                Add Task
               </button>
             </div>
           </div>

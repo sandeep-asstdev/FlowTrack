@@ -132,29 +132,16 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
     setIsHovered(false);
   };
 
-  // Determine node type classification
-  const isStageNode = isGroup || nodeTypeKey === 'stage';
-  const isMilestoneNode = isMilestone || nodeTypeKey === 'milestone';
-  const isApprovalNode = isApprovalGate || nodeTypeKey === 'approval' || approvalStatus !== 'not_required';
+  // All nodes are displayed and treated as standard tasks
+  const isStageNode = false;
+  const isMilestoneNode = false;
+  const isApprovalNode = false;
 
   // Configurable terminology label
-  const typeLabel = isStageNode
-    ? terminology?.stage || 'Stage'
-    : isMilestoneNode
-    ? terminology?.milestone || 'Milestone'
-    : isApprovalNode
-    ? terminology?.approver || 'Approval Gate'
-    : terminology?.task || 'Task';
+  const typeLabel = terminology?.task || 'Task';
 
-  // Render appropriate type icon
+  // Render standard task icon based on status
   const renderIcon = () => {
-    if (isMilestoneNode) return <Flag className="w-4 h-4 text-amber-500" />;
-    if (isApprovalNode) {
-      if (approvalStatus === 'approved') return <ShieldCheck className="w-4 h-4 text-emerald-500" />;
-      if (approvalStatus === 'rejected') return <ShieldX className="w-4 h-4 text-rose-500" />;
-      return <ShieldAlert className="w-4 h-4 text-purple-500" />;
-    }
-    if (isStageNode) return <Layers className="w-4 h-4 text-purple-600" />;
     if (statusCategory === 'done') return <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
     if (statusCategory === 'blocked' || waitingCount > 0)
       return <AlertTriangle className="w-4 h-4 text-amber-500" />;
@@ -172,12 +159,6 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
     ? 'border-rose-500 ring-2 ring-rose-500/30 shadow-md bg-rose-50/10 dark:bg-rose-950/20'
     : (data.isBlocked || statusCategory === 'blocked') && !countdown.isDone
     ? 'border-amber-400 dark:border-amber-600/70 shadow-xs'
-    : isMilestoneNode
-    ? 'border-amber-200 dark:border-amber-800/80'
-    : isApprovalNode
-    ? 'border-purple-200 dark:border-purple-800/80'
-    : isStageNode
-    ? 'border-indigo-200 dark:border-indigo-800'
     : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs';
 
   return (
@@ -404,7 +385,7 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
       </div>
 
       {/* 3. Approval state only when relevant */}
-      {isApprovalNode && (
+      {(approvalStatus === 'approved' || approvalStatus === 'rejected' || approvalStatus === 'pending') && (
         <div className="mx-3.5 my-1.5 px-2 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900/40 flex items-center justify-between text-[10px]">
           <span className="font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
             {approvalStatus === 'approved' ? (
@@ -415,13 +396,10 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
               <ShieldAlert className="w-3 h-3 text-purple-500 shrink-0" />
             )}
             {approvalStatus === 'approved'
-              ? 'Sign-Off Granted'
+              ? 'Approved'
               : approvalStatus === 'rejected'
-              ? 'Rework Required'
-              : 'Awaiting Approval'}
-          </span>
-          <span className="text-slate-400 dark:text-slate-500 font-mono text-[9px] uppercase">
-            {approvalStatus}
+              ? 'Changes requested'
+              : 'Awaiting approval'}
           </span>
         </div>
       )}
@@ -531,12 +509,12 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
             </span>
           )}
         </div>
-        {data.onAddChild && (
+        {Boolean((data as any)?.onAddChild) && (
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              data.onAddChild(id);
+              (data as any).onAddChild(id);
             }}
             className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 font-bold flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 transition-colors"
             title="Add Child Subtask connected beneath this node"

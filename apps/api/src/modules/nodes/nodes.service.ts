@@ -1003,10 +1003,19 @@ export class NodesService {
       }
     }
 
+    // Enforce Task-only creation: ignore any other node type sent by client, default to Task
+    let taskNodeType: any = null;
+    if (typeof this.prisma.nodeType?.findFirst === 'function') {
+      taskNodeType = await this.prisma.nodeType.findFirst({
+        where: { workspaceId, key: 'task' },
+      });
+    }
+    const finalNodeTypeId = taskNodeType?.id || dto.nodeTypeId;
+
     let statusId = dto.statusId;
     if (!statusId) {
       const nodeType = await this.prisma.nodeType.findUnique({
-        where: { id: dto.nodeTypeId },
+        where: { id: finalNodeTypeId },
         include: { statusSet: { include: { statuses: { orderBy: { displayOrder: 'asc' } } } } },
       });
       statusId = nodeType?.statusSet?.statuses[0]?.id;
@@ -1022,17 +1031,13 @@ export class NodesService {
 
     // Validate customData against applicable field definitions if customData provided
     let customData = dto.customData || {};
-    const nodeType = await this.prisma.nodeType.findUnique({
-      where: { id: dto.nodeTypeId },
-    });
-    const targetTypeFilter = nodeType?.isGroup ? 'stage' : 'task';
     const applicableFields = await this.prisma.fieldDefinition.findMany({
       where: {
         workspaceId,
         isActive: true,
         OR: [
-          { nodeTypeId: dto.nodeTypeId },
-          { nodeTypeId: null, targetType: targetTypeFilter },
+          { nodeTypeId: finalNodeTypeId },
+          { nodeTypeId: null, targetType: 'task' },
           { nodeTypeId: null, targetType: 'node' },
         ],
       },
@@ -1059,7 +1064,7 @@ export class NodesService {
         depth,
         isRequired: dto.isRequired !== undefined ? dto.isRequired : true,
         classification: (nodeClassification as any) || 'INTERNAL',
-        nodeTypeId: dto.nodeTypeId,
+        nodeTypeId: finalNodeTypeId,
         statusId,
         title: dto.title,
         description: dto.description,
@@ -1080,7 +1085,7 @@ export class NodesService {
         teamId: dto.teamId || null,
         priority: (dto.priority as Priority) || 'MEDIUM',
         weight: dto.weight || 1.0,
-        isMilestone: dto.isMilestone || false,
+        isMilestone: false,
         milestoneDueDate: dto.milestoneDueDate ? new Date(dto.milestoneDueDate as any) : null,
         startDate: dto.startDate ? new Date(dto.startDate as any) : null,
         dueDate: dto.dueDate ? new Date(dto.dueDate as any) : null,
@@ -2532,6 +2537,17 @@ export class NodesService {
     if (targetApproverId) {
       if (targetApproverId === actorId || (node.ownerId && targetApproverId === node.ownerId)) {
         throw new ForbiddenException('Forbidden: Authors and task assignees cannot approve their own work.');
+      }
+      if (this.authService?.getEligibleApprovers) {
+        const eligible = await this.authService.getEligibleApprovers(node.workspaceId, {
+          taskId: nodeId,
+          projectId: node.projectId,
+          submitterId: actorId,
+        });
+        const eligibleIds = eligible.map((e) => e.id);
+        if (!eligibleIds.includes(targetApproverId)) {
+          throw new ForbiddenException('Selected user is not an authorized eligible approver for this task.');
+        }
       }
     }
 

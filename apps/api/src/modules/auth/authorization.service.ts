@@ -576,6 +576,11 @@ export class AuthorizationService {
     const taskOwnerId = task?.ownerId;
     const submitterId = options.submitterId || taskOwnerId;
 
+    // Rule: Unassigned task cannot have eligible approvers
+    if (task && !task.ownerId) {
+      return [];
+    }
+
     // Fetch all active workspace members
     let memberships: any[] = [];
     if (typeof this.prisma.membership?.findMany === 'function') {
@@ -592,7 +597,23 @@ export class AuthorizationService {
       }).catch(() => []);
     }
 
-    // Check project members if project is restricted
+    // Identify submitter's role
+    const submitterMembership = memberships.find((m) => (m.user?.id || m.userId) === submitterId);
+    let submitterRole = submitterMembership?.role;
+    if (!submitterRole && submitterId && typeof this.prisma.membership?.findFirst === 'function') {
+      const dbMem = await this.prisma.membership.findFirst({
+        where: { workspaceId, userId: submitterId },
+      }).catch(() => null);
+      submitterRole = dbMem?.role;
+    }
+    submitterRole = submitterRole || 'MEMBER';
+
+    // Admins never request approval; they approve
+    if (submitterRole === 'ADMIN') {
+      return [];
+    }
+
+    // Check project members if project exists
     let projectMembers: any[] = [];
     if (projectId && typeof this.prisma.projectMember?.findMany === 'function') {
       projectMembers = await this.prisma.projectMember.findMany({
@@ -612,10 +633,20 @@ export class AuthorizationService {
 
     const teamLeadUserIds = new Set(teamLeads.map((tl) => tl.userId));
     const projectMemberMap = new Map(projectMembers.map((pm) => [pm.userId, pm.role]));
+    const assignedById = task?.assignedById;
 
     const isRestrictedProject =
       project?.classification === CONFIDENTIALITY_LEVELS.RESTRICTED ||
       project?.classification === CONFIDENTIALITY_LEVELS.HIGHLY_CONFIDENTIAL;
+
+    const isUserOnProject = (userId: string) => {
+      if (project?.ownerId === userId || project?.responsibleManagerId === userId) return true;
+      if (projectMemberMap.has(userId)) return true;
+      if (assignedById === userId) return true;
+      if (teamLeadUserIds.has(userId)) return true;
+      if (projectMembers.length === 0 && !isRestrictedProject) return true;
+      return false;
+    };
 
     const eligibleList: Array<{ id: string; fullName: string; email: string; role: string; avatarUrl?: string | null }> = [];
 
@@ -623,7 +654,7 @@ export class AuthorizationService {
       const u = m.user;
       if (!u) continue;
 
-      // Rule 1: Separation of duties: submitter / task owner cannot approve their own work
+      // Separation of duties: submitter / task owner cannot approve their own work
       if (submitterId && u.id === submitterId) {
         continue;
       }
@@ -631,39 +662,55 @@ export class AuthorizationService {
         continue;
       }
 
-      // Rule 2: Permission matrix check - role must have APPROVE_TASK permission
-      const role = m.role;
-      const canApprove = hasWorkspaceRolePermission(role, GRANULAR_PERMISSIONS.APPROVE_TASK);
-      if (!canApprove) {
-        continue;
-      }
+      const candidateRole = m.role;
 
-      // Rule 3: Scoping checks
-      if (role === 'TEAM_LEAD') {
-        // If task has a team, must be lead of that team
-        if (task?.teamId && !teamLeadUserIds.has(u.id)) {
+      // Rule: Member -> a Manager or Team Leader on that project
+      if (submitterRole === 'MEMBER') {
+        if (candidateRole !== 'MANAGER' && candidateRole !== 'TEAM_LEAD') {
+          continue; // Members cannot send to Admin or another Member
+        }
+        if (!isUserOnProject(u.id)) {
           continue;
         }
-      }
-
-      if (role === 'MANAGER') {
-        // If project is restricted, manager must be project lead or member
-        if (isRestrictedProject) {
-          const isLead = project?.ownerId === u.id || project?.responsibleManagerId === u.id;
-          const inProject = projectMemberMap.has(u.id);
-          if (!isLead && !inProject) {
+        if (candidateRole === 'TEAM_LEAD' && task?.teamId && !teamLeadUserIds.has(u.id)) {
+          if (!isUserOnProject(u.id)) continue;
+        }
+      } else if (submitterRole === 'TEAM_LEAD') {
+        // Team Leader -> a Manager on that project or an Admin
+        if (candidateRole === 'ADMIN') {
+          // Admin is eligible
+        } else if (candidateRole === 'MANAGER') {
+          if (!isUserOnProject(u.id)) {
             continue;
           }
+        } else {
+          continue;
         }
+      } else if (submitterRole === 'MANAGER') {
+        // Manager -> an Admin only
+        if (candidateRole !== 'ADMIN') {
+          continue;
+        }
+      } else {
+        continue;
       }
 
       eligibleList.push({
         id: u.id,
         fullName: u.fullName || u.email,
         email: u.email,
-        role,
+        role: candidateRole,
         avatarUrl: u.avatarUrl,
       });
+    }
+
+    // Default: whoever assigned the task is placed first
+    if (assignedById) {
+      const assignedIndex = eligibleList.findIndex((e) => e.id === assignedById);
+      if (assignedIndex > 0) {
+        const [assignedItem] = eligibleList.splice(assignedIndex, 1);
+        eligibleList.unshift(assignedItem);
+      }
     }
 
     return eligibleList;

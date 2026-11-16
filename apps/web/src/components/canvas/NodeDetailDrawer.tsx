@@ -271,6 +271,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const [eligibleApprovers, setEligibleApprovers] = useState<any[]>([]);
   const [chosenApproverId, setChosenApproverId] = useState<string>('');
   const [loadingEligibleApprovers, setLoadingEligibleApprovers] = useState(false);
+  const [waitingForApproverName, setWaitingForApproverName] = useState<string>('');
 
   // Approval / Review
   const [approvalNote, setApprovalNote] = useState('');
@@ -406,26 +407,41 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         setApprovalRequest(reqs?.[0] || null);
       } catch {}
 
-      // Fetch eligible approvers for chosen-approver flow
-      try {
-        setLoadingEligibleApprovers(true);
-        const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
-        const approvers = await ApiClient.getEligibleApprovers({
-          taskId: id,
-          nodeId: id,
-          projectId: data.projectId,
-          workspaceId: wsId,
-        });
-        setEligibleApprovers(approvers || []);
-        if (data.reviewerId) {
-          setChosenApproverId(data.reviewerId);
-        } else if (approvers && approvers.length > 0) {
-          setChosenApproverId(approvers[0].id);
+      // Fetch eligible approvers for chosen-approver flow (only when actionable and assigned)
+      const isAssigned = Boolean(data.ownerId);
+      const isDraft = data.state === 'Draft' || data.state === 'draft';
+      const isCurrentUserAdmin = currentRole === 'ADMIN';
+
+      if (isAssigned && !isDraft && !isCurrentUserAdmin) {
+        try {
+          setLoadingEligibleApprovers(true);
+          const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
+          const approvers = await ApiClient.getEligibleApprovers({
+            taskId: id,
+            nodeId: id,
+            projectId: data.projectId,
+            workspaceId: wsId || undefined,
+          });
+          setEligibleApprovers(approvers || []);
+          if (approvers && approvers.length === 0) {
+            console.warn('No approver is available on this project for task:', {
+              taskId: id,
+              projectId: data.projectId,
+              userRole: currentRole,
+            });
+          }
+          if (data.reviewerId) {
+            setChosenApproverId(data.reviewerId);
+          } else if (approvers && approvers.length > 0) {
+            setChosenApproverId(approvers[0].id);
+          }
+        } catch (err) {
+          console.error('Failed to load eligible approvers', err);
+        } finally {
+          setLoadingEligibleApprovers(false);
         }
-      } catch (err) {
-        console.error('Failed to load eligible approvers', err);
-      } finally {
-        setLoadingEligibleApprovers(false);
+      } else {
+        setEligibleApprovers([]);
       }
 
       // Phase 3: Fetch live completion readiness & audit trail
@@ -690,10 +706,17 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
   const assignedUser = node.owner || workspaceMembers.find((m) => (m.user?.id || m.userId) === ownerId)?.user || null;
-  const canSubmitWork = Boolean(
-    user?.id &&
-    (node.ownerId === user.id || !node.ownerId || currentRole === 'TEAM_LEAD' || currentRole === 'MANAGER' || currentRole === 'ADMIN')
-  );
+  const isActionableState =
+    node.state === 'In Progress' ||
+    node.state === 'in_progress' ||
+    node.state === 'Changes Requested' ||
+    node.state === 'ChangesRequested' ||
+    node.state === 'changes_requested';
+  const isAdmin = currentRole === 'ADMIN';
+  const canRequestApproval = isAssignedToCurrentUser && isActionableState && !isAdmin;
+  const isDraftOrUnassigned = !node.ownerId || node.state === 'Draft' || node.state === 'draft';
+  const showUnassignedOrDraftNotice = !isAdmin && isDraftOrUnassigned;
+  const canSubmitWork = canRequestApproval;
   const isPendingApproval = node.approvalStatus === 'pending' || node.status?.category === 'pending';
   const isApproved = (node.state === 'Completed' || node.state === 'Approved') && node.state !== 'Draft' && node.state !== 'In Progress' && node.state !== 'UnderReview';
   const isRejected = node.approvalStatus === 'rejected';
@@ -752,6 +775,10 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   const handleSubmitWork = async () => {
     try {
       setSubmittingWork(true);
+      const chosenApprover = eligibleApprovers.find((a) => a.id === chosenApproverId);
+      if (chosenApprover) {
+        setWaitingForApproverName(chosenApprover.fullName);
+      }
       await ApiClient.submitTask(node.id, {
         notes: submissionNotes.trim() || undefined,
         targetApproverId: chosenApproverId || undefined,
@@ -1424,14 +1451,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
             ) : null}
 
-            {canSubmitWork && !isPendingApproval && !isApproved && (
+            {canRequestApproval && !isPendingApproval && !isApproved && (
               <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300">
                   <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>
-                    {currentRole === 'MEMBER'
-                      ? 'Work completed? Ask for approval from your team leader, manager, or head of org.'
-                      : 'Ready for sign-off? Request approval from the Head of the Organization.'}
+                    Work completed? Ask for approval from your manager or team leader.
                   </span>
                 </div>
                 <button
@@ -1439,7 +1464,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   onClick={() => setActiveTab('work')}
                   className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shrink-0 transition-colors shadow-xs"
                 >
-                  Ask for Approval
+                  Ask for approval
                 </button>
               </div>
             )}
@@ -2693,20 +2718,27 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
             </div>
 
             {/* 5. Submit Work for Approval Action */}
-            {canSubmitWork && !isPendingApproval && !isApproved && (
+            {showUnassignedOrDraftNotice && (
+              <div className="p-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
+                Assign this task and start work before asking for approval.
+              </div>
+            )}
+
+            {isPendingApproval && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-200 font-semibold flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Waiting for {node.reviewer?.fullName || waitingForApproverName || 'approver'}</span>
+              </div>
+            )}
+
+            {canRequestApproval && !isPendingApproval && !isApproved && (
               <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white space-y-3 shadow-md">
                 <h4 className="text-xs font-bold flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4" />
-                  <span>
-                    {currentRole === 'MEMBER'
-                      ? 'Ask for Approval (from Team Lead / Manager / Head of Org)'
-                      : 'Request Approval from Head of Organization'}
-                  </span>
+                  <span>Ask for approval</span>
                 </h4>
                 <p className="text-[11px] text-blue-100">
-                  {currentRole === 'MEMBER'
-                    ? 'Work ready? Submit your deliverables to request approval from your Team Leader, Manager, or Head of Organization.'
-                    : 'Submit this task to request official sign-off and approval from the Head of the Organization.'}
+                  Submit your work and deliverables for review and sign-off.
                 </p>
 
                 {/* Ask approval from dropdown */}
@@ -2714,22 +2746,25 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   <label className="text-[11px] font-bold text-blue-100 block">
                     Ask approval from
                   </label>
-                  <select
-                    value={chosenApproverId}
-                    onChange={(e) => setChosenApproverId(e.target.value)}
-                    className="w-full p-2 text-xs rounded-xl bg-white text-slate-900 border border-white/20 focus:outline-none"
-                    disabled={submittingWork}
-                  >
-                    <option value="">-- Select an eligible approver --</option>
-                    {eligibleApprovers.map((approver) => (
-                      <option key={approver.id} value={approver.id}>
-                        {approver.fullName} ({approver.role})
-                      </option>
-                    ))}
-                  </select>
-                  {eligibleApprovers.length === 0 && (
-                    <p className="text-[10px] text-blue-200 italic">
-                      {loadingEligibleApprovers ? 'Loading eligible approvers...' : 'No eligible approvers available.'}
+                  {eligibleApprovers.length > 0 ? (
+                    <select
+                      value={chosenApproverId}
+                      onChange={(e) => setChosenApproverId(e.target.value)}
+                      className="w-full p-2 text-xs rounded-xl bg-white text-slate-900 border border-white/20 focus:outline-none"
+                      disabled={submittingWork}
+                    >
+                      <option value="">-- Select an eligible approver --</option>
+                      {eligibleApprovers.map((approver) => (
+                        <option key={approver.id} value={approver.id}>
+                          {approver.fullName} ({approver.role})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-blue-100 bg-blue-700/60 p-2.5 rounded-xl border border-blue-400/30">
+                      {loadingEligibleApprovers
+                        ? 'Loading eligible approvers...'
+                        : 'No approver is available on this project. Ask your manager or admin to add one.'}
                     </p>
                   )}
                 </div>
@@ -2744,17 +2779,11 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 <button
                   type="button"
                   onClick={handleSubmitWork}
-                  disabled={submittingWork || (!chosenApproverId && eligibleApprovers.length > 0)}
+                  disabled={submittingWork || !chosenApproverId}
                   className="w-full py-2.5 min-h-[44px] bg-white text-blue-600 hover:bg-blue-50 disabled:opacity-50 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>
-                    {submittingWork
-                      ? 'Submitting...'
-                      : currentRole === 'MEMBER'
-                      ? 'Ask for Approval'
-                      : 'Request Approval from Head of Org'}
-                  </span>
+                  <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
                 </button>
               </div>
             )}
@@ -2798,7 +2827,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     : isRejected
                     ? `⚠️ Changes Requested: ${node.approvalFeedback || 'Rework required'}`
                     : isPendingApproval
-                    ? `⏳ Pending Review: ${node.reviewer?.fullName ? `Assigned to ${node.reviewer.fullName}` : 'Manager Review'}`
+                    ? `⏳ Waiting for ${node.reviewer?.fullName || waitingForApproverName || 'approver'}`
                     : 'No approval requested yet'}
                   {approvalAuth.needsAdminApproval && (
                     <span className="block mt-1 font-bold text-amber-700 dark:text-amber-300">
@@ -2818,27 +2847,35 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 )}
 
                 {/* Submission Form with Chosen Approver in Approvals Tab */}
-                {!isPendingApproval && !isApproved && canSubmitWork && (
+                {showUnassignedOrDraftNotice && (
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
+                    Assign this task and start work before asking for approval.
+                  </div>
+                )}
+                {!isPendingApproval && !isApproved && canRequestApproval && (
                   <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
                       Ask approval from
                     </label>
-                    <select
-                      value={chosenApproverId}
-                      onChange={(e) => setChosenApproverId(e.target.value)}
-                      className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      disabled={submittingWork}
-                    >
-                      <option value="">-- Select an eligible approver --</option>
-                      {eligibleApprovers.map((approver) => (
-                        <option key={approver.id} value={approver.id}>
-                          {approver.fullName} ({approver.role})
-                        </option>
-                      ))}
-                    </select>
-                    {eligibleApprovers.length === 0 && (
-                      <p className="text-[10px] text-slate-400 italic">
-                        {loadingEligibleApprovers ? 'Loading eligible approvers...' : 'No eligible approvers available.'}
+                    {eligibleApprovers.length > 0 ? (
+                      <select
+                        value={chosenApproverId}
+                        onChange={(e) => setChosenApproverId(e.target.value)}
+                        className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        disabled={submittingWork}
+                      >
+                        <option value="">-- Select an eligible approver --</option>
+                        {eligibleApprovers.map((approver) => (
+                          <option key={approver.id} value={approver.id}>
+                            {approver.fullName} ({approver.role})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                        {loadingEligibleApprovers
+                          ? 'Loading eligible approvers...'
+                          : 'No approver is available on this project. Ask your manager or admin to add one.'}
                       </p>
                     )}
                     <textarea
@@ -2850,12 +2887,12 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     />
                     <button
                       type="button"
-                      disabled={submittingWork || (!chosenApproverId && eligibleApprovers.length > 0)}
+                      disabled={submittingWork || !chosenApproverId}
                       onClick={handleSubmitWork}
                       className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>{submittingWork ? 'Submitting...' : 'Ask for Approval'}</span>
+                      <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
                     </button>
                   </div>
                 )}
@@ -2917,32 +2954,45 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                     </button>
                   )}
                 </div>
-                {canSubmitWork && (
+                {showUnassignedOrDraftNotice && (
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500">
+                    Assign this task and start work before asking for approval.
+                  </div>
+                )}
+                {canRequestApproval && !isPendingApproval && !isApproved && (
                   <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
                       Ask approval from
                     </label>
-                    <select
-                      value={chosenApproverId}
-                      onChange={(e) => setChosenApproverId(e.target.value)}
-                      className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      disabled={submittingWork}
-                    >
-                      <option value="">-- Select an eligible approver --</option>
-                      {eligibleApprovers.map((approver) => (
-                        <option key={approver.id} value={approver.id}>
-                          {approver.fullName} ({approver.role})
-                        </option>
-                      ))}
-                    </select>
+                    {eligibleApprovers.length > 0 ? (
+                      <select
+                        value={chosenApproverId}
+                        onChange={(e) => setChosenApproverId(e.target.value)}
+                        className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        disabled={submittingWork}
+                      >
+                        <option value="">-- Select an eligible approver --</option>
+                        {eligibleApprovers.map((approver) => (
+                          <option key={approver.id} value={approver.id}>
+                            {approver.fullName} ({approver.role})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                        {loadingEligibleApprovers
+                          ? 'Loading eligible approvers...'
+                          : 'No approver is available on this project. Ask your manager or admin to add one.'}
+                      </p>
+                    )}
                     <button
                       type="button"
-                      disabled={submittingWork || (!chosenApproverId && eligibleApprovers.length > 0)}
+                      disabled={submittingWork || !chosenApproverId}
                       onClick={handleSubmitWork}
                       className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>{submittingWork ? 'Submitting...' : 'Ask for Approval'}</span>
+                      <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
                     </button>
                   </div>
                 )}

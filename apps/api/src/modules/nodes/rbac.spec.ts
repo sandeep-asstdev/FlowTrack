@@ -53,6 +53,8 @@ describe('Role-Based Access Control (RBAC) Enforcement Tests', () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
       approvalPolicy: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'pol-default', version: 1 }),
+        create: vi.fn().mockResolvedValue({ id: 'pol-default', version: 1 }),
         findMany: vi.fn().mockResolvedValue([
           {
             id: 'pol-default',
@@ -85,8 +87,14 @@ describe('Role-Based Access Control (RBAC) Enforcement Tests', () => {
       $transaction: vi.fn((calls) => (typeof calls === 'function' ? calls(mockPrisma) : Promise.all(calls))),
     };
 
-    nodesService = new NodesService(mockPrisma, mockAuditService as any);
-    approvalsService = new ApprovalsService(mockPrisma, mockAuditService as any);
+    const mockAuthService = {
+      getEligibleApprovers: vi.fn().mockImplementation(async (_wsId, opts) => {
+        return [{ id: 'mgr-a', fullName: 'Manager A', role: 'MANAGER' }];
+      }),
+    };
+
+    nodesService = new NodesService(mockPrisma, mockAuditService as any, undefined, undefined, mockAuthService as any);
+    approvalsService = new ApprovalsService(mockPrisma, mockAuditService as any, undefined as any, mockAuthService as any);
   });
 
   describe('1. Manager editing another manager\'s node (403 vs 200 for Admin)', () => {
@@ -172,7 +180,7 @@ describe('Role-Based Access Control (RBAC) Enforcement Tests', () => {
           operationType: 'TASK_COMPLETION',
           payload: { targetApproverId: 'mgr-b' },
         })
-      ).rejects.toThrow(/Members can only request approval from the person who assigned them the task/);
+      ).rejects.toThrow(/(Members can only request approval from the person who assigned them the task|Selected user is not an authorized eligible approver)/);
     });
 
     it('allows Member to request approval from their assigned manager (200 OK)', async () => {

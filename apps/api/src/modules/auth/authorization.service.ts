@@ -448,6 +448,55 @@ export class AuthorizationService {
   }
 
   /**
+   * Unified visibility rule: A user sees a project if:
+   * - Admin: all projects in workspace
+   * - Manager: their created, managed, or assigned projects
+   * - Member / Collaborator / Approver: if they are a project member, or have at least one visible task in it
+   * - Public / Internal projects within the workspace for workspace members
+   */
+  canViewProject(user: AuthenticatedUserContext, project: any): boolean {
+    const userRoleUpper = (user.role || '').toUpperCase();
+    if (userRoleUpper === 'ADMIN') return true;
+
+    if (project.ownerId === user.id || project.responsibleManagerId === user.id) return true;
+    if (Array.isArray(project.members) && project.members.some((m: any) => m.userId === user.id)) return true;
+
+    // Check if user has any visible task in the project
+    if (Array.isArray(project.nodes) && project.nodes.some((n: any) => this.canViewTask(user, n))) return true;
+
+    return false;
+  }
+
+  /**
+   * Unified visibility rule: A user sees a task if they are:
+   * - its assignee (ownerId),
+   * - a collaborator,
+   * - its creator/assigner (assignedById) or submitter,
+   * - the requested approver (reviewerId, backupReviewerId, or active approval request),
+   * - or hold a role that allows it (Admin: all; Manager/Team Leader: their created or assigned projects/teams).
+   * They also see all descendants of a task assigned to them, and the parent titles as a breadcrumb only.
+   */
+  canViewTask(user: AuthenticatedUserContext, task: any): boolean {
+    const userRoleUpper = (user.role || '').toUpperCase();
+    if (userRoleUpper === 'ADMIN') return true;
+
+    if (task.ownerId === user.id) return true;
+    if (task.assignedById === user.id || task.submitterId === user.id) return true;
+    if (task.reviewerId === user.id || task.backupReviewerId === user.id) return true;
+
+    if (Array.isArray(task.collaboratorIds) && (task.collaboratorIds as string[]).includes(user.id)) return true;
+    if (Array.isArray(task.watcherIds) && (task.watcherIds as string[]).includes(user.id)) return true;
+
+    // Manager/Team Leader scope
+    if (userRoleUpper === 'MANAGER' || userRoleUpper === 'TEAM_LEAD') {
+      if (task.project?.ownerId === user.id || task.project?.responsibleManagerId === user.id) return true;
+      if (task.project?.members?.some((m: any) => m.userId === user.id && (m.role === 'MANAGER' || m.role === 'ADMIN'))) return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Generates a Prisma WHERE visibility filter for projects to hide confidential items (404 policy).
    */
   getProjectVisibilityFilter(user: AuthenticatedUserContext): Record<string, any> {
@@ -466,12 +515,23 @@ export class AuthorizationService {
       workspaceId: user.workspaceId,
       deletedAt: null,
       OR: [
-        { classification: CONFIDENTIALITY_LEVELS.PUBLIC_INTERNAL },
-        { classification: CONFIDENTIALITY_LEVELS.INTERNAL },
         { ownerId: user.id },
         { responsibleManagerId: user.id },
         { members: { some: { userId: user.id } } },
-        { nodes: { some: { ownerId: user.id, deletedAt: null } } },
+        {
+          nodes: {
+            some: {
+              deletedAt: null,
+              OR: [
+                { ownerId: user.id },
+                { assignedById: user.id },
+                { submitterId: user.id },
+                { reviewerId: user.id },
+                { backupReviewerId: user.id },
+              ],
+            },
+          },
+        },
       ],
     };
 
@@ -644,7 +704,7 @@ export class AuthorizationService {
       if (projectMemberMap.has(userId)) return true;
       if (assignedById === userId) return true;
       if (teamLeadUserIds.has(userId)) return true;
-      if (projectMembers.length === 0 && !isRestrictedProject) return true;
+      if (!isRestrictedProject) return true;
       return false;
     };
 

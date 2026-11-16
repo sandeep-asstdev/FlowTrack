@@ -23,6 +23,8 @@ blob-report/
 .playwright/
 e2e-results.json
 coverage
+*.png
+test-screenshots/
 
 # Runtime uploads & ephemeral document storage
 vault_storage/

@@ -525,14 +525,18 @@ export class ReportsService {
           workspaceId,
           ownerId: userId,
           deletedAt: null,
-          status: { category: { not: 'cancelled' } },
+          OR: [
+            { statusId: null },
+            { status: { category: { not: 'cancelled' } } },
+          ],
         },
         include: {
           project: { select: { id: true, name: true } },
           status: { select: { key: true, category: true, colour: true } },
+          assignedBy: { select: { id: true, fullName: true, email: true } },
         },
         orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
-        take: 30,
+        take: 50,
       }),
       this.prisma.node.findMany({
         where: {
@@ -546,27 +550,211 @@ export class ReportsService {
         },
         include: {
           project: { select: { id: true, name: true } },
-          reviewer: { select: { id: true, fullName: true } },
+          reviewer: { select: { id: true, fullName: true, email: true } },
         },
         orderBy: [{ updatedAt: 'desc' }],
-        take: 30,
+        take: 50,
       }),
     ]);
 
     const safeAssigned = assignedNodes || [];
     const safeReview = reviewItems || [];
 
+    // If no tasks found in current workspaceId, check if user has tasks across any of their memberships
+    if (safeAssigned.length === 0 && this.prisma.membership) {
+      try {
+        const userMems = await this.prisma.membership.findMany({
+          where: { userId },
+          select: { workspaceId: true },
+        });
+        const otherWsIds = userMems.map((m) => m.workspaceId).filter((id) => id !== workspaceId);
+        if (otherWsIds.length > 0) {
+          const crossWsTasks = await this.prisma.node.findMany({
+            where: {
+              workspaceId: { in: otherWsIds },
+              ownerId: userId,
+              deletedAt: null,
+              OR: [
+                { statusId: null },
+                { status: { category: { not: 'cancelled' } } },
+              ],
+            },
+            include: {
+              project: { select: { id: true, name: true } },
+              status: { select: { key: true, category: true, colour: true } },
+              assignedBy: { select: { id: true, fullName: true, email: true } },
+            },
+            orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
+            take: 50,
+          });
+          safeAssigned.push(...crossWsTasks);
+        }
+      } catch {
+        // non-blocking
+      }
+    }
+
+    if (safeReview.length === 0 && this.prisma.membership) {
+      try {
+        const userMems = await this.prisma.membership.findMany({
+          where: { userId },
+          select: { workspaceId: true },
+        });
+        const otherWsIds = userMems.map((m) => m.workspaceId).filter((id) => id !== workspaceId);
+        if (otherWsIds.length > 0) {
+          const crossWsReviews = await this.prisma.node.findMany({
+            where: {
+              workspaceId: { in: otherWsIds },
+              deletedAt: null,
+              OR: [
+                { ownerId: userId },
+                { submitterId: userId },
+              ],
+              approvalStatus: { in: ['pending', 'rejected', 'changes_requested', 'approved'] },
+            },
+            include: {
+              project: { select: { id: true, name: true } },
+              reviewer: { select: { id: true, fullName: true, email: true } },
+            },
+            orderBy: [{ updatedAt: 'desc' }],
+            take: 50,
+          });
+          safeReview.push(...crossWsReviews);
+        }
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // Pending review decisions waiting on this user (as reviewer or chosen approver)
+    let pendingDecisionsForMe: any[] = [];
+    try {
+      if (this.prisma.node?.findMany) {
+        pendingDecisionsForMe = await this.prisma.node.findMany({
+          where: {
+            approvalStatus: 'pending',
+            deletedAt: null,
+            OR: [{ reviewerId: userId }, { backupReviewerId: userId }],
+          },
+          include: {
+            project: { select: { id: true, name: true } },
+            submitter: { select: { id: true, fullName: true, email: true } },
+            owner: { select: { id: true, fullName: true, email: true } },
+          },
+          orderBy: { submittedAt: 'desc' },
+          take: 20,
+        });
+      }
+    } catch {
+      // non-blocking
+    }
+
+    let pendingApprovalRequestsForMe: any[] = [];
+    try {
+      if (this.prisma.approvalRequest?.findMany) {
+        pendingApprovalRequestsForMe = await this.prisma.approvalRequest.findMany({
+          where: {
+            status: 'PENDING',
+            OR: [
+              {
+                stageInstances: {
+                  some: {
+                    status: 'PENDING',
+                    OR: [
+                      { primaryApproverId: userId },
+                      { backupApproverId: userId },
+                      { delegatedApproverId: userId },
+                    ],
+                  },
+                },
+              },
+              {
+                node: {
+                  OR: [{ reviewerId: userId }, { backupReviewerId: userId }],
+                },
+              },
+            ],
+          },
+          include: {
+            node: { select: { id: true, title: true, state: true } },
+            project: { select: { id: true, name: true } },
+            submitter: { select: { id: true, fullName: true, email: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        });
+      }
+    } catch {
+      // non-blocking
+    }
+
+    const directPendingReviews = [
+      ...pendingDecisionsForMe.map((p) => {
+        const subDate = p.submittedAt ? new Date(p.submittedAt) : p.createdAt;
+        const daysPending = Math.max(0, Math.floor((now.getTime() - subDate.getTime()) / (1000 * 60 * 60 * 24)));
+        return {
+          id: p.id,
+          title: p.title,
+          projectId: p.projectId,
+          projectName: p.project?.name || 'Project',
+          submittedAt: p.submittedAt,
+          submitterName: p.submitter?.fullName || p.owner?.fullName || 'Requester',
+          submitterEmail: p.submitter?.email || p.owner?.email || '',
+          priority: p.priority,
+          daysPending,
+        };
+      }),
+      ...pendingApprovalRequestsForMe.map((ar) => {
+        const subDate = ar.createdAt ? new Date(ar.createdAt) : now;
+        const daysPending = Math.max(0, Math.floor((now.getTime() - subDate.getTime()) / (1000 * 60 * 60 * 24)));
+        return {
+          id: ar.node?.id || ar.id,
+          requestId: ar.id,
+          title: ar.node?.title || ar.operationType,
+          projectId: ar.projectId || '',
+          projectName: ar.project?.name || 'Project',
+          submittedAt: ar.createdAt,
+          submitterName: ar.submitter?.fullName || 'Requester',
+          submitterEmail: ar.submitter?.email || '',
+          priority: 'HIGH',
+          daysPending,
+        };
+      }),
+    ];
+
+    if (!response.managerWorkload && directPendingReviews.length > 0) {
+      response.managerWorkload = {
+        pendingReviewCount: directPendingReviews.length,
+        pendingReviews: directPendingReviews,
+        teamWorkload: [],
+        blockedTasksCount: 0,
+      };
+    } else if (response.managerWorkload) {
+      const existingIds = new Set(response.managerWorkload.pendingReviews.map((r: any) => r.id));
+      for (const dr of directPendingReviews) {
+        if (!existingIds.has(dr.id)) {
+          response.managerWorkload.pendingReviews.push(dr);
+          existingIds.add(dr.id);
+        }
+      }
+      response.managerWorkload.pendingReviewCount = response.managerWorkload.pendingReviews.length;
+    }
+
     const myTasks = safeAssigned.map((n) => ({
       id: n.id,
       title: n.title,
       projectId: n.projectId,
-      projectName: n.project.name,
+      projectName: n.project?.name || 'Project',
       progressPct: n.progressPct,
       statusCategory: n.status?.category || 'active',
-      statusKey: n.status?.key || 'In Progress',
+      statusKey: n.status?.key || n.state || 'In Progress',
       statusColour: n.status?.colour,
       priority: n.priority,
       dueDate: n.dueDate,
+      state: n.state || 'Draft',
+      assignedById: n.assignedById,
+      assignedByName: (n as any).assignedBy?.fullName || null,
+      assignedByEmail: (n as any).assignedBy?.email || null,
       isOverdue: Boolean(n.dueDate && new Date(n.dueDate) < now && n.status?.category !== 'done'),
       approvalStatus: n.approvalStatus || 'not_required',
     }));
@@ -589,12 +777,12 @@ export class ReportsService {
           id: item.id,
           title: item.title,
           projectId: item.projectId,
-          projectName: item.project.name,
+          projectName: item.project?.name || 'Project',
           approvalStatus: item.approvalStatus || 'not_required',
           submittedAt: item.submittedAt,
           approvedAt: item.approvedAt,
           approvalFeedback: item.approvalFeedback,
-          reviewerName: item.reviewer?.fullName || null,
+          reviewerName: item.reviewer?.fullName || (item.reviewerId ? 'Reviewer' : null),
         })),
       },
     };

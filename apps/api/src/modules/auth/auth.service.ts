@@ -177,26 +177,49 @@ export class AuthService {
     // 7. Strictly assign non-elevated MEMBER role (ignoring any requestedRole or role)
     const assignedRole: Role = Role.MEMBER;
 
-    // 8. Create a personal workspace for the new user
-    const wsName = dto.workspaceName?.trim() || `${user.fullName}'s Workspace`;
-    const baseSlug = wsName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) || 'workspace';
-    const slug = `${baseSlug}-${Math.floor(Math.random() * 10000)}`;
+    // 8. Join existing organization workspace (do not create personal workspace on signup)
+    let workspace: any = null;
+    try {
+      if (this.prisma.workspace?.findFirst) {
+        workspace = await this.prisma.workspace.findFirst({
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
+      }
+    } catch {
+      // non-blocking
+    }
 
-    const workspace = await this.prisma.workspace.create({
-      data: {
-        name: wsName,
-        slug,
-        memberships: {
-          create: {
-            userId: user.id,
-            role: assignedRole,
+    if (workspace) {
+      if (this.prisma.membership?.upsert) {
+        await this.prisma.membership.upsert({
+          where: { workspaceId_userId: { workspaceId: workspace.id, userId: user.id } },
+          create: { workspaceId: workspace.id, userId: user.id, role: assignedRole },
+          update: {},
+        });
+      }
+    } else {
+      // Only create if NO workspace exists at all in the database (fresh system bootstrap)
+      const wsName = dto.workspaceName?.trim() || 'Organization Workspace';
+      const baseSlug = wsName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) || 'workspace';
+      const slug = `${baseSlug}-${Math.floor(Math.random() * 10000)}`;
+
+      workspace = await this.prisma.workspace.create({
+        data: {
+          name: wsName,
+          slug,
+          memberships: {
+            create: {
+              userId: user.id,
+              role: assignedRole,
+            },
           },
         },
-      },
-    });
+      });
+    }
 
     // 9. Append immutable audit event (credentials redacted)
-    if (this.auditService?.log) {
+    if (this.auditService?.log && workspace) {
       await this.auditService.log({
         workspaceId: workspace.id,
         entityName: 'User',
@@ -212,52 +235,8 @@ export class AuthService {
       });
     }
 
-    // Also join user to the primary organization workspace as MEMBER so they are in the team workspace
-    let primaryWs: any = null;
-    try {
-      if (this.prisma.workspace?.findFirst && this.prisma.membership?.upsert) {
-        primaryWs = await this.prisma.workspace.findFirst({
-          where: { id: { not: workspace.id }, deletedAt: null },
-          orderBy: { createdAt: 'asc' },
-        });
-        if (primaryWs) {
-          await this.prisma.membership.upsert({
-            where: { workspaceId_userId: { workspaceId: primaryWs.id, userId: user.id } },
-            create: { workspaceId: primaryWs.id, userId: user.id, role: assignedRole },
-            update: {},
-          });
-          if (this.auditService?.log) {
-            await this.auditService.log({
-              workspaceId: primaryWs.id,
-              entityName: 'User',
-              entityId: user.id,
-              actorId: user.id,
-              action: 'AUTH_SIGNUP',
-              newValues: {
-                email: user.email,
-                phone: user.phone,
-                fullName: user.fullName,
-                assignedRole,
-              },
-            });
-          }
-        }
-      }
-    } catch {
-      // non-blocking
-    }
-
-    const defaultWsId = primaryWs?.id || workspace.id;
-    const token = this.generateToken(user.id, user.email, defaultWsId, user.tokenVersion || 1, Role.MEMBER);
-
-    let workspacesList: any[] = [
-      {
-        id: workspace.id,
-        name: workspace.name,
-        slug: workspace.slug,
-        role: assignedRole,
-      },
-    ];
+    let defaultWsId = workspace?.id;
+    let workspacesList: any[] = [];
 
     if (this.prisma.membership?.findMany) {
       try {
@@ -274,11 +253,25 @@ export class AuthService {
             role: m.role || assignedRole,
             logoUrl: m.workspace?.logoUrl,
           }));
+          defaultWsId = userMemberships[0]?.workspaceId || defaultWsId;
         }
       } catch {
-        // fallback to workspacesList
+        // fallback
       }
     }
+
+    if (workspacesList.length === 0 && workspace) {
+      workspacesList = [
+        {
+          id: workspace.id,
+          name: workspace.name,
+          slug: workspace.slug,
+          role: assignedRole,
+        },
+      ];
+    }
+
+    const token = this.generateToken(user.id, user.email, defaultWsId, user.tokenVersion || 1, Role.MEMBER);
 
     return {
       user: {
@@ -383,8 +376,9 @@ export class AuthService {
       // non-blocking
     }
 
-    const defaultWorkspaceId = user.memberships[0]?.workspaceId;
-    const defaultRole = user.memberships[0]?.role;
+    const defaultWorkspaceId = (await this.resolvePreferredWorkspaceId(user.id, user.memberships)) || user.memberships[0]?.workspaceId;
+    const activeMembership = user.memberships.find((m) => m.workspaceId === defaultWorkspaceId) || user.memberships[0];
+    const defaultRole = activeMembership?.role || user.memberships[0]?.role;
     const token = this.generateToken(user.id, user.email, defaultWorkspaceId, user.tokenVersion || 1, defaultRole);
 
     if (this.auditService?.log) {
@@ -1102,6 +1096,8 @@ export class AuthService {
       throw new UnauthorizedException('User not found or deactivated');
     }
 
+    const preferredWorkspaceId = (await this.resolvePreferredWorkspaceId(user.id, user.memberships)) || user.memberships[0]?.workspaceId;
+
     return {
       id: user.id,
       email: user.email,
@@ -1110,6 +1106,7 @@ export class AuthService {
       avatarUrl: user.avatarUrl,
       locale: user.locale,
       isActive: user.isActive,
+      activeWorkspaceId: preferredWorkspaceId,
       workspaces: user.memberships.map((m) => ({
         id: m.workspace.id,
         name: m.workspace.name,
@@ -1118,6 +1115,108 @@ export class AuthService {
         logoUrl: m.workspace.logoUrl,
       })),
     };
+  }
+
+  /**
+   * Resolves the preferred active workspace for a user:
+   * 1. A workspace where the user has assigned tasks or approval requests waiting for their decision.
+   * 2. A workspace where the user has created or submitted tasks.
+   * 3. An organization workspace (shared / not personal).
+   * 4. The user's first membership workspace.
+   */
+  async resolvePreferredWorkspaceId(userId: string, memberships: any[]): Promise<string | undefined> {
+    if (!memberships || memberships.length === 0) return undefined;
+    if (memberships.length === 1) return memberships[0].workspaceId || memberships[0].workspace?.id;
+
+    const wsIds = memberships.map((m) => m.workspaceId || m.workspace?.id).filter(Boolean);
+
+    try {
+      // 1. Task assigned to user
+      if (this.prisma.node?.findFirst) {
+        const assigned = await this.prisma.node.findFirst({
+          where: {
+            workspaceId: { in: wsIds },
+            ownerId: userId,
+            deletedAt: null,
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: { workspaceId: true },
+        });
+        if (assigned?.workspaceId) return assigned.workspaceId;
+      }
+
+      // 2. Pending approval request waiting for user's decision
+      if (this.prisma.approvalRequest?.findFirst) {
+        const pendingApproval = await this.prisma.approvalRequest.findFirst({
+          where: {
+            workspaceId: { in: wsIds },
+            status: 'PENDING',
+            OR: [
+              {
+                stageInstances: {
+                  some: {
+                    status: 'PENDING',
+                    OR: [
+                      { primaryApproverId: userId },
+                      { backupApproverId: userId },
+                      { delegatedApproverId: userId },
+                    ],
+                  },
+                },
+              },
+              {
+                node: {
+                  OR: [{ reviewerId: userId }, { backupReviewerId: userId }],
+                },
+              },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { workspaceId: true },
+        });
+        if (pendingApproval?.workspaceId) return pendingApproval.workspaceId;
+      }
+
+      // 3. Reviewer on pending node
+      if (this.prisma.node?.findFirst) {
+        const reviewNode = await this.prisma.node.findFirst({
+          where: {
+            workspaceId: { in: wsIds },
+            approvalStatus: 'pending',
+            deletedAt: null,
+            OR: [{ reviewerId: userId }, { backupReviewerId: userId }],
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: { workspaceId: true },
+        });
+        if (reviewNode?.workspaceId) return reviewNode.workspaceId;
+      }
+
+      // 4. Submissions / created tasks by user
+      if (this.prisma.node?.findFirst) {
+        const createdNode = await this.prisma.node.findFirst({
+          where: {
+            workspaceId: { in: wsIds },
+            deletedAt: null,
+            OR: [{ assignedById: userId }, { submitterId: userId }],
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: { workspaceId: true },
+        });
+        if (createdNode?.workspaceId) return createdNode.workspaceId;
+      }
+
+      // 5. Prefer an organization workspace (where multiple users belong or name doesn't contain "'s Workspace")
+      const nonPersonal = memberships.find((m) => {
+        const name = (m.workspace?.name || '').toLowerCase();
+        return !name.includes("'s workspace") && !name.includes('personal');
+      });
+      if (nonPersonal) return nonPersonal.workspaceId || nonPersonal.workspace?.id;
+    } catch {
+      // Fallback
+    }
+
+    return memberships[0].workspaceId || memberships[0].workspace?.id;
   }
 
   private generateToken(userId: string, email: string, activeWorkspaceId?: string, tokenVersion: number = 1, role?: Role) {

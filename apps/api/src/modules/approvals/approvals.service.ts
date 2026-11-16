@@ -324,6 +324,37 @@ export class ApprovalsService {
 
       const submissionVersion = dto.submissionVersion || 1;
 
+      // Auto-ensure chosen approver has workspace membership and limited project membership
+      if (this.prisma.membership) {
+        const approverWsMem = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: explicitChosenApprover } },
+        });
+        if (!approverWsMem && typeof this.prisma.membership?.create === 'function') {
+          await this.prisma.membership.create({
+            data: {
+              workspaceId,
+              userId: explicitChosenApprover,
+              role: Role.MEMBER,
+            },
+          }).catch(() => null);
+        }
+      }
+
+      if (project?.id && this.prisma.projectMember) {
+        const approverProjMem = await this.prisma.projectMember.findUnique({
+          where: { projectId_userId: { projectId: project.id, userId: explicitChosenApprover } },
+        });
+        if (!approverProjMem && typeof this.prisma.projectMember?.create === 'function') {
+          await this.prisma.projectMember.create({
+            data: {
+              projectId: project.id,
+              userId: explicitChosenApprover,
+              role: Role.GUEST,
+            },
+          }).catch(() => null);
+        }
+      }
+
       // Find or create default policy container for single chosen-approver request
       let activePolicy = this.prisma.approvalPolicy?.findFirst
         ? await this.prisma.approvalPolicy.findFirst({
@@ -841,6 +872,24 @@ export class ApprovalsService {
       },
     });
 
+    // Notify requester of decision
+    if (this.notificationsService?.sendNotification && request.submitterId) {
+      const taskTitle = request.node?.title || 'Deliverable';
+      const decisionUpper = (dto.decision || '').toUpperCase();
+      const statusText = decisionUpper === 'APPROVED' ? 'approved' : decisionUpper === 'REJECTED' ? 'rejected' : 'changes requested';
+      await this.notificationsService.sendNotification({
+        workspaceId,
+        projectId: request.projectId || undefined,
+        userId: request.submitterId,
+        actorId,
+        type: 'APPROVAL_DECISION',
+        title: `Approval ${decisionUpper}: ${taskTitle}`,
+        body: `Your approval request has been ${statusText}.${dto.comment ? ` Feedback: "${dto.comment}"` : ''}`,
+        entityType: 'approval_request',
+        entityId: requestId,
+      }).catch(() => null);
+    }
+
     return result;
   }
 
@@ -1050,14 +1099,30 @@ export class ApprovalsService {
    */
   async listApprovalRequests(
     workspaceId: string,
-    filters?: { status?: string; nodeId?: string; projectId?: string }
+    filters?: { status?: string; nodeId?: string; projectId?: string },
+    user?: { id?: string; role?: string }
   ) {
+    const userRoleUpper = (user?.role || '').toUpperCase();
+    const isAdmin = userRoleUpper === 'ADMIN';
+
     const where: any = { workspaceId };
     if (filters?.status) where.status = filters.status;
     if (filters?.nodeId) where.nodeId = filters.nodeId;
     if (filters?.projectId) where.projectId = filters.projectId;
 
-    return this.prisma.approvalRequest.findMany({
+    if (!isAdmin && user?.id) {
+      where.OR = [
+        { submitterId: user.id },
+        { chosenApproverId: user.id },
+        { targetApproverId: user.id },
+        { stageInstances: { some: { OR: [{ primaryApproverId: user.id }, { assignedApproverIds: { has: user.id } }] } } },
+        { node: { reviewerId: user.id } },
+        { node: { backupReviewerId: user.id } },
+        { node: { ownerId: user.id } },
+      ];
+    }
+
+    let requests = await this.prisma.approvalRequest.findMany({
       where,
       include: {
         stageInstances: { orderBy: { stageOrder: 'asc' } },
@@ -1067,6 +1132,45 @@ export class ApprovalsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // If no requests found in scoped workspace for user, also check across user's other workspaces
+    if (requests.length === 0 && user?.id && this.prisma.membership) {
+      const userMems = await this.prisma.membership.findMany({
+        where: { userId: user.id },
+        select: { workspaceId: true },
+      });
+      const otherWsIds = userMems.map((m) => m.workspaceId).filter((id) => id !== workspaceId);
+      if (otherWsIds.length > 0) {
+        const crossWsWhere: any = {
+          workspaceId: { in: otherWsIds },
+          ...(filters?.status ? { status: filters.status } : {}),
+          ...(!isAdmin ? {
+            OR: [
+              { submitterId: user.id },
+              { chosenApproverId: user.id },
+              { targetApproverId: user.id },
+              { stageInstances: { some: { OR: [{ primaryApproverId: user.id }, { assignedApproverIds: { has: user.id } }] } } },
+              { node: { reviewerId: user.id } },
+              { node: { backupReviewerId: user.id } },
+              { node: { ownerId: user.id } },
+            ],
+          } : {}),
+        };
+        const crossRequests = await this.prisma.approvalRequest.findMany({
+          where: crossWsWhere,
+          include: {
+            stageInstances: { orderBy: { stageOrder: 'asc' } },
+            decisions: true,
+            submitter: { select: { id: true, fullName: true, email: true } },
+            node: { select: { id: true, title: true, state: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        requests = crossRequests;
+      }
+    }
+
+    return requests;
   }
 }
 

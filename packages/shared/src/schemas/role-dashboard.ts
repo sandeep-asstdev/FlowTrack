@@ -77,6 +77,9 @@ export interface AssigneeDashboardData {
     dueDate?: string | Date | null;
     isOverdue: boolean;
     approvalStatus: string;
+    assignedById?: string | null;
+    assignedByName?: string | null;
+    state?: string;
   }>;
   reviewStatus: {
     pendingCount: number;

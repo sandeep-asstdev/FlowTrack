@@ -120,7 +120,7 @@ export class ApprovalsController {
       workspaceId = (await this.approvalsService.resolveWorkspaceForNode(nodeId)) || undefined;
     }
     if (!workspaceId) throw new BadRequestException('workspaceId is required');
-    return this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId });
+    return this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId }, req.user);
   }
 
   @Post('decide')

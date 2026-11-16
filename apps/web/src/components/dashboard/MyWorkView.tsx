@@ -30,7 +30,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'tasks' | 'reviews' | 'team'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'approvals-for-me' | 'my-requests' | 'reviews' | 'team'>('tasks');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'overdue' | 'done'>('all');
@@ -111,11 +111,12 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
   });
 
   const reviewItems = assigneeWork?.reviewStatus?.items || [];
+  const pendingReviewsForMe = managerWorkload?.pendingReviews || [];
+  const pendingMyRequests = reviewItems.filter((r) => r.approvalStatus === 'pending');
 
   const changesRequested = reviewItems.filter(
     (r) => r.approvalStatus === 'rejected' || r.approvalStatus === 'changes_requested'
   );
-  const pendingApprovals = reviewItems.filter((r) => r.approvalStatus === 'pending');
   const approvedTasks = reviewItems.filter((r) => r.approvalStatus === 'approved');
 
   if (loading) {
@@ -164,13 +165,13 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-4">
         <button
           onClick={() => {
             setActiveTab('tasks');
             setFilterStatus('active');
           }}
-          className={`p-4 rounded-2xl border text-left transition-all ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
             activeTab === 'tasks' && filterStatus === 'active'
               ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-950/20'
               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
@@ -180,7 +181,37 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
           <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
             {assigneeWork?.assignedCount || 0}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">Assigned to you</div>
+          <div className="text-[11px] text-slate-500 mt-1 truncate">Assigned to you</div>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('approvals-for-me')}
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'approvals-for-me'
+              ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/20 dark:bg-amber-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+          }`}
+        >
+          <div className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">Approvals for Me</div>
+          <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
+            {pendingReviewsForMe.length}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1 truncate">Awaiting your decision</div>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('my-requests')}
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
+            activeTab === 'my-requests'
+              ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
+          }`}
+        >
+          <div className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">My Requests</div>
+          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
+            {pendingMyRequests.length}
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1 truncate">Waiting on others</div>
         </button>
 
         <button
@@ -188,47 +219,17 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
             setActiveTab('tasks');
             setFilterStatus('overdue');
           }}
-          className={`p-4 rounded-2xl border text-left transition-all ${
+          className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
             activeTab === 'tasks' && filterStatus === 'overdue'
-              ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/20 dark:bg-amber-950/20'
-              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
-          }`}
-        >
-          <div className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">Overdue Tasks</div>
-          <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-            {assigneeWork?.overdueCount || 0}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">Requires immediate attention</div>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('reviews')}
-          className={`p-4 rounded-2xl border text-left transition-all ${
-            activeTab === 'reviews'
-              ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-950/20'
-              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
-          }`}
-        >
-          <div className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">In Review</div>
-          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
-            {assigneeWork?.reviewStatus?.pendingCount || 0}
-          </div>
-          <div className="text-[11px] text-slate-500 mt-1">Awaiting sign-off</div>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('reviews')}
-          className={`p-4 rounded-2xl border text-left transition-all ${
-            activeTab === 'reviews' && changesRequested.length > 0
               ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/20 dark:bg-rose-950/20'
               : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'
           }`}
         >
-          <div className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">Changes Requested</div>
+          <div className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">Overdue Tasks</div>
           <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
-            {assigneeWork?.reviewStatus?.changesRequestedCount || 0}
+            {assigneeWork?.overdueCount || 0}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">Needs rework / feedback</div>
+          <div className="text-[11px] text-slate-500 mt-1 truncate">Needs immediate action</div>
         </button>
       </div>
 
@@ -276,10 +277,10 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
       )}
 
       {/* Tabs Switcher */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2 overflow-x-auto scrollbar-none">
         <button
           onClick={() => setActiveTab('tasks')}
-          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+          className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all shrink-0 ${
             activeTab === 'tasks'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -289,20 +290,60 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
         </button>
 
         <button
+          onClick={() => setActiveTab('approvals-for-me')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
+            activeTab === 'approvals-for-me'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <span>Approvals for Me</span>
+          {pendingReviewsForMe.length > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                activeTab === 'approvals-for-me' ? 'bg-white text-blue-700' : 'bg-amber-500 text-white'
+              }`}
+            >
+              {pendingReviewsForMe.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('my-requests')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
+            activeTab === 'my-requests'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <span>My Requests Waiting on Others</span>
+          {pendingMyRequests.length > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                activeTab === 'my-requests' ? 'bg-white text-blue-700' : 'bg-blue-500 text-white'
+              }`}
+            >
+              {pendingMyRequests.length}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('reviews')}
-          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+          className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all shrink-0 ${
             activeTab === 'reviews'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          Review Cycles ({reviewItems.length})
+          Review History ({reviewItems.length})
         </button>
 
         {hasManagerAccess && (
           <button
             onClick={() => setActiveTab('team')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 text-xs font-bold rounded-xl transition-all shrink-0 flex items-center gap-1.5 ${
               activeTab === 'team'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -364,17 +405,17 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
           </div>
 
           {filteredTasks.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <div className="text-center py-12 px-4 text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
               <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
               <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
                 {searchQuery || filterStatus !== 'all' || filterPriority !== 'all'
                   ? 'No tasks match your search or filter'
                   : 'No active tasks assigned to you'}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
                 {searchQuery || filterStatus !== 'all' || filterPriority !== 'all'
-                  ? 'Try clearing your filters.'
-                  : 'You are all caught up on deliverables!'}
+                  ? 'Try clearing your search query or switching filters.'
+                  : 'When an Admin or Manager assigns a task to you, or when you create a deliverable, it will appear here.'}
               </p>
             </div>
           ) : (
@@ -415,13 +456,34 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                         {task.title}
                       </h3>
 
+                      {/* Assigned By & State Indicators */}
+                      <div className="mt-2.5 space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">
+                            Assigned by:{' '}
+                            <strong className="text-slate-700 dark:text-slate-200 font-semibold">
+                              {task.assignedByName || (task.assignedById ? 'Manager' : 'Self-assigned')}
+                            </strong>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-400">State:</span>
+                          <span className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {task.state || task.statusKey || 'Draft'}
+                          </span>
+                        </div>
+                      </div>
+
                       {/* Factual Status Indicator */}
                       <div className="mt-3 flex items-center justify-between text-[11px] font-semibold">
-                        <span className={`px-2 py-0.5 rounded-full ${
-                          isTaskDone
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
-                        }`}>
+                        <span
+                          className={`px-2 py-0.5 rounded-full ${
+                            isTaskDone
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                          }`}
+                        >
                           {task.statusKey || (isTaskDone ? 'Done' : 'Active')}
                         </span>
                         {task.isOverdue && !isTaskDone && (
@@ -472,6 +534,142 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 2: Approvals Waiting for My Decision */}
+      {activeTab === 'approvals-for-me' && (
+        <div className="space-y-4">
+          {pendingReviewsForMe.length === 0 ? (
+            <div className="text-center py-12 px-4 text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <CheckCircle className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                No approvals waiting for your decision
+              </p>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                When team members request your sign-off or approval on a deliverable, requests will appear here for your review.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {pendingReviewsForMe.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-white dark:bg-slate-900 shadow-sm flex flex-col justify-between hover:border-amber-400 transition-all"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
+                        {item.projectName}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                        Waiting for Your Decision
+                      </span>
+                    </div>
+
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2 break-words-safe">
+                      {item.title}
+                    </h3>
+
+                    <div className="mt-2.5 text-xs text-slate-500 dark:text-slate-400 space-y-1">
+                      <p>
+                        Requested by:{' '}
+                        <strong className="text-slate-700 dark:text-slate-200 font-semibold">
+                          {item.submitterName}
+                        </strong>
+                      </p>
+                      {item.submittedAt && (
+                        <p className="text-[11px] text-slate-400">
+                          Submitted {new Date(item.submittedAt).toLocaleDateString()} ({item.daysPending}d ago)
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Pending Sign-off</span>
+                    </span>
+                    {onSelectProject && item.projectId && (
+                      <button
+                        onClick={() => onSelectProject(item.projectId)}
+                        className="text-blue-600 hover:text-blue-700 dark:text-blue-400 font-bold flex items-center gap-1 text-xs"
+                      >
+                        <span>Open Canvas</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: My Requests Waiting on Others */}
+      {activeTab === 'my-requests' && (
+        <div className="space-y-4">
+          {pendingMyRequests.length === 0 ? (
+            <div className="text-center py-12 px-4 text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <Clock className="w-10 h-10 text-slate-400 mx-auto mb-2 opacity-60" />
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                No requests waiting on others
+              </p>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                When you submit a deliverable for approval or sign-off, you can track the approver&apos;s progress and decision here.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pendingMyRequests.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                        {item.title}
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        {item.projectName}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Waiting for {item.reviewerName || 'Approver'}</span>
+                    </div>
+
+                    {item.submittedAt && (
+                      <p className="text-[11px] text-slate-400">
+                        Submitted: {new Date(item.submittedAt).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Pending Decision</span>
+                    </span>
+
+                    {onSelectProject && item.projectId && (
+                      <button
+                        onClick={() => onSelectProject(item.projectId)}
+                        className="px-3 py-1 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center gap-1"
+                      >
+                        <span>Open Canvas</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

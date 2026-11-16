@@ -181,7 +181,14 @@ export class NodesService {
 
       if (!canManageAll) {
         const assignedNodes = nodes.filter(
-          (n) => n.ownerId === actorId || (Array.isArray(n.collaboratorIds) && (n.collaboratorIds as string[]).includes(actorId))
+          (n) =>
+            n.ownerId === actorId ||
+            n.assignedById === actorId ||
+            n.submitterId === actorId ||
+            n.reviewerId === actorId ||
+            n.backupReviewerId === actorId ||
+            (Array.isArray(n.collaboratorIds) && (n.collaboratorIds as string[]).includes(actorId)) ||
+            (Array.isArray(n.watcherIds) && (n.watcherIds as string[]).includes(actorId))
         );
 
         const accessibleNodeIds = new Set<string>();
@@ -200,15 +207,22 @@ export class NodesService {
 
         nodes = nodes.filter((n) => accessibleNodeIds.has(n.id));
 
-        // Mask confidential ancestor tasks that user does not own
+        // For ancestors not directly owned or reviewed by user, keep title as breadcrumb only, mask description
         for (let i = 0; i < nodes.length; i++) {
           const n = nodes[i];
-          const isDirectWork = n.ownerId === actorId || (Array.isArray(n.collaboratorIds) && (n.collaboratorIds as string[]).includes(actorId));
+          const isDirectWork =
+            n.ownerId === actorId ||
+            n.assignedById === actorId ||
+            n.submitterId === actorId ||
+            n.reviewerId === actorId ||
+            n.backupReviewerId === actorId ||
+            (Array.isArray(n.collaboratorIds) && (n.collaboratorIds as string[]).includes(actorId));
+
           if (!isDirectWork && (n.classification === 'RESTRICTED' || n.classification === 'CONFIDENTIAL' || n.classification === 'HIGHLY_CONFIDENTIAL')) {
             nodes[i] = {
               ...n,
-              title: '[Confidential Task]',
               description: null,
+              customData: {},
             };
           }
         }
@@ -736,8 +750,17 @@ export class NodesService {
           where: { workspaceId_userId: { workspaceId, userId: assigneeId } },
           include: { user: true },
         });
-        if (!targetWsMember || (targetWsMember.user && (!targetWsMember.user.isActive || targetWsMember.user.deletedAt))) {
-          throw new BadRequestException('Assignee does not belong to this organization or account is inactive.');
+        if (targetWsMember) {
+          if (targetWsMember.user && (!targetWsMember.user.isActive || targetWsMember.user.deletedAt)) {
+            throw new BadRequestException('Assignee does not belong to this organization or account is inactive.');
+          }
+        } else if (this.prisma.user) {
+          const userRec = await this.prisma.user.findUnique({
+            where: { id: assigneeId },
+          });
+          if (!userRec || !userRec.isActive || userRec.deletedAt) {
+            throw new BadRequestException('Assignee does not belong to this organization or account is inactive.');
+          }
         }
       }
 
@@ -1009,24 +1032,29 @@ export class NodesService {
       taskNodeType = await this.prisma.nodeType.findFirst({
         where: { workspaceId, key: 'task' },
       });
+      if (!taskNodeType) {
+        taskNodeType = await this.prisma.nodeType.findFirst({
+          where: { key: 'task' },
+        });
+      }
     }
     const finalNodeTypeId = taskNodeType?.id || dto.nodeTypeId;
 
     let statusId = dto.statusId;
-    if (!statusId) {
+    if (!statusId && finalNodeTypeId) {
       const nodeType = await this.prisma.nodeType.findUnique({
         where: { id: finalNodeTypeId },
         include: { statusSet: { include: { statuses: { orderBy: { displayOrder: 'asc' } } } } },
       });
       statusId = nodeType?.statusSet?.statuses[0]?.id;
-      if (!statusId && this.prisma.statusSet?.findFirst) {
-        const defaultStatusSet = await this.prisma.statusSet.findFirst({
-          where: { workspaceId },
-          orderBy: [{ isDefault: 'desc' }],
-          include: { statuses: { orderBy: { displayOrder: 'asc' } } },
-        });
-        statusId = defaultStatusSet?.statuses[0]?.id;
-      }
+    }
+    if (!statusId && this.prisma.statusSet?.findFirst) {
+      const defaultStatusSet = await this.prisma.statusSet.findFirst({
+        where: { workspaceId },
+        orderBy: [{ isDefault: 'desc' }],
+        include: { statuses: { orderBy: { displayOrder: 'asc' } } },
+      });
+      statusId = defaultStatusSet?.statuses[0]?.id;
     }
 
     // Validate customData against applicable field definitions if customData provided
@@ -1112,19 +1140,36 @@ export class NodesService {
       },
     });
 
-    // Auto-grant limited project membership to assignee and collaborators
-    if (dto.ownerId && this.prisma.projectMember) {
-      const existingMember = await this.prisma.projectMember.findUnique({
-        where: { projectId_userId: { projectId: dto.projectId, userId: dto.ownerId } },
-      });
-      if (!existingMember && this.prisma.projectMember?.create) {
-        await this.prisma.projectMember.create({
-          data: {
-            projectId: dto.projectId,
-            userId: dto.ownerId,
-            role: Role.GUEST,
-          },
-        }).catch(() => null);
+    // Auto-grant workspace membership & limited project membership to assignee and collaborators
+    if (dto.ownerId) {
+      if (this.prisma.membership) {
+        const existingWsMember = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: dto.ownerId } },
+        });
+        if (!existingWsMember && typeof this.prisma.membership?.create === 'function') {
+          await this.prisma.membership.create({
+            data: {
+              workspaceId,
+              userId: dto.ownerId,
+              role: Role.MEMBER,
+            },
+          }).catch(() => null);
+        }
+      }
+
+      if (this.prisma.projectMember) {
+        const existingMember = await this.prisma.projectMember.findUnique({
+          where: { projectId_userId: { projectId: dto.projectId, userId: dto.ownerId } },
+        });
+        if (!existingMember && this.prisma.projectMember?.create) {
+          await this.prisma.projectMember.create({
+            data: {
+              projectId: dto.projectId,
+              userId: dto.ownerId,
+              role: Role.GUEST,
+            },
+          }).catch(() => null);
+        }
       }
     }
 
@@ -1677,19 +1722,36 @@ export class NodesService {
       }
     }
 
-    // Bug 1: Automatic project membership grant & reassignment revocation
-    if (dto.ownerId && this.prisma.projectMember) {
-      const existingMember = await this.prisma.projectMember.findUnique({
-        where: { projectId_userId: { projectId: existing.projectId, userId: dto.ownerId } },
-      });
-      if (!existingMember && typeof this.prisma.projectMember?.create === 'function') {
-        await this.prisma.projectMember.create({
-          data: {
-            projectId: existing.projectId,
-            userId: dto.ownerId,
-            role: Role.GUEST,
-          },
-        }).catch(() => null);
+    // Automatic workspace & project membership grant & reassignment revocation
+    if (dto.ownerId) {
+      if (this.prisma.membership) {
+        const existingWsMember = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: dto.ownerId } },
+        });
+        if (!existingWsMember && typeof this.prisma.membership?.create === 'function') {
+          await this.prisma.membership.create({
+            data: {
+              workspaceId: existing.workspaceId,
+              userId: dto.ownerId,
+              role: Role.MEMBER,
+            },
+          }).catch(() => null);
+        }
+      }
+
+      if (this.prisma.projectMember) {
+        const existingMember = await this.prisma.projectMember.findUnique({
+          where: { projectId_userId: { projectId: existing.projectId, userId: dto.ownerId } },
+        });
+        if (!existingMember && typeof this.prisma.projectMember?.create === 'function') {
+          await this.prisma.projectMember.create({
+            data: {
+              projectId: existing.projectId,
+              userId: dto.ownerId,
+              role: Role.GUEST,
+            },
+          }).catch(() => null);
+        }
       }
     }
 
@@ -2469,8 +2531,20 @@ export class NodesService {
 
     const isTeamLead = ledTeamIds.length > 0;
 
-    // Platform Admins, Managers, and Team Leads have a review queue
-    if (!isWsAdmin && !isWsManager && managedProjectIds.length === 0 && !isTeamLead) {
+    // Check if user is a designated reviewer on any pending node
+    const isDirectReviewer = this.prisma.node?.findFirst
+      ? await this.prisma.node.findFirst({
+          where: {
+            approvalStatus: 'pending',
+            deletedAt: null,
+            OR: [{ reviewerId: actorId }, { backupReviewerId: actorId }],
+          },
+          select: { id: true },
+        })
+      : null;
+
+    // Platform Admins, Managers, Team Leads, and designated reviewers have a review queue
+    if (!isWsAdmin && !isWsManager && managedProjectIds.length === 0 && !isTeamLead && !isDirectReviewer) {
       return [];
     }
 
@@ -2481,7 +2555,7 @@ export class NodesService {
     if (workspaceId) where.workspaceId = workspaceId;
     if (projectId) where.projectId = projectId;
 
-    const pendingNodes = await this.prisma.node.findMany({
+    let pendingNodes = await this.prisma.node.findMany({
       where,
       include: {
         project: { select: { id: true, name: true } },
@@ -2509,15 +2583,52 @@ export class NodesService {
       orderBy: { submittedAt: 'desc' },
     });
 
+    // If no nodes found in scoped workspace, but user is reviewer on pending nodes in other memberships:
+    if (pendingNodes.length === 0 && isDirectReviewer && workspaceId) {
+      const crossWsPending = await this.prisma.node.findMany({
+        where: {
+          approvalStatus: 'pending',
+          deletedAt: null,
+          OR: [{ reviewerId: actorId }, { backupReviewerId: actorId }],
+        },
+        include: {
+          project: { select: { id: true, name: true } },
+          workspace: { select: { id: true, name: true } },
+          nodeType: true,
+          status: true,
+          owner: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
+          submitter: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
+          assignedBy: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
+          team: { select: { id: true, name: true, colour: true } },
+          approvals: {
+            orderBy: { decidedAt: 'desc' },
+            include: {
+              reviewer: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
+            },
+          },
+          remarks: {
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+            include: {
+              author: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
+            },
+          },
+        },
+        orderBy: { submittedAt: 'desc' },
+      });
+      pendingNodes = crossWsPending;
+    }
+
     return pendingNodes.filter((node) => {
       // Reviewer cannot be submitter or assignee (unless Platform Admin overseeing)
       if (!isWsAdmin && (node.ownerId === actorId || node.submitterId === actorId)) {
         return false;
       }
+      const isChosenReviewer = node.reviewerId === actorId || node.backupReviewerId === actorId;
       const teamEligible = node.teamId && ledTeamIds.includes(node.teamId);
       const projectEligible = managedProjectIds.includes(node.projectId);
       const wsEligible = isWsManager || isWsAdmin;
-      return teamEligible || projectEligible || wsEligible;
+      return isChosenReviewer || teamEligible || projectEligible || wsEligible;
     });
   }
 

@@ -57,6 +57,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [darkMode, setDarkMode] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
 
   // Close menus on ESC
   useEffect(() => {
@@ -95,20 +96,39 @@ export const Navbar: React.FC<NavbarProps> = ({
       .catch(() => null);
   };
 
+  const refreshPendingApprovals = () => {
+    if (!user) return;
+    ApiClient.getReviewQueue({ workspaceId: activeWorkspaceId || undefined })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setPendingApprovalsCount(data.length);
+        }
+      })
+      .catch(() => null);
+  };
+
   useEffect(() => {
     if (user) {
       socketService.connect();
       socketService.joinUser(user.id);
       refreshUnreadCount();
+      refreshPendingApprovals();
 
       const unsub = socketService.on('notification:received', () => {
         setUnreadCount((c) => c + 1);
+        refreshPendingApprovals();
       });
 
       // Periodic refresh every 30s to stay synchronized
-      const interval = setInterval(refreshUnreadCount, 30000);
+      const interval = setInterval(() => {
+        refreshUnreadCount();
+        refreshPendingApprovals();
+      }, 30000);
 
-      const handleCustomUpdate = () => refreshUnreadCount();
+      const handleCustomUpdate = () => {
+        refreshUnreadCount();
+        refreshPendingApprovals();
+      };
       window.addEventListener('notification:refresh', handleCustomUpdate);
 
       return () => {
@@ -117,7 +137,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         window.removeEventListener('notification:refresh', handleCustomUpdate);
       };
     }
-  }, [user]);
+  }, [user, activeWorkspaceId]);
 
   const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
   const currentRole = getActiveRole();
@@ -263,17 +283,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                 Team
               </button>
             )}
-            {(currentRole === 'ADMIN' || currentRole === 'MANAGER' || currentRole === 'TEAM_LEAD') && (
+            {(currentRole === 'ADMIN' || currentRole === 'MANAGER' || currentRole === 'TEAM_LEAD' || pendingApprovalsCount > 0) && (
               <button
                 id="desktop-nav-approvals-btn"
                 onClick={() => onViewChange('approvals')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
+                className={`px-3 py-1.5 rounded-lg transition-all relative flex items-center gap-1.5 ${
                   currentView === 'approvals'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Approvals
+                <span>Approvals</span>
+                {pendingApprovalsCount > 0 && (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-extrabold flex items-center justify-center">
+                    {pendingApprovalsCount}
+                  </span>
+                )}
               </button>
             )}
             {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
@@ -554,6 +579,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <CheckSquare className="w-4 h-4 shrink-0" />
                     <span>My Tasks</span>
                   </button>
+
+                  {(currentRole === 'ADMIN' || currentRole === 'MANAGER' || currentRole === 'TEAM_LEAD' || pendingApprovalsCount > 0) && (
+                    <button
+                      id="mobile-nav-approvals-btn"
+                      onClick={() => handleMobileNav('approvals')}
+                      className={`w-full p-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold flex items-center justify-between transition-colors ${
+                        currentView === 'approvals'
+                          ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <ShieldCheck className="w-4 h-4 shrink-0" />
+                        <span>Approvals</span>
+                      </div>
+                      {pendingApprovalsCount > 0 && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-extrabold flex items-center justify-center">
+                          {pendingApprovalsCount}
+                        </span>
+                      )}
+                    </button>
+                  )}
 
                   {(currentRole === 'ADMIN' || currentRole === 'MANAGER') && (
                     <button

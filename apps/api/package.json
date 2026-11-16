@@ -19,6 +19,7 @@
     "test:otp": "ts-node scripts/test-otp-send.ts",
     "seed:hero": "node scripts/seed-hero-showroom.js",
     "seed:demo": "ts-node prisma/seed-demo.ts",
+    "seed:more-users": "ts-node prisma/seed-more-users.ts",
     "teardown:demo": "ts-node prisma/teardown-demo.ts"
   },
   "dependencies": {

@@ -1374,6 +1374,9 @@ export class ProjectsService {
   }
 
   async seedHeroDemo(workspaceId: string, actorUserId: string) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Demo seeding is disabled in production.');
+    }
     const result = await seedAllDummyProjects(this.prisma, workspaceId, actorUserId);
     return {
       success: true,

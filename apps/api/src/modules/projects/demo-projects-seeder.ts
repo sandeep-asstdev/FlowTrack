@@ -1,11 +1,6 @@
 import { PrismaClient, Role, Priority, ConfidentialityLevel } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
-// Strict Production Guard
-if (process.env.NODE_ENV === 'production') {
-  throw new Error('FATAL: demo-projects-seeder is development-only and cannot run in production!');
-}
-
 export const DEMO_AVATARS = {
   sandeep: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=256&h=256&fit=crop&crop=faces',
   admin: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=256&h=256&fit=crop&crop=faces',
@@ -18,6 +13,9 @@ export const DEMO_AVATARS = {
 };
 
 export async function ensureDemoUsers(prisma: any) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: demo-projects-seeder is development-only and cannot run in production!');
+  }
   const defaultPasswordHash = await bcrypt.hash('Admin@12345', 10);
 
   const admin = await prisma.user.upsert({
@@ -174,6 +172,9 @@ async function cleanProjectByKey(prisma: any, workspaceId: string, projectKey: s
 }
 
 export async function seedAllDummyProjects(prisma: any, workspaceId: string, actorUserId?: string) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: demo-projects-seeder is development-only and cannot run in production!');
+  }
   const users = await ensureDemoUsers(prisma);
   const { sandeep, admin, manager1, manager2, lead3, member1, member4 } = users;
 

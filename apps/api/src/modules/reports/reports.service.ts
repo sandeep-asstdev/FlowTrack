@@ -689,7 +689,7 @@ export class ReportsService {
     }
 
     const directPendingReviews = [
-      ...pendingDecisionsForMe.map((p) => {
+      ...(Array.isArray(pendingDecisionsForMe) ? pendingDecisionsForMe : []).map((p) => {
         const subDate = p.submittedAt ? new Date(p.submittedAt) : p.createdAt;
         const daysPending = Math.max(0, Math.floor((now.getTime() - subDate.getTime()) / (1000 * 60 * 60 * 24)));
         return {
@@ -704,7 +704,7 @@ export class ReportsService {
           daysPending,
         };
       }),
-      ...pendingApprovalRequestsForMe.map((ar) => {
+      ...(Array.isArray(pendingApprovalRequestsForMe) ? pendingApprovalRequestsForMe : []).map((ar) => {
         const subDate = ar.createdAt ? new Date(ar.createdAt) : now;
         const daysPending = Math.max(0, Math.floor((now.getTime() - subDate.getTime()) / (1000 * 60 * 60 * 24)));
         return {
@@ -722,14 +722,7 @@ export class ReportsService {
       }),
     ];
 
-    if (!response.managerWorkload && directPendingReviews.length > 0) {
-      response.managerWorkload = {
-        pendingReviewCount: directPendingReviews.length,
-        pendingReviews: directPendingReviews,
-        teamWorkload: [],
-        blockedTasksCount: 0,
-      };
-    } else if (response.managerWorkload) {
+    if (response.managerWorkload) {
       const existingIds = new Set(response.managerWorkload.pendingReviews.map((r: any) => r.id));
       for (const dr of directPendingReviews) {
         if (!existingIds.has(dr.id)) {

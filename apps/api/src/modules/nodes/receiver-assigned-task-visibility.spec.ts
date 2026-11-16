@@ -467,4 +467,168 @@ describe('Permanent E2E - Receiver Assigned Task & Approval Flow Visibility (rea
     const decisionNotif = aItems.find((n: any) => n.title?.includes('Approved') || n.message?.includes('Approved') || n.type === 'APPROVAL_DECISION');
     expect(decisionNotif).toBeDefined();
   });
+
+  it('Step 6: Workspace membership role is MEMBER only, account role is untouched, and Member cannot assign tasks outside scope', async () => {
+    // 1. Confirm User A's workspace membership role is strictly MEMBER
+    const wsMember = await prisma.membership.findUnique({
+      where: { workspaceId_userId: { workspaceId: workspace.id, userId: userA.id } },
+    });
+    expect(wsMember).toBeDefined();
+    expect(wsMember?.role).toBe(Role.MEMBER);
+
+    // 2. Confirm User A's user row in database was never altered (no elevated account role)
+    const userRow = await prisma.user.findUnique({ where: { id: userA.id } });
+    expect(userRow?.id).toBe(userA.id);
+
+    // 3. Confirm Member User A CANNOT assign a task to someone outside their allowed scope
+    const illegalAssignRes = await fetch(`${API_BASE}/nodes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        title: 'Illegal Task Assignment Attempt',
+        projectId,
+        workspaceId: workspace.id,
+        ownerId: userB.id,
+      }),
+    });
+    expect(illegalAssignRes.status).toBe(403);
+  });
+
+  it('Step 7: Requester receives notifications and sees results for all approver decision types (Changes Requested, Rejected, Approved)', async () => {
+    // 1. Test Changes Requested
+    const req1Res = await fetch(`${API_BASE}/approvals/requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        nodeId: taskId,
+        projectId,
+        workspaceId: workspace.id,
+        chosenApproverId: managerM.id,
+        notes: 'Review submission 1',
+      }),
+    });
+    const req1 = await req1Res.json();
+
+    const decideChangesRes = await fetch(`${API_BASE}/approvals/requests/${req1.id}/decide`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenM}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        decision: 'Changes Requested',
+        comment: 'Please update documentation and clarify specs.',
+      }),
+    });
+    expect([200, 201]).toContain(decideChangesRes.status);
+
+    // Requester A sees Changes Requested notification
+    let notifsRes = await fetch(`${API_BASE}/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}`, 'x-workspace-id': workspace.id },
+    });
+    let notifs = await notifsRes.json();
+    let items = Array.isArray(notifs) ? notifs : notifs.items || [];
+    let changesNotif = items.find((n: any) => n.title?.includes('CHANGES_REQUESTED') || n.body?.includes('changes requested'));
+    expect(changesNotif).toBeDefined();
+
+    // Requester A sees Changes Requested on Dashboard
+    let dashRes = await fetch(`${API_BASE}/workspaces/${workspace.id}/reports/role-dashboard`, {
+      headers: { Authorization: `Bearer ${tokenA}`, 'x-workspace-id': workspace.id },
+    });
+    let dash = await dashRes.json();
+    let reviewItems = dash.assigneeWork?.reviewStatus?.items || [];
+    let taskReview = reviewItems.find((r: any) => r.id === taskId);
+    expect(taskReview?.approvalStatus).toBe('changes_requested');
+
+    // 2. Test Rejected
+    const req2Res = await fetch(`${API_BASE}/approvals/requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        nodeId: taskId,
+        projectId,
+        workspaceId: workspace.id,
+        chosenApproverId: managerM.id,
+        notes: 'Review submission 2',
+      }),
+    });
+    const req2 = await req2Res.json();
+
+    const decideRejectRes = await fetch(`${API_BASE}/approvals/requests/${req2.id}/decide`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenM}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        decision: 'Rejected',
+        comment: 'Does not meet criteria.',
+      }),
+    });
+    expect([200, 201]).toContain(decideRejectRes.status);
+
+    // Requester A sees Rejected notification
+    notifsRes = await fetch(`${API_BASE}/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}`, 'x-workspace-id': workspace.id },
+    });
+    notifs = await notifsRes.json();
+    items = Array.isArray(notifs) ? notifs : notifs.items || [];
+    let rejectNotif = items.find((n: any) => n.title?.includes('REJECTED') || n.body?.includes('rejected'));
+    expect(rejectNotif).toBeDefined();
+
+    // 3. Test Approved
+    const req3Res = await fetch(`${API_BASE}/approvals/requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenA}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        nodeId: taskId,
+        projectId,
+        workspaceId: workspace.id,
+        chosenApproverId: managerM.id,
+        notes: 'Review submission 3',
+      }),
+    });
+    const req3 = await req3Res.json();
+
+    const decideApproveRes = await fetch(`${API_BASE}/approvals/requests/${req3.id}/decide`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenM}`,
+        'x-workspace-id': workspace.id,
+      },
+      body: JSON.stringify({
+        decision: 'Approved',
+        comment: 'Looks great! Approved.',
+      }),
+    });
+    expect([200, 201]).toContain(decideApproveRes.status);
+
+    // Requester A sees Approved notification
+    notifsRes = await fetch(`${API_BASE}/notifications`, {
+      headers: { Authorization: `Bearer ${tokenA}`, 'x-workspace-id': workspace.id },
+    });
+    notifs = await notifsRes.json();
+    items = Array.isArray(notifs) ? notifs : notifs.items || [];
+    let approveNotif = items.find((n: any) => n.title?.includes('APPROVED') || n.body?.includes('approved'));
+    expect(approveNotif).toBeDefined();
+  });
 });

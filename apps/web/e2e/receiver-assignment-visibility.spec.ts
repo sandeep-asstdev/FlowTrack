@@ -198,7 +198,7 @@ test.describe('Receiver Assigned Task and Approvals Visibility E2E Browser Test'
     await expect(assignedByLabel).toBeVisible();
 
     // Capture Desktop Screenshot
-    await page.screenshot({ path: 'receiver-mytasks-desktop.png', fullPage: true });
+    await page.screenshot({ path: 'test-results/receiver-mytasks-desktop.png', fullPage: true });
 
     // 6. Test 360px Phone Viewport Responsiveness
     await page.setViewportSize({ width: 360, height: 800 });
@@ -206,7 +206,7 @@ test.describe('Receiver Assigned Task and Approvals Visibility E2E Browser Test'
     await expect(assignedByLabel).toBeVisible();
 
     // Capture 360px Mobile Screenshot
-    await page.screenshot({ path: 'receiver-mytasks-360px-mobile.png', fullPage: true });
+    await page.screenshot({ path: 'test-results/receiver-mytasks-360px-mobile.png', fullPage: true });
 
     // 7. Click "Open Canvas" button to view project canvas
     const openCanvasBtn = page.getByRole('button', { name: /open canvas/i }).first();

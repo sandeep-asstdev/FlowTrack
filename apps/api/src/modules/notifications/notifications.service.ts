@@ -157,9 +157,13 @@ export class NotificationsService {
       });
 
       // 5. Broadcast to recipient in real-time
-      this.backgroundJobs.enqueue(`emit_notification_${notification.id}`, { id: notification.id }, async () => {
+      if (this.backgroundJobs?.enqueue) {
+        this.backgroundJobs.enqueue(`emit_notification_${notification.id}`, { id: notification.id }, async () => {
+          this.gateway?.sendToUser(dto.userId, 'notification:received', notification);
+        });
+      } else if (this.gateway?.sendToUser) {
         this.gateway.sendToUser(dto.userId, 'notification:received', notification);
-      });
+      }
 
       return notification;
     } catch (err: any) {

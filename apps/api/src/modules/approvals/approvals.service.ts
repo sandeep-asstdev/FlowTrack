@@ -784,6 +784,17 @@ export class ApprovalsService {
           data: { status: 'REJECTED' },
         });
 
+        if (request.nodeId) {
+          await tx.node.update({
+            where: { id: request.nodeId },
+            data: {
+              state: 'Rejected',
+              approvalStatus: 'rejected',
+              approvalFeedback: dto.comment,
+            },
+          }).catch(() => null);
+        }
+
         return { requestStatus: 'REJECTED', decision };
       }
 
@@ -873,18 +884,37 @@ export class ApprovalsService {
     });
 
     // Notify requester of decision
-    if (this.notificationsService?.sendNotification && request.submitterId) {
+    if (this.notificationsService?.sendNotification && request.submitterId && request.submitterId !== actorId) {
+      let deciderName = 'Approver';
+      try {
+        const decider = await this.prisma.user.findUnique({
+          where: { id: actorId },
+          select: { fullName: true },
+        });
+        if (decider?.fullName) deciderName = decider.fullName;
+      } catch {}
+
       const taskTitle = request.node?.title || 'Deliverable';
-      const decisionUpper = (dto.decision || '').toUpperCase();
-      const statusText = decisionUpper === 'APPROVED' ? 'approved' : decisionUpper === 'REJECTED' ? 'rejected' : 'changes requested';
+      const actionText = dto.decision === APPROVAL_OUTCOMES.APPROVED
+        ? 'approved'
+        : dto.decision === APPROVAL_OUTCOMES.REJECTED
+        ? 'rejected'
+        : 'requested changes on';
+      const reasonText = dto.comment || (dto as any).feedback;
+
+      const decisionTitle = `${deciderName} ${actionText} your request for "${taskTitle}"`;
+      const decisionBody = reasonText
+        ? `${deciderName} ${actionText} your request for "${taskTitle}". Reason: ${reasonText}`
+        : `${deciderName} ${actionText} your request for "${taskTitle}".`;
+
       await this.notificationsService.sendNotification({
         workspaceId,
         projectId: request.projectId || undefined,
         userId: request.submitterId,
         actorId,
         type: 'APPROVAL_DECISION',
-        title: `Approval ${decisionUpper}: ${taskTitle}`,
-        body: `Your approval request has been ${statusText}.${dto.comment ? ` Feedback: "${dto.comment}"` : ''}`,
+        title: decisionTitle,
+        body: decisionBody,
         entityType: 'approval_request',
         entityId: requestId,
       }).catch(() => null);
@@ -899,7 +929,7 @@ export class ApprovalsService {
   private async applyApprovedOperation(tx: any, request: any) {
     const payload = (request.payload as any) || {};
 
-    if (request.operationType === PRIVILEGED_OPERATIONS.TASK_COMPLETION && request.nodeId) {
+    if (request.nodeId) {
       await tx.node.update({
         where: { id: request.nodeId },
         data: {
@@ -907,8 +937,10 @@ export class ApprovalsService {
           approvalStatus: 'approved',
           approvedAt: new Date(),
         },
-      });
-    } else if (request.operationType === PRIVILEGED_OPERATIONS.DEADLINE_CHANGE && request.nodeId) {
+      }).catch(() => null);
+    }
+
+    if (request.operationType === PRIVILEGED_OPERATIONS.DEADLINE_CHANGE && request.nodeId) {
       if (payload.newDueDate) {
         await tx.node.update({
           where: { id: request.nodeId },

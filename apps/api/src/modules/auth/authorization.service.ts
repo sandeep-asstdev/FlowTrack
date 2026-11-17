@@ -616,7 +616,7 @@ export class AuthorizationService {
       try {
         task = await this.prisma.node.findUnique({
           where: { id: options.taskId },
-          include: { project: true },
+          include: { project: true, status: true },
         });
         project = task?.project;
       } catch {
@@ -640,6 +640,26 @@ export class AuthorizationService {
     if (task && !task.ownerId) {
       return [];
     }
+
+    // Rule: Draft task cannot have eligible approvers
+    const isTaskActionable =
+      task?.state === 'In Progress' ||
+      task?.state === 'in_progress' ||
+      task?.state === 'Changes Requested' ||
+      task?.state === 'ChangesRequested' ||
+      task?.state === 'changes_requested' ||
+      task?.status?.category === 'active' ||
+      task?.status?.key === 'in_progress' ||
+      task?.status?.key === 'changes_requested';
+    const isTaskDraft =
+      task &&
+      !isTaskActionable &&
+      (task.status?.category === 'draft' || task.status?.key === 'draft');
+    if (isTaskDraft) {
+      return [];
+    }
+
+
 
     // Fetch all active workspace members
     let memberships: any[] = [];

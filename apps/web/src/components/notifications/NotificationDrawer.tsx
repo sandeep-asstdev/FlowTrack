@@ -28,6 +28,7 @@ interface NotificationItem {
   createdAt: string;
   entityType?: string;
   entityId?: string;
+  data?: any;
   actor?: {
     id: string;
     fullName?: string;
@@ -135,8 +136,12 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
     if (!notif.read) {
       handleMarkAsRead(notif.id);
     }
-    if (notif.entityType === 'node' && notif.entityId && onSelectNode) {
-      onSelectNode(notif.entityId);
+    const targetNodeId =
+      notif.entityType === 'node' || notif.entityType === 'task'
+        ? notif.entityId
+        : (notif.data as any)?.nodeId || (notif.data as any)?.taskId;
+    if (targetNodeId && onSelectNode) {
+      onSelectNode(targetNodeId);
       onClose();
     }
   };
@@ -165,6 +170,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   const filteredNotifications = notifications.filter((n) => {
     if (onlyUnread && n.read) return false;
     if (filterType === 'all') return true;
+    if (filterType === 'APPROVAL_REQUEST') {
+      return n.type === 'APPROVAL_REQUEST' || n.type === 'APPROVAL_DECISION';
+    }
     return n.type === filterType;
   });
 

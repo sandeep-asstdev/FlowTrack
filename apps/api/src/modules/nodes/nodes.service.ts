@@ -254,6 +254,7 @@ export class NodesService {
       node = await this.prisma.node.findUnique({
         where: { id: nodeId },
         include: {
+          status: true,
           project: {
             include: {
               members: true,
@@ -273,6 +274,12 @@ export class NodesService {
       } catch (err) {
         // mock fallback
       }
+    }
+
+    if (node && !node.status && node.statusId && typeof this.prisma.status?.findUnique === 'function') {
+      try {
+        node.status = await this.prisma.status.findUnique({ where: { id: node.statusId } });
+      } catch {}
     }
 
     if (!node || node.deletedAt) {
@@ -311,6 +318,7 @@ export class NodesService {
           uploadEvidence: false,
           delete: false,
           reportBlocker: false,
+          requestApproval: false,
         },
       };
     }
@@ -469,6 +477,46 @@ export class NodesService {
       }
     }
 
+    const isActionable =
+      node.state === 'In Progress' ||
+      node.state === 'in_progress' ||
+      node.state === 'Changes Requested' ||
+      node.state === 'ChangesRequested' ||
+      node.state === 'changes_requested' ||
+      node.status?.category === 'active' ||
+      node.status?.key === 'in_progress' ||
+      node.status?.key === 'changes_requested';
+
+    const isDraft =
+      !isActionable &&
+      (node.status?.category === 'draft' ||
+        node.status?.key === 'draft' ||
+        node.state === 'Draft' ||
+        node.state === 'draft');
+
+    const isUserAdmin =
+      isWorkspaceAdmin ||
+      isPlatformAdmin ||
+      userRoleUpper === 'ADMIN' ||
+      workspaceMembership?.role === Role.ADMIN;
+
+    const isAlreadyApprovedOrPending =
+      node.approvalStatus === 'pending' ||
+      node.approvalStatus === 'approved' ||
+      node.status?.category === 'done' ||
+      node.status?.category === 'cancelled' ||
+      node.state === 'Completed' ||
+      node.state === 'Approved';
+
+    const requestApproval = Boolean(
+      actorId &&
+      isAssignee &&
+      !isUserAdmin &&
+      node.ownerId &&
+      !isDraft &&
+      !isAlreadyApprovedOrPending
+    );
+
     const can = {
       view: canView,
       edit: canManage,
@@ -482,6 +530,7 @@ export class NodesService {
       uploadEvidence: canWork,
       delete: canManage,
       reportBlocker: canWork || canManage,
+      requestApproval,
     };
 
     return {
@@ -2383,10 +2432,19 @@ export class NodesService {
       return await fn(this.prisma);
     };
 
+    const isRejected = dto.decision === 'rejected';
+    const isChangesRequested = dto.decision === 'changes_requested';
+    const targetState = isApproved
+      ? 'Approved'
+      : isRejected
+      ? 'Rejected'
+      : 'Changes Requested';
+
     const updated = await executeTransaction(async (tx) => {
       const up = await tx.node.update({
         where: { id: nodeId },
         data: {
+          state: targetState,
           approvalStatus,
           approvedAt,
           approvalFeedback: dto.feedback || null,
@@ -2399,6 +2457,15 @@ export class NodesService {
           reviewer: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true } },
         },
       });
+
+      if (tx.approvalRequest?.updateMany) {
+        await tx.approvalRequest.updateMany({
+          where: { nodeId: node.id, status: 'PENDING' },
+          data: {
+            status: isApproved ? 'APPROVED' : isRejected ? 'REJECTED' : 'CHANGES_REQUESTED',
+          },
+        }).catch(() => null);
+      }
 
       if (tx.auditLog) {
         await tx.auditLog.create({
@@ -2454,51 +2521,46 @@ export class NodesService {
       return up;
     });
 
-    // Notify node owner and submitter with differentiated decision status
-    const isRejected = dto.decision === 'rejected';
-    const isChangesRequested = dto.decision === 'changes_requested';
-
-    let decisionTitle = `✅ Task Approved: ${node.title}`;
-    let decisionOwnerBody = `Your task "${node.title}" was approved.`;
-    let decisionSubmitterBody = `Your submitted task "${node.title}" was approved.`;
-
-    if (isRejected) {
-      decisionTitle = `❌ Task Rejected: ${node.title}`;
-      decisionOwnerBody = `Your task "${node.title}" was rejected: ${dto.feedback || 'Review criteria not met.'}`;
-      decisionSubmitterBody = `Your submitted task "${node.title}" was rejected: ${dto.feedback || 'Review criteria not met.'}`;
-    } else if (isChangesRequested) {
-      decisionTitle = `⚠️ Changes Requested: ${node.title}`;
-      decisionOwnerBody = `Changes were requested on "${node.title}": ${dto.feedback || 'Please review feedback.'}`;
-      decisionSubmitterBody = `Changes were requested on submitted task "${node.title}": ${dto.feedback || 'Please review feedback.'}`;
+    // Notify requester with decider's name, decision, task title, and reason
+    let deciderName = 'Approver';
+    try {
+      const decider = await this.prisma.user.findUnique({
+        where: { id: actorId },
+        select: { fullName: true },
+      });
+      if (decider?.fullName) {
+        deciderName = decider.fullName;
+      }
+    } catch {
+      // ignore
     }
 
-    if (node.ownerId && node.ownerId !== actorId) {
+    const actionText = isApproved
+      ? 'approved'
+      : isRejected
+      ? 'rejected'
+      : 'requested changes on';
+
+    const feedbackText = dto.feedback || (dto as any).comment;
+    const decisionTitle = `${deciderName} ${actionText} your request for "${node.title}"`;
+    const decisionBody = feedbackText
+      ? `${deciderName} ${actionText} your request for "${node.title}". Reason: ${feedbackText}`
+      : `${deciderName} ${actionText} your request for "${node.title}".`;
+
+    const requesterId = node.submitterId || node.ownerId;
+
+    if (requesterId && requesterId !== actorId) {
       await this.safeNotify({
         workspaceId: node.workspaceId,
         projectId: node.projectId,
-        userId: node.ownerId,
+        userId: requesterId,
         actorId,
         type: 'APPROVAL_DECISION',
         title: decisionTitle,
-        body: decisionOwnerBody,
+        body: decisionBody,
         entityType: 'node',
         entityId: node.id,
         dedupKey: `approval:${node.id}:${dto.decision}:${Date.now()}`,
-      });
-    }
-
-    if (node.submitterId && node.submitterId !== actorId && node.submitterId !== node.ownerId) {
-      await this.safeNotify({
-        workspaceId: node.workspaceId,
-        projectId: node.projectId,
-        userId: node.submitterId,
-        actorId,
-        type: 'APPROVAL_DECISION',
-        title: decisionTitle,
-        body: decisionSubmitterBody,
-        entityType: 'node',
-        entityId: node.id,
-        dedupKey: `approval-submitter:${node.id}:${dto.decision}:${Date.now()}`,
       });
     }
 

@@ -125,6 +125,7 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     uploadEvidence: Boolean(node?.can?.uploadEvidence),
     delete: Boolean(node?.can?.delete),
     reportBlocker: Boolean(node?.can?.reportBlocker),
+    requestApproval: Boolean(node?.can?.requestApproval),
   };
 
   const [accessDenied, setAccessDenied] = useState(false);
@@ -407,12 +408,8 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         setApprovalRequest(reqs?.[0] || null);
       } catch {}
 
-      // Fetch eligible approvers for chosen-approver flow (only when actionable and assigned)
-      const isAssigned = Boolean(data.ownerId);
-      const isDraft = data.state === 'Draft' || data.state === 'draft';
-      const isCurrentUserAdmin = currentRole === 'ADMIN';
-
-      if (isAssigned && !isDraft && !isCurrentUserAdmin) {
+      // Fetch eligible approvers for chosen-approver flow (server-driven permission)
+      if (data?.can?.requestApproval) {
         try {
           setLoadingEligibleApprovers(true);
           const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
@@ -706,19 +703,26 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
 
   const isAssignedToCurrentUser = Boolean(user?.id && node.ownerId === user.id);
   const assignedUser = node.owner || workspaceMembers.find((m) => (m.user?.id || m.userId) === ownerId)?.user || null;
+  const isAdmin = currentRole === 'ADMIN';
+  const canRequestApproval = can.requestApproval;
   const isActionableState =
     node.state === 'In Progress' ||
     node.state === 'in_progress' ||
     node.state === 'Changes Requested' ||
     node.state === 'ChangesRequested' ||
-    node.state === 'changes_requested';
-  const isAdmin = currentRole === 'ADMIN';
-  const canRequestApproval = isAssignedToCurrentUser && isActionableState && !isAdmin;
-  const isDraftOrUnassigned = !node.ownerId || node.state === 'Draft' || node.state === 'draft';
-  const showUnassignedOrDraftNotice = !isAdmin && isDraftOrUnassigned;
+    node.state === 'changes_requested' ||
+    node.status?.category === 'active' ||
+    node.status?.key === 'in_progress' ||
+    node.status?.key === 'changes_requested';
+  const isDraftOrUnassigned =
+    !node.ownerId ||
+    (!canRequestApproval &&
+      !isActionableState &&
+      (node.state === 'Draft' || node.state === 'draft' || node.status?.category === 'draft' || node.status?.key === 'draft' || !node.status));
+  const showUnassignedOrDraftNotice = !isAdmin && isDraftOrUnassigned && !canRequestApproval;
   const canSubmitWork = canRequestApproval;
   const isPendingApproval = node.approvalStatus === 'pending' || node.status?.category === 'pending';
-  const isApproved = (node.state === 'Completed' || node.state === 'Approved') && node.state !== 'Draft' && node.state !== 'In Progress' && node.state !== 'UnderReview';
+  const isApproved = node.approvalStatus === 'approved' || node.state === 'Approved' || ((node.state === 'Completed') && node.state !== 'Draft' && node.state !== 'In Progress' && node.state !== 'UnderReview');
   const isRejected = node.approvalStatus === 'rejected';
   const isApprovalRequired = Boolean(
     node.approvalStatus === 'pending' ||

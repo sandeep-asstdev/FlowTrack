@@ -4,7 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { Avatar } from '../common/Avatar';
 import { DeadlineExtensionModal } from './DeadlineExtensionModal';
 import { calculateTimeCountdown } from '../../utils/timeTracker';
-import { canApproveTask, getTaskStateMetadata } from '@flowtrack/shared';
+import { canApproveTask, getTaskStateMetadata, validateEvidenceFile } from '@flowtrack/shared';
 import {
   X,
   Clock,
@@ -259,8 +259,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     }
   };
 
-  // Work Submission
+  // Work Submission & Approval Request
   const [submissionNotes, setSubmissionNotes] = useState('');
+  const [approvalReason, setApprovalReason] = useState('');
+  const [stagedApprovalFiles, setStagedApprovalFiles] = useState<
+    Array<{
+      file: File;
+      name: string;
+      size: number;
+      type: string;
+      previewUrl?: string;
+    }>
+  >([]);
+  const approvalFileInputRef = useRef<HTMLInputElement>(null);
+  const approvalCameraInputRef = useRef<HTMLInputElement>(null);
   const [submittingWork, setSubmittingWork] = useState(false);
 
   // Blocker Reporting
@@ -776,34 +788,119 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
     }
   };
 
+  const handleSelectApprovalFiles = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) return;
+    const newItems: typeof stagedApprovalFiles = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const validation = validateEvidenceFile({
+        name: file.name,
+        fileSize: file.size,
+        declaredMimeType: file.type || undefined,
+      });
+      if (!validation.isValid) {
+        alert(validation.error || `Invalid file "${file.name}"`);
+        continue;
+      }
+      const isImg = file.type?.startsWith('image/');
+      const previewUrl = isImg ? URL.createObjectURL(file) : undefined;
+      newItems.push({
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        previewUrl,
+      });
+    }
+    setStagedApprovalFiles((prev) => [...prev, ...newItems]);
+  };
+
+  const handleRemoveApprovalFile = (index: number) => {
+    setStagedApprovalFiles((prev) => {
+      const item = prev[index];
+      if (item?.previewUrl) {
+        try {
+          URL.revokeObjectURL(item.previewUrl);
+        } catch {}
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   const handleSubmitWork = async () => {
+    const trimmedReason = approvalReason.trim() || submissionNotes.trim();
+    if (!trimmedReason || trimmedReason.length < 20) {
+      alert('Please write at least 20 characters explaining why you are asking for approval.');
+      return;
+    }
+    if (trimmedReason.length > 1000) {
+      alert('Approval reason cannot exceed 1000 characters.');
+      return;
+    }
+    if (!chosenApproverId) {
+      alert('Please select an eligible approver.');
+      return;
+    }
+
     try {
       setSubmittingWork(true);
       const chosenApprover = eligibleApprovers.find((a) => a.id === chosenApproverId);
       if (chosenApprover) {
         setWaitingForApproverName(chosenApprover.fullName);
       }
-      await ApiClient.submitTask(node.id, {
-        notes: submissionNotes.trim() || undefined,
-        targetApproverId: chosenApproverId || undefined,
-        chosenApproverId: chosenApproverId || undefined,
-      });
-      if (chosenApproverId) {
-        try {
-          const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
-          await ApiClient.createApprovalRequest({
-            taskId: node.id,
-            nodeId: node.id,
-            projectId: node.projectId,
-            targetApproverId: chosenApproverId,
-            chosenApproverId: chosenApproverId,
-            notes: submissionNotes.trim() || undefined,
+
+      // Upload attached files as documents if any
+      const uploadedFileIds: string[] = [];
+      if (stagedApprovalFiles.length > 0) {
+        for (const item of stagedApprovalFiles) {
+          const base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(item.file);
           });
-        } catch {
-          // Request already created or task state updated
+          const createdDoc = await ApiClient.addDocument(node.id, {
+            name: item.name,
+            mimeType: item.type || 'application/octet-stream',
+            fileSize: item.size,
+            category: 'evidence',
+            storageKey: base64Data,
+          });
+          if (createdDoc?.id) {
+            uploadedFileIds.push(createdDoc.id);
+          }
         }
       }
+
+      await ApiClient.submitTask(node.id, {
+        notes: trimmedReason,
+        targetApproverId: chosenApproverId,
+        chosenApproverId,
+      });
+
+      const wsId = activeWorkspaceId || ApiClient.getActiveWorkspaceId();
+      await ApiClient.createApprovalRequest({
+        taskId: node.id,
+        nodeId: node.id,
+        projectId: node.projectId,
+        targetApproverId: chosenApproverId,
+        chosenApproverId,
+        reason: trimmedReason,
+        notes: trimmedReason,
+        fileIds: uploadedFileIds,
+      });
+
+      setApprovalReason('');
       setSubmissionNotes('');
+      stagedApprovalFiles.forEach((f) => {
+        if (f.previewUrl) {
+          try {
+            URL.revokeObjectURL(f.previewUrl);
+          } catch {}
+        }
+      });
+      setStagedApprovalFiles([]);
+
       onNodeUpdated();
       await loadNode(node.id);
       setActiveTab('approvals');
@@ -2744,50 +2841,13 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 <p className="text-[11px] text-blue-100">
                   Submit your work and deliverables for review and sign-off.
                 </p>
-
-                {/* Ask approval from dropdown */}
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-blue-100 block">
-                    Ask approval from
-                  </label>
-                  {eligibleApprovers.length > 0 ? (
-                    <select
-                      value={chosenApproverId}
-                      onChange={(e) => setChosenApproverId(e.target.value)}
-                      className="w-full p-2 text-xs rounded-xl bg-white text-slate-900 border border-white/20 focus:outline-none"
-                      disabled={submittingWork}
-                    >
-                      <option value="">-- Select an eligible approver --</option>
-                      {eligibleApprovers.map((approver) => (
-                        <option key={approver.id} value={approver.id}>
-                          {approver.fullName} ({approver.role})
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <p className="text-xs text-blue-100 bg-blue-700/60 p-2.5 rounded-xl border border-blue-400/30">
-                      {loadingEligibleApprovers
-                        ? 'Loading eligible approvers...'
-                        : 'No approver is available on this project. Ask your manager or admin to add one.'}
-                    </p>
-                  )}
-                </div>
-
-                <textarea
-                  value={submissionNotes}
-                  onChange={(e) => setSubmissionNotes(e.target.value)}
-                  placeholder="Notes for the reviewer (e.g. Completed per guidelines, see attached document)..."
-                  rows={2}
-                  className="w-full p-2 text-xs rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-blue-200 focus:outline-none focus:bg-white/20 resize-none"
-                />
                 <button
                   type="button"
-                  onClick={handleSubmitWork}
-                  disabled={submittingWork || !chosenApproverId}
-                  className="w-full py-2.5 min-h-[44px] bg-white text-blue-600 hover:bg-blue-50 disabled:opacity-50 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  onClick={() => setActiveTab('approvals')}
+                  className="w-full py-2.5 min-h-[44px] bg-white text-blue-600 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
+                  <span>Open Approval Request Form</span>
                 </button>
               </div>
             )}
@@ -2799,8 +2859,8 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
         {/* ============================================================== */}
         {(activeTab === 'activity' || activeTab === 'approvals') && (
           <div className="space-y-5">
-            {/* Approval Decision Card (Only shown when approval is required or requested) */}
-            {isApprovalRequired || isPendingApproval || isApproved || isRejected ? (
+            {/* Approval Decision Card (Shown when approval is required, requested, or can be requested) */}
+            {isApprovalRequired || isPendingApproval || isApproved || isRejected || canRequestApproval || (node.approvalRequests && node.approvalRequests.length > 0) ? (
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-purple-600" />
@@ -2850,56 +2910,280 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                   </div>
                 )}
 
-                {/* Submission Form with Chosen Approver in Approvals Tab */}
+                {/* Submission Notice for Unassigned/Draft */}
                 {showUnassignedOrDraftNotice && (
                   <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
                     Assign this task and start work before asking for approval.
                   </div>
                 )}
-                {!isPendingApproval && !isApproved && canRequestApproval && (
-                  <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
-                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
-                      Ask approval from
-                    </label>
-                    {eligibleApprovers.length > 0 ? (
-                      <select
-                        value={chosenApproverId}
-                        onChange={(e) => setChosenApproverId(e.target.value)}
-                        className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        disabled={submittingWork}
-                      >
-                        <option value="">-- Select an eligible approver --</option>
-                        {eligibleApprovers.map((approver) => (
-                          <option key={approver.id} value={approver.id}>
-                            {approver.fullName} ({approver.role})
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                        {loadingEligibleApprovers
-                          ? 'Loading eligible approvers...'
-                          : 'No approver is available on this project. Ask your manager or admin to add one.'}
-                      </p>
-                    )}
-                    <textarea
-                      value={submissionNotes}
-                      onChange={(e) => setSubmissionNotes(e.target.value)}
-                      placeholder="Notes for the reviewer..."
-                      rows={2}
-                      className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                    />
-                    <button
-                      type="button"
-                      disabled={submittingWork || !chosenApproverId}
-                      onClick={handleSubmitWork}
-                      className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
-                    </button>
-                  </div>
-                )}
+
+                {/* Approval Request Summary Card */}
+                {(isPendingApproval || isApproved || isRejected || node.submittedAt || (node.approvalRequests && node.approvalRequests.length > 0)) && (() => {
+                  const latestReq = node.approvalRequests?.[0];
+                  const requesterName = node.submitter?.fullName || latestReq?.submitter?.fullName || node.owner?.fullName || 'Requester';
+                  const requestDate = node.submittedAt || latestReq?.createdAt;
+                  const approvalReasonText = (latestReq?.payload as any)?.reason || (latestReq?.payload as any)?.notes || (node.customData as any)?.approvalReason || node.submissionNotes || '';
+                  const fileIds: string[] = (latestReq?.payload as any)?.fileIds || (node.customData as any)?.approvalFileIds || [];
+                  const attachedDocs = Array.isArray(node.documents) && node.documents.length > 0
+                    ? (fileIds.length > 0
+                        ? node.documents.filter((d: any) => fileIds.includes(d.id))
+                        : ((node.customData?.approvalFileIds !== undefined || latestReq?.payload?.fileIds !== undefined)
+                            ? []
+                            : node.documents.filter((d: any) => d.category === 'evidence')))
+                    : [];
+
+                  return (
+                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Task Title</span>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">{node.title}</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Who Asked</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{requesterName}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">When</span>
+                          <span className="text-slate-600 dark:text-slate-300">
+                            {requestDate ? new Date(requestDate).toLocaleString() : 'Recently'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {approvalReasonText && (
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Reason</span>
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                            {approvalReasonText}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">Attached Files</span>
+                        {attachedDocs.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {attachedDocs.map((doc: any) => (
+                              <div
+                                key={doc.id}
+                                className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                                  <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate" title={doc.name}>
+                                    {doc.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 shrink-0">
+                                    ({Math.round((doc.fileSize || 1024) / 1024)} KB)
+                                  </span>
+                                </div>
+                                <a
+                                  href={ApiClient.getDocumentDownloadUrl(node.id, doc.id)}
+                                  download={doc.name}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="p-1 text-blue-600 hover:text-blue-700 shrink-0"
+                                  title="Download / Preview"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 italic">No files attached</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Submission Form with Chosen Approver in Approvals Tab */}
+                {!isPendingApproval && !isApproved && canRequestApproval && (() => {
+                  const trimmedReason = approvalReason.trim();
+                  const isReasonValid = trimmedReason.length >= 20 && trimmedReason.length <= 1000;
+                  const canSend = isReasonValid && !!chosenApproverId && !submittingWork;
+
+                  let missingItemText: string | null = null;
+                  if (trimmedReason.length === 0) {
+                    missingItemText = 'Please write at least 20 characters';
+                  } else if (trimmedReason.length < 20) {
+                    missingItemText = `Please write at least 20 characters (${20 - trimmedReason.length} more needed)`;
+                  } else if (trimmedReason.length > 1000) {
+                    missingItemText = `Maximum 1000 characters exceeded (${trimmedReason.length - 1000} over)`;
+                  } else if (!chosenApproverId) {
+                    missingItemText = 'Please select an eligible approver';
+                  }
+
+                  return (
+                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3.5">
+                      {/* 1. Reason field */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                            Why are you asking for approval? <span className="text-rose-500">*</span>
+                          </label>
+                          <span
+                            className={`text-[10px] font-mono ${
+                              trimmedReason.length < 20 || trimmedReason.length > 1000
+                                ? 'text-amber-500 font-bold'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {trimmedReason.length}/1000
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Explain what was done or what you need approved.
+                        </p>
+                        <textarea
+                          value={approvalReason}
+                          onChange={(e) => setApprovalReason(e.target.value)}
+                          placeholder="Explain what was done or what you need approved..."
+                          rows={3}
+                          maxLength={1000}
+                          className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                        />
+                      </div>
+
+                      {/* 2. Attach files or photos (optional) */}
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider block">
+                          Attach files or photos (optional)
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="file"
+                            ref={approvalFileInputRef}
+                            onChange={(e) => {
+                              handleSelectApprovalFiles(e.target.files);
+                              e.target.value = '';
+                            }}
+                            multiple
+                            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.dwg,.dxf"
+                            className="hidden"
+                          />
+                          <input
+                            type="file"
+                            ref={approvalCameraInputRef}
+                            onChange={(e) => {
+                              handleSelectApprovalFiles(e.target.files);
+                              e.target.value = '';
+                            }}
+                            accept="image/*"
+                            capture="environment"
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => approvalFileInputRef.current?.click()}
+                            className="py-1.5 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                          >
+                            <Paperclip className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Choose Files</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => approvalCameraInputRef.current?.click()}
+                            className="py-1.5 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                          >
+                            <Camera className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Take Photo</span>
+                          </button>
+                        </div>
+
+                        {/* Thumbnails with remove button */}
+                        {stagedApprovalFiles.length > 0 && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                            {stagedApprovalFiles.map((staged, idx) => (
+                              <div
+                                key={idx}
+                                className="relative group p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center gap-2 overflow-hidden"
+                              >
+                                {staged.previewUrl ? (
+                                  <img
+                                    src={staged.previewUrl}
+                                    alt={staged.name}
+                                    className="w-8 h-8 rounded object-cover shrink-0"
+                                  />
+                                ) : (
+                                  <FileText className="w-6 h-6 text-blue-500 shrink-0" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <span
+                                    className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 block truncate"
+                                    title={staged.name}
+                                  >
+                                    {staged.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {Math.round(staged.size / 1024)} KB
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveApprovalFile(idx)}
+                                  className="p-1 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 shrink-0 transition-colors cursor-pointer"
+                                  title="Remove file"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 3. Ask approval from */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider block">
+                          Ask approval from <span className="text-rose-500">*</span>
+                        </label>
+                        {eligibleApprovers.length > 0 ? (
+                          <select
+                            value={chosenApproverId}
+                            onChange={(e) => setChosenApproverId(e.target.value)}
+                            className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            disabled={submittingWork}
+                          >
+                            <option value="">-- Select an eligible approver --</option>
+                            {eligibleApprovers.map((approver) => (
+                              <option key={approver.id} value={approver.id}>
+                                {approver.fullName} ({approver.role})
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                            {loadingEligibleApprovers
+                              ? 'Loading eligible approvers...'
+                              : 'No approver is available on this project. Ask your manager or admin to add one.'}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* 4. Button "Send for approval" */}
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          disabled={!canSend}
+                          onClick={handleSubmitWork}
+                          className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
+                        </button>
+                        {!canSend && missingItemText && (
+                          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5 text-center font-medium">
+                            {missingItemText}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Reviewer Actions */}
                 {approvalAuth.allowed ? (
@@ -2961,43 +3245,6 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                 {showUnassignedOrDraftNotice && (
                   <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500">
                     Assign this task and start work before asking for approval.
-                  </div>
-                )}
-                {canRequestApproval && !isPendingApproval && !isApproved && (
-                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
-                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
-                      Ask approval from
-                    </label>
-                    {eligibleApprovers.length > 0 ? (
-                      <select
-                        value={chosenApproverId}
-                        onChange={(e) => setChosenApproverId(e.target.value)}
-                        className="w-full p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        disabled={submittingWork}
-                      >
-                        <option value="">-- Select an eligible approver --</option>
-                        {eligibleApprovers.map((approver) => (
-                          <option key={approver.id} value={approver.id}>
-                            {approver.fullName} ({approver.role})
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                        {loadingEligibleApprovers
-                          ? 'Loading eligible approvers...'
-                          : 'No approver is available on this project. Ask your manager or admin to add one.'}
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      disabled={submittingWork || !chosenApproverId}
-                      onClick={handleSubmitWork}
-                      className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>{submittingWork ? 'Submitting...' : 'Send for approval'}</span>
-                    </button>
                   </div>
                 )}
               </div>

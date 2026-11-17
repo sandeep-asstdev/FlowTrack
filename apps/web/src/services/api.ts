@@ -501,7 +501,9 @@ export class ApiClient {
     nodeId?: string;
     projectId?: string;
     operationType?: string;
+    reason?: string;
     notes?: string;
+    fileIds?: string[];
     targetApproverId?: string;
     chosenApproverId?: string;
     context?: Record<string, any>;

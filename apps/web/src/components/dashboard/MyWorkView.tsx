@@ -683,6 +683,37 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                         </p>
                       )}
                     </div>
+
+                    {item.reason && (
+                      <div className="mt-2.5 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-xs">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Reason:</span>
+                        <p className="text-slate-700 dark:text-slate-300 line-clamp-3 whitespace-pre-wrap">{item.reason}</p>
+                      </div>
+                    )}
+
+                    <div className="mt-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-xs">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Attached Files:</span>
+                      {Array.isArray(item.documents) && item.documents.length > 0 ? (
+                        <div className="space-y-1">
+                          {item.documents.map((doc: any) => (
+                            <div key={doc.id} className="flex items-center justify-between gap-1 text-[11px]">
+                              <span className="text-slate-700 dark:text-slate-300 truncate" title={doc.name}>{doc.name}</span>
+                              <a
+                                href={ApiClient.getDocumentDownloadUrl(item.id, doc.id)}
+                                download={doc.name}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 hover:text-blue-700 font-semibold shrink-0"
+                              >
+                                Download
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-slate-400 italic">No files attached</p>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">

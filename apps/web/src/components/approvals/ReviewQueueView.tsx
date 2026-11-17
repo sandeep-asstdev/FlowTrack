@@ -18,6 +18,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
+  Paperclip,
 } from 'lucide-react';
 
 interface PendingTask {
@@ -73,6 +75,24 @@ interface PendingTask {
       id: string;
       fullName: string;
     };
+  }>;
+  customData?: any;
+  approvalRequests?: Array<{
+    id: string;
+    payload?: any;
+    createdAt?: string;
+    submitter?: {
+      id: string;
+      fullName: string;
+      email?: string;
+    };
+  }>;
+  documents?: Array<{
+    id: string;
+    name: string;
+    fileSize?: number;
+    mimeType?: string;
+    category?: string;
   }>;
 }
 
@@ -549,18 +569,83 @@ export const ReviewQueueView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Submitter Note / Evidence */}
-                  {latestRemark && (
-                    <div className="p-3 rounded-xl border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/20 text-xs space-y-1">
-                      <div className="font-bold text-[11px] text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        Submission Evidence / Notes:
+                  {/* Submitter Reason & Files */}
+                  {(() => {
+                    const taskReason =
+                      (task.approvalRequests?.[0]?.payload as any)?.reason ||
+                      (task.approvalRequests?.[0]?.payload as any)?.notes ||
+                      (task.customData as any)?.approvalReason ||
+                      latestRemark?.body ||
+                      '';
+
+                    const approvalFileIds: string[] =
+                      (task.approvalRequests?.[0]?.payload as any)?.fileIds ||
+                      (task.customData as any)?.approvalFileIds ||
+                      [];
+
+                    const attachedFiles =
+                      Array.isArray(task.documents) && task.documents.length > 0
+                        ? approvalFileIds.length > 0
+                          ? task.documents.filter((d: any) => approvalFileIds.includes(d.id))
+                          : task.customData?.approvalFileIds !== undefined || task.approvalRequests?.[0]?.payload?.fileIds !== undefined
+                          ? []
+                          : task.documents.filter((d: any) => d.category === 'evidence')
+                        : [];
+
+                    return (
+                      <div className="space-y-2.5">
+                        <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-xs space-y-1">
+                          <div className="font-bold text-[11px] text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                            Reason for Approval:
+                          </div>
+                          <div className="text-slate-800 dark:text-slate-200 text-xs whitespace-pre-wrap">
+                            {taskReason || 'No reason provided'}
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-xs space-y-1.5">
+                          <div className="font-bold text-[11px] text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                            <Paperclip className="w-3.5 h-3.5 text-blue-500" />
+                            Attached Files:
+                          </div>
+                          {attachedFiles.length > 0 ? (
+                            <div className="space-y-1.5 pt-1">
+                              {attachedFiles.map((doc: any) => (
+                                <div
+                                  key={doc.id}
+                                  className="p-2 rounded-lg bg-white dark:bg-slate-850 border border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between gap-2"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                                    <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate" title={doc.name}>
+                                      {doc.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 shrink-0">
+                                      ({Math.round((doc.fileSize || 1024) / 1024)} KB)
+                                    </span>
+                                  </div>
+                                  <a
+                                    href={ApiClient.getDocumentDownloadUrl(task.id, doc.id)}
+                                    download={doc.name}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="p-1 text-blue-600 hover:text-blue-700 shrink-0 font-medium text-xs flex items-center gap-1"
+                                    title="Download / Preview"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                    <span>Download</span>
+                                  </a>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">No files attached</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-slate-700 dark:text-slate-300 text-xs whitespace-pre-wrap">
-                        {latestRemark.body}
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Previous Review Cycles Accordion */}
                   {hasApprovals && (

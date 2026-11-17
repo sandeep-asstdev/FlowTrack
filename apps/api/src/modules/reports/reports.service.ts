@@ -640,6 +640,8 @@ export class ReportsService {
             project: { select: { id: true, name: true } },
             submitter: { select: { id: true, fullName: true, email: true } },
             owner: { select: { id: true, fullName: true, email: true } },
+            documents: { where: { deletedAt: null } },
+            approvalRequests: { where: { status: 'PENDING' }, orderBy: { createdAt: 'desc' }, take: 1 },
           },
           orderBy: { submittedAt: 'desc' },
           take: 20,
@@ -676,9 +678,18 @@ export class ReportsService {
             ],
           },
           include: {
-            node: { select: { id: true, title: true, state: true } },
+            node: {
+              select: {
+                id: true,
+                title: true,
+                state: true,
+                customData: true,
+                documents: { where: { deletedAt: null } },
+              },
+            },
             project: { select: { id: true, name: true } },
             submitter: { select: { id: true, fullName: true, email: true } },
+            evidence: true,
           },
           orderBy: { createdAt: 'desc' },
           take: 20,
@@ -692,6 +703,12 @@ export class ReportsService {
       ...(Array.isArray(pendingDecisionsForMe) ? pendingDecisionsForMe : []).map((p) => {
         const subDate = p.submittedAt ? new Date(p.submittedAt) : p.createdAt;
         const daysPending = Math.max(0, Math.floor((now.getTime() - subDate.getTime()) / (1000 * 60 * 60 * 24)));
+        const reqReason =
+          (p.approvalRequests?.[0]?.payload as any)?.reason ||
+          (p.approvalRequests?.[0]?.payload as any)?.notes ||
+          (p.customData as any)?.approvalReason ||
+          '';
+        const docs = p.documents || [];
         return {
           id: p.id,
           title: p.title,
@@ -702,11 +719,19 @@ export class ReportsService {
           submitterEmail: p.submitter?.email || p.owner?.email || '',
           priority: p.priority,
           daysPending,
+          reason: reqReason,
+          documents: docs,
         };
       }),
       ...(Array.isArray(pendingApprovalRequestsForMe) ? pendingApprovalRequestsForMe : []).map((ar) => {
         const subDate = ar.createdAt ? new Date(ar.createdAt) : now;
         const daysPending = Math.max(0, Math.floor((now.getTime() - subDate.getTime()) / (1000 * 60 * 60 * 24)));
+        const reqReason =
+          (ar.payload as any)?.reason ||
+          (ar.payload as any)?.notes ||
+          (ar.node?.customData as any)?.approvalReason ||
+          '';
+        const docs = ar.node?.documents || ar.evidence || [];
         return {
           id: ar.node?.id || ar.id,
           requestId: ar.id,
@@ -718,6 +743,8 @@ export class ReportsService {
           submitterEmail: ar.submitter?.email || '',
           priority: 'HIGH',
           daysPending,
+          reason: reqReason,
+          documents: docs,
         };
       }),
     ];

@@ -2628,6 +2628,12 @@ export class NodesService {
         submitter: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
         assignedBy: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
         team: { select: { id: true, name: true, colour: true } },
+        documents: { where: { deletedAt: null } },
+        approvalRequests: {
+          where: { status: 'PENDING' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         approvals: {
           orderBy: { decidedAt: 'desc' },
           include: {
@@ -2662,6 +2668,12 @@ export class NodesService {
           submitter: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
           assignedBy: { select: { id: true, fullName: true, email: true, avatarUrl: true, avatarThumbnailUrl: true } },
           team: { select: { id: true, name: true, colour: true } },
+          documents: { where: { deletedAt: null } },
+          approvalRequests: {
+            where: { status: 'PENDING' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
           approvals: {
             orderBy: { decidedAt: 'desc' },
             include: {
@@ -2681,17 +2693,25 @@ export class NodesService {
       pendingNodes = crossWsPending;
     }
 
-    return pendingNodes.filter((node) => {
-      // Reviewer cannot be submitter or assignee (unless Platform Admin overseeing)
-      if (!isWsAdmin && (node.ownerId === actorId || node.submitterId === actorId)) {
-        return false;
-      }
-      const isChosenReviewer = node.reviewerId === actorId || node.backupReviewerId === actorId;
-      const teamEligible = node.teamId && ledTeamIds.includes(node.teamId);
-      const projectEligible = managedProjectIds.includes(node.projectId);
-      const wsEligible = isWsManager || isWsAdmin;
-      return isChosenReviewer || teamEligible || projectEligible || wsEligible;
-    });
+    return pendingNodes
+      .filter((node) => {
+        // Reviewer cannot be submitter or assignee (unless Platform Admin overseeing)
+        if (!isWsAdmin && (node.ownerId === actorId || node.submitterId === actorId)) {
+          return false;
+        }
+        const isChosenReviewer = node.reviewerId === actorId || node.backupReviewerId === actorId;
+        const teamEligible = node.teamId && ledTeamIds.includes(node.teamId);
+        const projectEligible = managedProjectIds.includes(node.projectId);
+        const wsEligible = isWsManager || isWsAdmin;
+        return isChosenReviewer || teamEligible || projectEligible || wsEligible;
+      })
+      .map((node) => ({
+        ...node,
+        documents: (node.documents || []).map((d: any) => ({
+          ...d,
+          fileSize: d.fileSize ? Number(d.fileSize) : 0,
+        })),
+      }));
   }
 
   async submitTask(nodeId: string, actorId: string, notes?: string, targetApproverId?: string) {
@@ -2751,6 +2771,12 @@ export class NodesService {
         assignedBy: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
         submitter: { select: { id: true, fullName: true, avatarUrl: true, avatarThumbnailUrl: true, email: true } },
         team: { select: { id: true, name: true, colour: true } },
+        documents: { where: { deletedAt: null } },
+        approvalRequests: {
+          where: { status: 'PENDING' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         approvals: {
           orderBy: { decidedAt: 'desc' },
           include: {

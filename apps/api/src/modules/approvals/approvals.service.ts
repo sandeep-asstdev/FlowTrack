@@ -63,6 +63,11 @@ export interface CreateApprovalRequestDto {
   payload?: any;
   targetApproverId?: string;
   chosenApproverId?: string;
+  reason?: string;
+  notes?: string;
+  fileIds?: string[];
+  attachmentIds?: string[];
+  files?: any[];
 }
 
 export interface SubmitDecisionDto {
@@ -266,6 +271,28 @@ export class ApprovalsService {
     submitterId: string,
     dto: CreateApprovalRequestDto
   ) {
+    // 0. Reason validation: reject missing, empty or too-short reason (trim first)
+    const rawReason = dto.reason ?? dto.notes ?? dto.payload?.reason ?? dto.payload?.notes;
+    const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
+    if (!trimmedReason || trimmedReason.length < 20) {
+      throw new BadRequestException(
+        'A reason of at least 20 characters is required for approval requests.'
+      );
+    }
+    if (trimmedReason.length > 1000) {
+      throw new BadRequestException('Reason cannot exceed 1000 characters.');
+    }
+
+    const fileIds: string[] = Array.isArray(dto.fileIds)
+      ? dto.fileIds
+      : Array.isArray(dto.attachmentIds)
+      ? dto.attachmentIds
+      : Array.isArray(dto.payload?.fileIds)
+      ? dto.payload.fileIds
+      : Array.isArray(dto.payload?.attachmentIds)
+      ? dto.payload.attachmentIds
+      : [];
+
     // 1. Fetch resource metadata for policy matching
     let task = null;
     let project = null;
@@ -390,7 +417,10 @@ export class ApprovalsService {
             currentStageIndex: 0,
             payload: {
               ...(dto.payload || {}),
-              notes: (dto as any).notes || dto.payload?.notes || undefined,
+              subject: task?.title || 'Task Approval',
+              reason: trimmedReason,
+              notes: trimmedReason,
+              fileIds,
               chosenApproverId: explicitChosenApprover,
             },
             stageInstances: {
@@ -421,8 +451,31 @@ export class ApprovalsService {
               submitterId,
               submittedAt: new Date(),
               reviewerId: explicitChosenApprover,
+              customData: {
+                ...(typeof task.customData === 'object' && task.customData !== null ? task.customData : {}),
+                approvalReason: trimmedReason,
+                approvalFileIds: fileIds,
+              },
             },
           });
+        }
+
+        if (fileIds.length > 0 && tx.evidence?.updateMany) {
+          await tx.evidence.updateMany({
+            where: { id: { in: fileIds } },
+            data: { approvalRequestId: createdReq.id },
+          }).catch(() => null);
+        }
+
+        if (task && tx.remark?.create) {
+          await tx.remark.create({
+            data: {
+              workspaceId,
+              nodeId: task.id,
+              authorId: submitterId,
+              body: `📋 **Approval Request Submitted**\n**Reason**: ${trimmedReason}${fileIds.length > 0 ? `\n**Attached Files**: ${fileIds.length} file(s)` : ''}`,
+            },
+          }).catch(() => null);
         }
 
         return createdReq;
@@ -534,7 +587,13 @@ export class ApprovalsService {
           submitterId,
           status: 'PENDING',
           currentStageIndex: 0,
-          payload: dto.payload || {},
+          payload: {
+            ...(dto.payload || {}),
+            subject: task?.title || 'Task Approval',
+            reason: trimmedReason,
+            notes: trimmedReason,
+            fileIds,
+          },
           stageInstances: {
             create: matchedPolicy.stages.map((stage) => {
               const assignedIds: string[] = [];
@@ -564,6 +623,29 @@ export class ApprovalsService {
           policy: true,
         },
       });
+
+      if (task) {
+        await tx.node.update({
+          where: { id: task.id },
+          data: {
+            approvalStatus: 'pending',
+            submitterId,
+            submittedAt: new Date(),
+            customData: {
+              ...(typeof task.customData === 'object' && task.customData !== null ? task.customData : {}),
+              approvalReason: trimmedReason,
+              approvalFileIds: fileIds,
+            },
+          },
+        });
+      }
+
+      if (fileIds.length > 0 && tx.evidence?.updateMany) {
+        await tx.evidence.updateMany({
+          where: { id: { in: fileIds } },
+          data: { approvalRequestId: createdReq.id },
+        }).catch(() => null);
+      }
 
       return createdReq;
     });
@@ -1114,8 +1196,18 @@ export class ApprovalsService {
           orderBy: { createdAt: 'desc' },
         },
         policy: { include: { stages: true } },
-        node: { select: { id: true, title: true, state: true, classification: true } },
+        node: {
+          select: {
+            id: true,
+            title: true,
+            state: true,
+            classification: true,
+            customData: true,
+            documents: { where: { deletedAt: null } },
+          },
+        },
         submitter: { select: { id: true, fullName: true, email: true } },
+        evidence: true,
       },
     });
 
@@ -1123,7 +1215,25 @@ export class ApprovalsService {
       throw new NotFoundException('Approval request not found');
     }
 
-    return request;
+    const payloadObj = (request.payload as any) || {};
+    const reason = payloadObj.reason || payloadObj.notes || (request.node?.customData as any)?.approvalReason || '';
+    const fileIds = payloadObj.fileIds || (request.node?.customData as any)?.approvalFileIds || [];
+    const sanitizedNode = request.node
+      ? {
+          ...request.node,
+          documents: (request.node.documents || []).map((d: any) => ({
+            ...d,
+            fileSize: d.fileSize ? Number(d.fileSize) : 0,
+          })),
+        }
+      : null;
+
+    return {
+      ...request,
+      node: sanitizedNode,
+      reason,
+      fileIds,
+    };
   }
 
   /**
@@ -1160,7 +1270,16 @@ export class ApprovalsService {
         stageInstances: { orderBy: { stageOrder: 'asc' } },
         decisions: true,
         submitter: { select: { id: true, fullName: true, email: true } },
-        node: { select: { id: true, title: true, state: true } },
+        node: {
+          select: {
+            id: true,
+            title: true,
+            state: true,
+            customData: true,
+            documents: { where: { deletedAt: null } },
+          },
+        },
+        evidence: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1194,7 +1313,16 @@ export class ApprovalsService {
             stageInstances: { orderBy: { stageOrder: 'asc' } },
             decisions: true,
             submitter: { select: { id: true, fullName: true, email: true } },
-            node: { select: { id: true, title: true, state: true } },
+            node: {
+              select: {
+                id: true,
+                title: true,
+                state: true,
+                customData: true,
+                documents: { where: { deletedAt: null } },
+              },
+            },
+            evidence: true,
           },
           orderBy: { createdAt: 'desc' },
         });
@@ -1202,7 +1330,24 @@ export class ApprovalsService {
       }
     }
 
-    return requests;
+    return requests.map((req) => {
+      const payloadObj = (req.payload as any) || {};
+      const sanitizedNode = req.node
+        ? {
+            ...req.node,
+            documents: (req.node.documents || []).map((d: any) => ({
+              ...d,
+              fileSize: d.fileSize ? Number(d.fileSize) : 0,
+            })),
+          }
+        : null;
+      return {
+        ...req,
+        node: sanitizedNode,
+        reason: payloadObj.reason || payloadObj.notes || (req.node?.customData as any)?.approvalReason || '',
+        fileIds: payloadObj.fileIds || (req.node?.customData as any)?.approvalFileIds || [],
+      };
+    });
   }
 }
 

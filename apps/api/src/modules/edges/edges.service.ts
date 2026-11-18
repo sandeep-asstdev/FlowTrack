@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateEdgeDto, UpdateEdgeDto, validateDependencyEdge } from '@flowtrack/shared';
-import { EdgeKind, Role } from '@prisma/client';
+import { EdgeKind } from '@prisma/client';
+import { canUserEditTask } from '../nodes/task-permissions';
 
 @Injectable()
 export class EdgesService {
@@ -17,55 +18,36 @@ export class EdgesService {
     });
   }
 
-  async createEdge(workspaceId: string, dto: CreateEdgeDto, actorId?: string) {
+  async createEdge(workspaceId: string, dto: CreateEdgeDto, actorId?: string, userRole?: string) {
     if (dto.sourceNodeId === dto.targetNodeId) {
       throw new BadRequestException('A node cannot connect to itself');
     }
 
+    const sourceNode = await this.prisma.node.findUnique({
+      where: { id: dto.sourceNodeId },
+      include: { project: true },
+    });
+    const targetNode = await this.prisma.node.findUnique({
+      where: { id: dto.targetNodeId },
+      include: { project: true },
+    });
+
+    if (!sourceNode || sourceNode.deletedAt || !targetNode || targetNode.deletedAt) {
+      throw new NotFoundException('Source or target task not found');
+    }
+
+    if (sourceNode.projectId !== targetNode.projectId || (dto.projectId && sourceNode.projectId !== dto.projectId)) {
+      throw new BadRequestException('Tasks must belong to the same project');
+    }
+
     if (actorId) {
-      const membership = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId: actorId } },
-      });
-      const userAdminMembership = await this.prisma.membership.findFirst({
-        where: { userId: actorId, role: Role.ADMIN },
-      });
-      const isPlatformAdmin = Boolean(userAdminMembership);
-      const isWorkspaceAdmin = membership?.role === Role.ADMIN || isPlatformAdmin;
+      const canEditSource = await canUserEditTask(this.prisma, sourceNode, sourceNode.project, actorId, userRole);
+      const canEditTarget = await canUserEditTask(this.prisma, targetNode, targetNode.project, actorId, userRole);
 
-      if (!isWorkspaceAdmin) {
-        if (membership?.role === Role.MEMBER) {
-          throw new ForbiddenException('Forbidden: Members cannot manage task dependencies.');
-        }
-
-        const nodes = await this.prisma.node.findMany({
-          where: { id: { in: [dto.sourceNodeId, dto.targetNodeId] } },
-          select: { id: true, ownerId: true, assignedById: true, path: true },
-        });
-
-        const canEditDirect = nodes.some(
-          (n) => n.ownerId === actorId || n.assignedById === actorId
+      if (!canEditSource || !canEditTarget) {
+        throw new ForbiddenException(
+          'Forbidden: You can only create dependencies on tasks within your authorized scope.'
         );
-
-        const allAncestorIds = nodes.flatMap((n) =>
-          n.path ? n.path.split('/').filter(Boolean).filter((id) => id !== n.id) : []
-        );
-        let hasAncestorOwnership = false;
-        if (allAncestorIds.length > 0) {
-          const owned = await this.prisma.node.findFirst({
-            where: {
-              id: { in: allAncestorIds },
-              OR: [{ ownerId: actorId }, { assignedById: actorId }],
-            },
-            select: { id: true },
-          });
-          if (owned) hasAncestorOwnership = true;
-        }
-
-        if (!canEditDirect && !hasAncestorOwnership) {
-          throw new ForbiddenException(
-            'Forbidden: You can only create dependencies on tasks within your authorized scope.'
-          );
-        }
       }
     }
 
@@ -133,58 +115,34 @@ export class EdgesService {
     });
   }
 
-  async deleteEdge(id: string, actorId?: string) {
+  async deleteEdge(id: string, actorId?: string, userRole?: string) {
     const existing = await this.prisma.edge.findUnique({
       where: { id },
       include: {
-        sourceNode: { select: { ownerId: true, assignedById: true, path: true } },
-        targetNode: { select: { ownerId: true, assignedById: true, path: true } },
+        sourceNode: { include: { project: true } },
+        targetNode: { include: { project: true } },
       },
     });
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Edge not found');
     }
 
+    if (!existing.sourceNode || !existing.targetNode) {
+      throw new NotFoundException('Source or target task not found');
+    }
+
+    if (existing.sourceNode.projectId !== existing.targetNode.projectId) {
+      throw new BadRequestException('Tasks must belong to the same project');
+    }
+
     if (actorId) {
-      const membership = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId: actorId } },
-      });
-      const userAdminMembership = await this.prisma.membership.findFirst({
-        where: { userId: actorId, role: Role.ADMIN },
-      });
-      const isPlatformAdmin = Boolean(userAdminMembership);
-      const isWorkspaceAdmin = membership?.role === Role.ADMIN || isPlatformAdmin;
+      const canEditSource = await canUserEditTask(this.prisma, existing.sourceNode, existing.sourceNode.project, actorId, userRole);
+      const canEditTarget = await canUserEditTask(this.prisma, existing.targetNode, existing.targetNode.project, actorId, userRole);
 
-      if (!isWorkspaceAdmin) {
-        if (membership?.role === Role.MEMBER) {
-          throw new ForbiddenException('Forbidden: Members cannot manage task dependencies.');
-        }
-
-        const nodes = [existing.sourceNode, existing.targetNode].filter(Boolean);
-        const canEditDirect = nodes.some(
-          (n) => n?.ownerId === actorId || n?.assignedById === actorId
+      if (!canEditSource || !canEditTarget) {
+        throw new ForbiddenException(
+          'Forbidden: You can only delete dependencies on tasks within your authorized scope.'
         );
-
-        const allAncestorIds = nodes.flatMap((n) =>
-          n?.path ? n.path.split('/').filter(Boolean) : []
-        );
-        let hasAncestorOwnership = false;
-        if (allAncestorIds.length > 0) {
-          const owned = await this.prisma.node.findFirst({
-            where: {
-              id: { in: allAncestorIds },
-              OR: [{ ownerId: actorId }, { assignedById: actorId }],
-            },
-            select: { id: true },
-          });
-          if (owned) hasAncestorOwnership = true;
-        }
-
-        if (!canEditDirect && !hasAncestorOwnership) {
-          throw new ForbiddenException(
-            'Forbidden: You can only delete dependencies on tasks within your authorized scope.'
-          );
-        }
       }
     }
 

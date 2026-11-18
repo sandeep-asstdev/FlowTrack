@@ -5,7 +5,10 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
+  InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Role } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
@@ -1244,110 +1247,189 @@ export class ApprovalsService {
     filters?: { status?: string; nodeId?: string; projectId?: string },
     user?: { id?: string; role?: string }
   ) {
-    const userRoleUpper = (user?.role || '').toUpperCase();
-    const isAdmin = userRoleUpper === 'ADMIN';
+    try {
+      const userRoleUpper = (user?.role || '').toUpperCase();
+      const isAdmin = userRoleUpper === 'ADMIN';
 
-    const where: any = { workspaceId };
-    if (filters?.status) where.status = filters.status;
-    if (filters?.nodeId) where.nodeId = filters.nodeId;
-    if (filters?.projectId) where.projectId = filters.projectId;
-
-    if (!isAdmin && user?.id) {
-      where.OR = [
-        { submitterId: user.id },
-        { chosenApproverId: user.id },
-        { targetApproverId: user.id },
-        { stageInstances: { some: { OR: [{ primaryApproverId: user.id }, { assignedApproverIds: { has: user.id } }] } } },
-        { node: { reviewerId: user.id } },
-        { node: { backupReviewerId: user.id } },
-        { node: { ownerId: user.id } },
-      ];
-    }
-
-    let requests = await this.prisma.approvalRequest.findMany({
-      where,
-      include: {
-        stageInstances: { orderBy: { stageOrder: 'asc' } },
-        decisions: true,
-        submitter: { select: { id: true, fullName: true, email: true } },
-        node: {
-          select: {
-            id: true,
-            title: true,
-            state: true,
-            customData: true,
-            documents: { where: { deletedAt: null } },
-          },
-        },
-        evidence: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // If no requests found in scoped workspace for user, also check across user's other workspaces
-    if (requests.length === 0 && user?.id && this.prisma.membership) {
-      const userMems = await this.prisma.membership.findMany({
-        where: { userId: user.id },
-        select: { workspaceId: true },
-      });
-      const otherWsIds = userMems.map((m) => m.workspaceId).filter((id) => id !== workspaceId);
-      if (otherWsIds.length > 0) {
-        const crossWsWhere: any = {
-          workspaceId: { in: otherWsIds },
-          ...(filters?.status ? { status: filters.status } : {}),
-          ...(!isAdmin ? {
-            OR: [
-              { submitterId: user.id },
-              { chosenApproverId: user.id },
-              { targetApproverId: user.id },
-              { stageInstances: { some: { OR: [{ primaryApproverId: user.id }, { assignedApproverIds: { has: user.id } }] } } },
-              { node: { reviewerId: user.id } },
-              { node: { backupReviewerId: user.id } },
-              { node: { ownerId: user.id } },
-            ],
-          } : {}),
-        };
-        const crossRequests = await this.prisma.approvalRequest.findMany({
-          where: crossWsWhere,
+      // If nodeId is passed, verify task exists and user has view access (404 policy)
+      if (filters?.nodeId) {
+        const task = await this.prisma.node.findUnique({
+          where: { id: filters.nodeId },
           include: {
-            stageInstances: { orderBy: { stageOrder: 'asc' } },
-            decisions: true,
-            submitter: { select: { id: true, fullName: true, email: true } },
-            node: {
-              select: {
-                id: true,
-                title: true,
-                state: true,
-                customData: true,
-                documents: { where: { deletedAt: null } },
+            project: {
+              include: { members: true },
+            },
+          },
+        });
+
+        if (!task || task.deletedAt) {
+          throw new NotFoundException('Task not found');
+        }
+
+        let canView = false;
+        if (isAdmin) {
+          canView = true;
+        } else if (user) {
+          canView = this.authService.canViewTask({ id: user.id, role: user.role, workspaceId } as any, task);
+          if (!canView && user.id && task.projectId) {
+            if (task.path && task.path.includes('/')) {
+              const pathIds = task.path.split('/').filter(Boolean).filter((id: string) => id !== task.id);
+              if (pathIds.length > 0) {
+                const ownedAncestor = await this.prisma.node.findFirst({
+                  where: {
+                    id: { in: pathIds },
+                    OR: [{ ownerId: user.id }, { assignedById: user.id }],
+                  },
+                  select: { id: true },
+                });
+                if (ownedAncestor) canView = true;
+              }
+            }
+          }
+        }
+
+        if (!canView) {
+          throw new NotFoundException('Task not found');
+        }
+      }
+
+      const where: any = { workspaceId };
+      if (filters?.status) where.status = filters.status;
+      if (filters?.nodeId) where.nodeId = filters.nodeId;
+      if (filters?.projectId) where.projectId = filters.projectId;
+
+      // When querying general approval requests across workspace without a specific task filter,
+      // scope requests to those the user is directly involved with.
+      if (!isAdmin && user?.id && !filters?.nodeId) {
+        where.OR = [
+          { submitterId: user.id },
+          {
+            stageInstances: {
+              some: {
+                OR: [
+                  { primaryApproverId: user.id },
+                  { backupApproverId: user.id },
+                  { delegatedApproverId: user.id },
+                ],
               },
             },
-            evidence: true,
           },
-          orderBy: { createdAt: 'desc' },
-        });
-        requests = crossRequests;
+          { node: { reviewerId: user.id } },
+          { node: { backupReviewerId: user.id } },
+          { node: { ownerId: user.id } },
+          { node: { assignedById: user.id } },
+          { node: { project: { OR: [{ ownerId: user.id }, { responsibleManagerId: user.id }] } } },
+        ];
       }
-    }
 
-    return requests.map((req) => {
-      const payloadObj = (req.payload as any) || {};
-      const sanitizedNode = req.node
-        ? {
-            ...req.node,
-            documents: (req.node.documents || []).map((d: any) => ({
-              ...d,
-              fileSize: d.fileSize ? Number(d.fileSize) : 0,
-            })),
-          }
-        : null;
-      return {
-        ...req,
-        node: sanitizedNode,
-        reason: payloadObj.reason || payloadObj.notes || (req.node?.customData as any)?.approvalReason || '',
-        fileIds: payloadObj.fileIds || (req.node?.customData as any)?.approvalFileIds || [],
-      };
-    });
+      let requests = await this.prisma.approvalRequest.findMany({
+        where,
+        include: {
+          stageInstances: { orderBy: { stageOrder: 'asc' } },
+          decisions: true,
+          submitter: { select: { id: true, fullName: true, email: true } },
+          node: {
+            select: {
+              id: true,
+              title: true,
+              state: true,
+              customData: true,
+              documents: { where: { deletedAt: null } },
+            },
+          },
+          evidence: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // If no requests found in scoped workspace for user, also check across user's other workspaces
+      if (requests.length === 0 && user?.id && this.prisma.membership && !filters?.nodeId) {
+        const userMems = await this.prisma.membership.findMany({
+          where: { userId: user.id },
+          select: { workspaceId: true },
+        });
+        const otherWsIds = userMems.map((m) => m.workspaceId).filter((id) => id !== workspaceId);
+        if (otherWsIds.length > 0) {
+          const crossWsWhere: any = {
+            workspaceId: { in: otherWsIds },
+            ...(filters?.status ? { status: filters.status } : {}),
+            ...(!isAdmin
+              ? {
+                  OR: [
+                    { submitterId: user.id },
+                    {
+                      stageInstances: {
+                        some: {
+                          OR: [
+                            { primaryApproverId: user.id },
+                            { backupApproverId: user.id },
+                            { delegatedApproverId: user.id },
+                          ],
+                        },
+                      },
+                    },
+                    { node: { reviewerId: user.id } },
+                    { node: { backupReviewerId: user.id } },
+                    { node: { ownerId: user.id } },
+                    { node: { assignedById: user.id } },
+                    { node: { project: { OR: [{ ownerId: user.id }, { responsibleManagerId: user.id }] } } },
+                  ],
+                }
+              : {}),
+          };
+          const crossRequests = await this.prisma.approvalRequest.findMany({
+            where: crossWsWhere,
+            include: {
+              stageInstances: { orderBy: { stageOrder: 'asc' } },
+              decisions: true,
+              submitter: { select: { id: true, fullName: true, email: true } },
+              node: {
+                select: {
+                  id: true,
+                  title: true,
+                  state: true,
+                  customData: true,
+                  documents: { where: { deletedAt: null } },
+                },
+              },
+              evidence: true,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          requests = crossRequests;
+        }
+      }
+
+      return requests.map((req) => {
+        const payloadObj = (req.payload as any) || {};
+        const sanitizedNode = req.node
+          ? {
+              ...req.node,
+              documents: (req.node.documents || []).map((d: any) => ({
+                ...d,
+                fileSize: d.fileSize ? Number(d.fileSize) : 0,
+              })),
+            }
+          : null;
+        return {
+          ...req,
+          node: sanitizedNode,
+          reason: payloadObj.reason || payloadObj.notes || (req.node?.customData as any)?.approvalReason || '',
+          fileIds: payloadObj.fileIds || (req.node?.customData as any)?.approvalFileIds || [],
+        };
+      });
+    } catch (err: any) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      const errorId = `ERR-APPV-${randomUUID()}`;
+      this.logger.error(`[${errorId}] Unexpected error in listApprovalRequests: ${err?.message || err}`, err?.stack);
+      throw new InternalServerErrorException({
+        message: 'An unexpected error occurred. Please try again later.',
+        errorId,
+        statusCode: 500,
+      });
+    }
   }
 }
 

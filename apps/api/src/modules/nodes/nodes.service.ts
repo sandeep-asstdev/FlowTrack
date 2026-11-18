@@ -26,6 +26,7 @@ import {
   GRANULAR_PERMISSIONS,
 } from '@flowtrack/shared';
 import { Priority, Role } from '@prisma/client';
+import { canUserEditTask, canUserEditTaskInList } from './task-permissions';
 
 @Injectable()
 export class NodesService {
@@ -165,8 +166,9 @@ export class NodesService {
     // Phase 11 & Phase 9 User Isolation Filter:
     // A regular member must only see tasks assigned to them, tasks where they collaborate,
     // their descendants (subtasks), and minimal ancestor breadcrumbs.
+    let project: any = null;
     if (actorId) {
-      const project = await this.prisma.project.findUnique({
+      project = await this.prisma.project.findUnique({
         where: { id: projectId },
         include: { members: true },
       });
@@ -229,6 +231,17 @@ export class NodesService {
       }
     }
 
+    const userRoleUpper = (userRole || '').toUpperCase();
+    let isWorkspaceAdmin = userRoleUpper === 'ADMIN';
+    if (!isWorkspaceAdmin && actorId && project?.workspaceId && this.prisma.membership?.findUnique) {
+      try {
+        const mem = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId: project.workspaceId, userId: actorId } },
+        });
+        if (mem?.role === Role.ADMIN) isWorkspaceAdmin = true;
+      } catch {}
+    }
+
     const now = new Date();
     return nodes.map((node) => {
       const isClosed = node.status?.category === 'done' || node.status?.category === 'cancelled';
@@ -238,9 +251,11 @@ export class NodesService {
       const isBlocked = !isClosed && (node.status?.category === 'blocked' || uncompletedDeps.length > 0);
       const isOverdue = !isClosed && !!node.dueDate && new Date(node.dueDate).getTime() < now.getTime();
       const blockingTaskNames = uncompletedDeps.map((e) => e.sourceNode.title);
+      const canEdit = actorId ? canUserEditTaskInList(node, project, nodes, actorId, userRole, isWorkspaceAdmin) : true;
 
       return {
         ...node,
+        canEdit,
         isBlocked,
         isOverdue,
         blockingTaskNames,
@@ -519,7 +534,7 @@ export class NodesService {
 
     const can = {
       view: canView,
-      edit: canManage,
+      edit: await canUserEditTask(this.prisma, node, node.project, actorId, userRole),
       manage: canManage,
       work: canWork,
       tickChecklist: canWork,

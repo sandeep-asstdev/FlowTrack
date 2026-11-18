@@ -248,6 +248,7 @@ export class ProjectsService {
       customData = valResult.sanitized;
     }
 
+    const userRoleUpper = (userRole || '').toUpperCase();
     const createdProject = await this.prisma.project.create({
       data: {
         workspaceId,
@@ -258,7 +259,7 @@ export class ProjectsService {
         scope: dto.scope || null,
         deliverables: dto.deliverables || null,
         ownerId: dto.ownerId || actorId || null,
-        responsibleManagerId: dto.responsibleManagerId || null,
+        responsibleManagerId: dto.responsibleManagerId || (userRoleUpper === 'MANAGER' ? actorId : null) || (dto.ownerId ? null : actorId),
         departmentId: dto.departmentId || null,
         classification: (dto.classification as any) || 'INTERNAL',
         accessPolicy: (dto.accessPolicy || {}) as any,

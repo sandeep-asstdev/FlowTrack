@@ -171,42 +171,46 @@ export const FlowTrackNode = memo(({ id, data, selected }: NodeProps) => {
         isConfidentialHidden ? 'cursor-not-allowed opacity-95' : 'cursor-pointer'
       } ${borderColourClass}`}
     >
-      {/* n8n-Style Workflow Connection Handles */}
-      {/* Left Input Handle (Prerequisite/Target) */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left"
-        className="!w-3.5 !h-3.5 !-left-1.5 !bg-white dark:!bg-slate-800 !border-2 !border-blue-500 dark:!border-blue-400 hover:!bg-blue-500 hover:!border-white transition-colors shadow-xs cursor-crosshair z-20"
-        title="Input: Prerequisite step"
-      />
+      {/* n8n-Style Workflow Connection Handles (Only shown on tasks the user can edit) */}
+      {canEdit && (
+        <>
+          {/* Left Input Handle (Prerequisite/Target) */}
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="left"
+            className="!w-3.5 !h-3.5 !-left-1.5 !bg-white dark:!bg-slate-800 !border-2 !border-blue-500 dark:!border-blue-400 hover:!bg-blue-500 hover:!border-white transition-colors shadow-xs cursor-crosshair z-20"
+            title="Input: Prerequisite step"
+          />
 
-      {/* Right Output Handle (Next Step/Source) */}
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="right"
-        className="!w-3.5 !h-3.5 !-right-1.5 !bg-blue-600 hover:!bg-blue-500 !border-2 !border-white dark:!border-slate-900 transition-colors shadow-xs cursor-crosshair z-20"
-        title="Output: Drag to connect next step"
-      />
+          {/* Right Output Handle (Next Step/Source) */}
+          <Handle
+            type="source"
+            position={Position.Right}
+            id="right"
+            className="!w-3.5 !h-3.5 !-right-1.5 !bg-blue-600 hover:!bg-blue-500 !border-2 !border-white dark:!border-slate-900 transition-colors shadow-xs cursor-crosshair z-20"
+            title="Output: Drag to connect next step"
+          />
 
-      {/* Top Handle (Parent / Hierarchical Input) */}
-      <Handle
-        type="target"
-        position={Position.Top}
-        id="top"
-        className="!w-2.5 !h-2.5 !-top-1 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 transition-colors cursor-crosshair z-10"
-        title="Top: Parent step input"
-      />
+          {/* Top Handle (Parent / Hierarchical Input) */}
+          <Handle
+            type="target"
+            position={Position.Top}
+            id="top"
+            className="!w-2.5 !h-2.5 !-top-1 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 transition-colors cursor-crosshair z-10"
+            title="Top: Parent step input"
+          />
 
-      {/* Bottom Handle (Child / Subtask Output) */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="bottom"
-        className="!w-2.5 !h-2.5 !-bottom-1 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 transition-colors cursor-crosshair z-10"
-        title="Bottom: Subtask output"
-      />
+          {/* Bottom Handle (Child / Subtask Output) */}
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            id="bottom"
+            className="!w-2.5 !h-2.5 !-bottom-1 !bg-slate-300 dark:!bg-slate-700 !border-2 !border-white dark:!border-slate-900 opacity-40 hover:opacity-100 hover:!bg-blue-500 transition-colors cursor-crosshair z-10"
+            title="Bottom: Subtask output"
+          />
+        </>
+      )}
 
       {/* Floating Action Bar on selection (Authorized users only) */}
       {selected && !isConfidentialHidden && (

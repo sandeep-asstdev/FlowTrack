@@ -113,6 +113,9 @@ export function getLogicalState(data: {
 
 function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const reactFlowInstance = useReactFlow();
+  const { user, getActiveRole } = useAuthStore();
+  const currentRole = getActiveRole();
+  const permissions = getRolePermissions(currentRole);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesStateChange] = useEdgesState<Edge>([]);
@@ -133,11 +136,14 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Viewport persistence: read from localStorage cache or backend project settings
+  // Viewport persistence: read from localStorage keyed by user id + project id
   const savedViewport = useMemo(() => {
     if (typeof window === 'undefined') return null;
+    const userId = user?.id || 'anonymous';
     try {
-      const cached = localStorage.getItem(`flowtrack_viewport_${project?.id}`);
+      const cached =
+        localStorage.getItem(`flowtrack_viewport_${userId}_${project?.id}`) ||
+        localStorage.getItem(`flowtrack_viewport_${project?.id}`);
       if (cached) {
         const validated = parseValidViewport(JSON.parse(cached));
         if (validated) return validated;
@@ -146,7 +152,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
     const fromSettings = (project?.settings as any)?.viewport;
     return parseValidViewport(fromSettings);
-  }, [project?.id, project?.settings]);
+  }, [user?.id, project?.id, project?.settings]);
 
   const initialViewportRestoredRef = useRef(false);
   const viewportDebounceTimerRef = useRef<any>(null);
@@ -273,10 +279,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   const [workspaceMembersList, setWorkspaceMembersList] = useState<any[]>([]);
   const [isSubmittingTask, setIsSubmittingTask] = useState(false);
 
-  // Role & Permissions
-  const { user, getActiveRole } = useAuthStore();
-  const currentRole = getActiveRole();
-  const permissions = getRolePermissions(currentRole);
+  // Role & Permissions (declared at top of component)
 
   const connectingNodeId = useRef<string | null>(null);
 
@@ -606,8 +609,21 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         setEdges((eds) => eds.filter((e) => e.id !== edgeId));
         setSavedStatus('saved');
         showToast('Connection removed');
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to delete edge:', err);
+        const errMsg = err?.message || '';
+        if (
+          err?.status === 403 ||
+          err?.statusCode === 403 ||
+          errMsg.includes('403') ||
+          errMsg.includes('Forbidden') ||
+          errMsg.includes('authorized scope')
+        ) {
+          showToast('You can only connect tasks you manage');
+        } else {
+          showToast(errMsg || 'Failed to remove connection');
+        }
+        setSavedStatus('error');
       }
     },
     [setEdges]
@@ -699,7 +715,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             customData: n.customData || {},
             terminology: project.settings?.terminology,
             currency: project.settings?.currency || 'INR',
-            canEdit: permissions.canEditProject,
+            canEdit: (n as any).canEdit !== undefined ? Boolean((n as any).canEdit) : permissions.canEditProject,
             onDrillDown: (groupNode: { id: string; title: string }) => {
               setBreadcrumbTrail((prev) => [...prev, { id: groupNode.id, title: groupNode.title }]);
             },
@@ -987,7 +1003,6 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   // Validates connections in real-time, preventing self-loops, duplicate edges, and circular cycles
   const isValidConnection = useCallback(
     (connection: Connection) => {
-      if (!permissions.canEditProject) return false;
       if (!connection.source || !connection.target) return false;
       if (connection.source === connection.target) return false;
 
@@ -996,6 +1011,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         (e) => e.source === connection.source && e.target === connection.target
       );
       if (duplicate) return false;
+
+      const sourceNode = nodesRef.current.find((nd) => nd.id === connection.source);
+      const targetNode = nodesRef.current.find((nd) => nd.id === connection.target);
+      if (sourceNode?.data && (sourceNode.data as any).canEdit === false) return false;
+      if (targetNode?.data && (targetNode.data as any).canEdit === false) return false;
 
       // Cycle prevention check via @flowtrack/shared domain logic
       const currentEdges = edges.map((e) => ({
@@ -1012,19 +1032,25 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
       return check.isValid;
     },
-    [edges, permissions.canEditProject]
+    [edges]
   );
 
   // Connect any node to any other node with cycle validation
   const onConnect = useCallback(
     async (params: Connection) => {
-      if (!permissions.canEditProject) {
-        showToast('You do not have permission to modify workflow connections');
-        return;
-      }
       if (!params.source || !params.target) return;
       if (params.source === params.target) {
         showToast('Cannot connect a task to itself');
+        return;
+      }
+
+      const sourceNode = nodesRef.current.find((nd) => nd.id === params.source);
+      const targetNode = nodesRef.current.find((nd) => nd.id === params.target);
+      if (
+        (sourceNode?.data && (sourceNode.data as any).canEdit === false) ||
+        (targetNode?.data && (targetNode.data as any).canEdit === false)
+      ) {
+        showToast('You can only connect tasks you manage');
         return;
       }
 
@@ -1079,7 +1105,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           },
           data: {
             kind: newEdge.kind || 'sequence',
-            canEdit: permissions.canEditProject,
+            canEdit: true,
             onDelete: (edgeId: string) => handleDeleteEdge(edgeId),
             onInsert: (edgeId: string) => handleInsertNodeBetween(edgeId),
           },
@@ -1090,11 +1116,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         showToast('Steps connected');
       } catch (err: any) {
         console.error('Failed to create edge:', err);
-        showToast(err.message || 'Failed to connect steps');
+        const errMsg = err?.message || '';
+        if (
+          err?.status === 403 ||
+          err?.statusCode === 403 ||
+          errMsg.includes('403') ||
+          errMsg.includes('Forbidden') ||
+          errMsg.includes('authorized scope')
+        ) {
+          showToast('You can only connect tasks you manage');
+        } else {
+          showToast(errMsg || 'You can only connect tasks you manage');
+        }
         setSavedStatus('error');
       }
     },
-    [project.id, permissions.canEditProject, edges, setEdges, handleDeleteEdge]
+    [project.id, edges, setEdges, handleDeleteEdge]
   );
 
   // Debounced, race-condition-safe position persistence
@@ -1168,7 +1205,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     [permissions.canEditProject, flushPendingPositionUpdates]
   );
 
-  // Persist canvas viewport on pan / zoom stop
+  // Persist canvas viewport on pan / zoom stop in browser localStorage keyed by user id + project id
   const onViewportMoveEnd = useCallback(
     (_event: MouseEvent | TouchEvent | null, newViewport: { x: number; y: number; zoom: number }) => {
       if (
@@ -1180,31 +1217,12 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         return;
       }
 
-      // 1. Instant local persistence for page refresh restoration
+      const userId = user?.id || 'anonymous';
       try {
-        localStorage.setItem(`flowtrack_viewport_${project.id}`, JSON.stringify(newViewport));
+        localStorage.setItem(`flowtrack_viewport_${userId}_${project.id}`, JSON.stringify(newViewport));
       } catch (e) {}
-
-      // 2. Debounced backend persistence to project settings (if authorized)
-      if (permissions.canEditProjectSettings) {
-        if (viewportDebounceTimerRef.current) {
-          clearTimeout(viewportDebounceTimerRef.current);
-        }
-        viewportDebounceTimerRef.current = setTimeout(async () => {
-          try {
-            await ApiClient.updateProject(project.id, {
-              settings: {
-                ...(project.settings || {}),
-                viewport: newViewport,
-              },
-            });
-          } catch (e) {
-            const err = e as any; if (err?.status !== 403 && !err?.message?.includes('403') && !err?.message?.includes('Unauthorized')) { console.warn('Failed to persist canvas viewport to project settings:', e); }
-          }
-        }, 1000);
-      }
     },
-    [project.id, project.settings, permissions.canEditProjectSettings]
+    [user?.id, project.id]
   );
 
   // Restore viewport once nodes are loaded
@@ -2077,7 +2095,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             isValidConnection={isValidConnection as any}
             onNodeDragStop={onNodeDragStop as any}
             nodesDraggable={permissions.canEditProject}
-            nodesConnectable={permissions.canEditProject}
+            nodesConnectable={true}
             elementsSelectable={true}
             edgesFocusable={true}
             edgesReconnectable={true}

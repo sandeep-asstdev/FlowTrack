@@ -9,13 +9,19 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  Logger,
+  InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { AuthGuard } from '@nestjs/passport';
 import { ApprovalsService, CreateApprovalPolicyDto, CreateApprovalRequestDto, SubmitDecisionDto } from './approvals.service';
 
 @Controller('approvals')
 @UseGuards(AuthGuard('jwt'))
 export class ApprovalsController {
+  private readonly logger = new Logger(ApprovalsController.name);
+
   constructor(private readonly approvalsService: ApprovalsService) {}
 
   @Post('policies')
@@ -115,12 +121,25 @@ export class ApprovalsController {
     @Query('nodeId') nodeId?: string,
     @Query('projectId') projectId?: string
   ) {
-    let workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
-    if (!workspaceId && nodeId) {
-      workspaceId = (await this.approvalsService.resolveWorkspaceForNode(nodeId)) || undefined;
+    try {
+      let workspaceId = workspaceIdQuery || req.headers?.['x-workspace-id'] || req.user?.activeWorkspaceId || req.user?.workspaceId || req.user?.memberships?.[0]?.workspaceId;
+      if (!workspaceId && nodeId) {
+        workspaceId = (await this.approvalsService.resolveWorkspaceForNode(nodeId)) || undefined;
+      }
+      if (!workspaceId) throw new BadRequestException('workspaceId is required');
+      return await this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId }, req.user);
+    } catch (err: any) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      const errorId = `ERR-APPV-${randomUUID()}`;
+      this.logger.error(`[${errorId}] Unexpected error in listApprovalRequests: ${err?.message || err}`, err?.stack);
+      throw new InternalServerErrorException({
+        message: 'An unexpected error occurred. Please try again later.',
+        errorId,
+        statusCode: 500,
+      });
     }
-    if (!workspaceId) throw new BadRequestException('workspaceId is required');
-    return this.approvalsService.listApprovalRequests(workspaceId, { status, nodeId, projectId }, req.user);
   }
 
   @Post('decide')

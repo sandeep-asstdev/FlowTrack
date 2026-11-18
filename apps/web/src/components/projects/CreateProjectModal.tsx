@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { groupMembersByRole } from '../../utils/memberGrouping';
+import { useAuthStore } from '../../stores/authStore';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -38,6 +39,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   initialSourceProjectId,
 }) => {
   const { t } = useTranslation();
+  const { user, getActiveRole } = useAuthStore();
+  const currentRole = getActiveRole();
 
   // Mode: 'template' | 'blank' | 'clone'
   const [mode, setMode] = useState<'template' | 'blank' | 'clone'>(initialMode);
@@ -81,8 +84,9 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       setStartDate('');
       setTargetDate('');
       setClassification('INTERNAL');
-      setOwnerId('');
-      setResponsibleManagerId('');
+      const isManager = currentRole === 'MANAGER';
+      setOwnerId(isManager && user?.id ? user.id : '');
+      setResponsibleManagerId(isManager && user?.id ? user.id : '');
       setCurrencyCode('INR');
       setBudget('');
       setError(null);

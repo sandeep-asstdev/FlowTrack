@@ -36,7 +36,7 @@ export class EdgesController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = headerWsId || req.user.activeWorkspaceId;
-    return this.edgesService.createEdge(wsId, dto, req.user?.id);
+    return this.edgesService.createEdge(wsId, dto, req.user?.id, req.user?.role);
   }
 
   @Patch(':id')
@@ -46,6 +46,6 @@ export class EdgesController {
 
   @Delete(':id')
   delete(@Param('id') id: string, @Req() req: any) {
-    return this.edgesService.deleteEdge(id, req.user?.id);
+    return this.edgesService.deleteEdge(id, req.user?.id, req.user?.role);
   }
 }

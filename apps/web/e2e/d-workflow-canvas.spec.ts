@@ -108,4 +108,82 @@ test.describe('D. Workflow Canvas & Interactive Graph', () => {
     });
     expect(visibleZoomInButtons).toBe(1);
   });
+
+  test('D5. Quick-Add popup opens near pointer and creates tasks on double-click and on connection drag release', async ({ page }) => {
+    await loginAs(page, 'MANAGER');
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/projects/proj-skyline');
+    await expect(page.locator('.react-flow')).toBeVisible({ timeout: 12000 });
+
+    const canvasPane = page.locator('.react-flow__pane');
+    await expect(canvasPane).toBeVisible();
+
+    const initialNodesCount = await page.locator('.react-flow__node').count();
+
+    // 1. Double-click on empty canvas area
+    const clickPos = { x: 450, y: 250 };
+    await canvasPane.dblclick({ position: clickPos });
+
+    // Verify popup appears near the click and not under the minimap
+    const popup = page.locator('[data-testid="canvas-quick-add-popup"]');
+    await expect(popup).toBeVisible({ timeout: 5000 });
+    const popupBox = await popup.boundingBox();
+    expect(popupBox).not.toBeNull();
+    // Popup should open near click position (within 40px)
+    expect(Math.abs((popupBox?.x || 0) - clickPos.x)).toBeLessThanOrEqual(40);
+
+    // Verify pressing Escape closes the popup
+    await page.keyboard.press('Escape');
+    await expect(popup).not.toBeVisible();
+
+    // Reopen popup by double clicking again
+    await canvasPane.dblclick({ position: clickPos });
+    await expect(popup).toBeVisible({ timeout: 5000 });
+
+    // Click "Add Task"
+    const addTaskBtn = popup.locator('[data-testid="quick-add-task-btn"]');
+    await addTaskBtn.click();
+    await expect(popup).not.toBeVisible();
+
+    // Verify exactly one task appears near the click
+    await expect(page.locator('.react-flow__node')).toHaveCount(initialNodesCount + 1, { timeout: 8000 });
+    const newestNode = page.locator('.react-flow__node').last();
+    await expect(newestNode).toBeVisible();
+
+    // Close the task detail drawer if opened so the backdrop does not intercept canvas events
+    const drawerCloseBtn = page.locator('#drawer-close-btn');
+    if (await drawerCloseBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await drawerCloseBtn.click();
+      await expect(drawerCloseBtn).not.toBeVisible({ timeout: 5000 });
+    }
+
+    // 2. Drag a connection from a task handle onto empty space and release
+    const sourceHandle = newestNode.locator('.react-flow__handle-right');
+    await expect(sourceHandle).toBeVisible();
+    const handleBox = await sourceHandle.boundingBox();
+    expect(handleBox).not.toBeNull();
+
+    if (handleBox) {
+      // Drop below in empty canvas space (away from neighboring nodes)
+      const dropX = handleBox.x + 80;
+      const dropY = handleBox.y + 220;
+
+      await sourceHandle.hover();
+      await page.mouse.down();
+      await page.mouse.move(dropX, dropY, { steps: 10 });
+      await page.mouse.up();
+
+      // Quick-add popup should open at connection drop location
+      await expect(popup).toBeVisible({ timeout: 5000 });
+
+      const nodesCountBeforeRelease = await page.locator('.react-flow__node').count();
+
+      // Click "Add Task"
+      await popup.locator('[data-testid="quick-add-task-btn"]').click();
+      await expect(popup).not.toBeVisible();
+
+      // Verify exactly one new task appears
+      await expect(page.locator('.react-flow__node')).toHaveCount(nodesCountBeforeRelease + 1, { timeout: 8000 });
+    }
+  });
 });

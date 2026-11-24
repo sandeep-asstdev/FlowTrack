@@ -36,6 +36,7 @@ import {
   getSmartViewportPosition,
   getNonOverlappingPosition,
   isNodeInViewport,
+  getClampedQuickAddPosition,
 } from '../../utils/positioning';
 import { parseValidViewport } from '../../utils/router';
 import {
@@ -256,6 +257,30 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     y: number;
     sourceNodeId?: string | null;
   } | null>(null);
+
+  // Quick-Add popup DOM ref and outside-click / Escape key listener
+  const quickAddMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!quickAddMenu?.visible) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setQuickAddMenu(null);
+      }
+    };
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      if (quickAddMenuRef.current && !quickAddMenuRef.current.contains(e.target as Node)) {
+        setQuickAddMenu(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [quickAddMenu?.visible]);
 
   // Right-Click Context Menu State (n8n signature UX)
   const [nodeContextMenu, setNodeContextMenu] = useState<{
@@ -502,103 +527,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     [user]
   );
 
-  // Simplified Task Creation Handler (Section 5)
-  const handleCreateTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!taskName.trim()) return;
-    try {
-      setIsSubmittingTask(true);
-      const defaultTaskType =
-        nodeTypesListRef.current.find((t: any) => t.key === 'task' && !t.isGroup) ||
-        nodeTypesListRef.current.find((t: any) => !t.isGroup) ||
-        nodeTypesListRef.current[0];
 
-      if (!defaultTaskType) return;
-
-      // Smart viewport position with collision avoidance
-      const viewport = reactFlowInstance.getViewport();
-      const container = {
-        width: window.innerWidth,
-        height: Math.max(400, window.innerHeight - 112),
-      };
-      const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
-
-      // Smart viewport position or place below parent with collision avoidance
-      let targetX = smartPos.x;
-      let targetY = smartPos.y;
-
-      if (parentTaskId) {
-        const parentNode = nodesRef.current.find((n) => n.id === parentTaskId);
-        if (parentNode) {
-          const childPos = getNonOverlappingPosition(
-            { x: parentNode.position.x, y: parentNode.position.y + 230 },
-            nodesRef.current,
-            'down'
-          );
-          targetX = childPos.x;
-          targetY = childPos.y;
-        }
-      }
-
-      const created = await ApiClient.createNode({
-        projectId: project.id,
-        parentNodeId: parentTaskId || currentParent.id,
-        nodeTypeId: defaultTaskType.id,
-        title: taskName.trim(),
-        description: taskDescription.trim() || undefined,
-        ownerId: taskAssigneeId || undefined,
-        dueDate: taskDueDate ? new Date(taskDueDate).toISOString() : undefined,
-        priority: taskPriority as any,
-        positionX: targetX,
-        positionY: targetY,
-        customData: {
-          durationDays: taskDurationDays > 0 ? Number(taskDurationDays) : 1,
-          approvalStatus: taskRequiresApproval ? 'pending' : 'not_required',
-        },
-      });
-
-      if (parentTaskId && created?.id) {
-        // Interconnect parent to child with a sequence edge
-        try {
-          await ApiClient.createEdge({
-            projectId: project.id,
-            sourceNodeId: parentTaskId,
-            targetNodeId: created.id,
-            kind: 'sequence',
-            metadata: {
-              sourceHandle: 'bottom',
-              targetHandle: 'top',
-            },
-          });
-        } catch (edgeErr) {
-          console.warn('Failed to auto-create sequence edge to child task:', edgeErr);
-        }
-      }
-
-      const wasChild = Boolean(parentTaskId);
-      setParentTaskId(null);
-      setTaskName('');
-      setTaskDescription('');
-      setTaskAssigneeId('');
-      setTaskDueDate('');
-      setTaskPriority('MEDIUM');
-      setTaskDurationDays(1);
-      setTaskRequiresApproval(false);
-      setShowAdvancedTaskSettings(false);
-      setCreateTaskModalOpen(false);
-
-      await loadGraph();
-      if (created?.id) {
-        setSelectedNodeId(created.id);
-      }
-      showToast(wasChild ? `Child task "${taskName.trim()}" created successfully` : `Task "${taskName.trim()}" created successfully`);
-    } catch (err: any) {
-      console.error('Failed to create task:', err);
-      showToast(err.message || 'Failed to create task');
-    } finally {
-      setIsSubmittingTask(false);
-    }
-  };
 
   // Edge deletion handler
   const handleDeleteEdge = useCallback(
@@ -898,6 +827,199 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   useEffect(() => {
     loadGraph();
   }, [project.id, currentParent.id]);
+
+  // Unified Task Creation Handler (Used by both navbar modal and canvas quick-add popup)
+  interface CreateTaskOptions {
+    title?: string;
+    description?: string;
+    ownerId?: string;
+    dueDate?: string;
+    priority?: string;
+    durationDays?: number;
+    requiresApproval?: boolean;
+    parentTaskId?: string | null;
+    position?: { x: number; y: number };
+    sourceNodeId?: string | null;
+  }
+
+  const createTask = useCallback(
+    async (options?: CreateTaskOptions) => {
+      try {
+        setSavedStatus('saving');
+        const defaultTaskType =
+          nodeTypesListRef.current.find((t: any) => t.key === 'task' && !t.isGroup) ||
+          nodeTypesListRef.current.find((t: any) => !t.isGroup) ||
+          nodeTypesListRef.current[0];
+
+        if (!defaultTaskType) {
+          throw new Error('No task node type available');
+        }
+
+        let targetX: number;
+        let targetY: number;
+
+        if (options?.position) {
+          targetX = Math.round(options.position.x);
+          targetY = Math.round(options.position.y);
+        } else if (options?.parentTaskId) {
+          const parentNode = nodesRef.current.find((n) => n.id === options.parentTaskId);
+          if (parentNode) {
+            const childPos = getNonOverlappingPosition(
+              { x: parentNode.position.x, y: parentNode.position.y + 230 },
+              nodesRef.current,
+              'down'
+            );
+            targetX = childPos.x;
+            targetY = childPos.y;
+          } else {
+            const viewport = reactFlowInstance.getViewport();
+            const container = {
+              width: window.innerWidth,
+              height: Math.max(400, window.innerHeight - 112),
+            };
+            const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
+            targetX = smartPos.x;
+            targetY = smartPos.y;
+          }
+        } else {
+          const viewport = reactFlowInstance.getViewport();
+          const container = {
+            width: window.innerWidth,
+            height: Math.max(400, window.innerHeight - 112),
+          };
+          const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
+          targetX = smartPos.x;
+          targetY = smartPos.y;
+        }
+
+        const taskTitle = options?.title?.trim() || 'New Task';
+        const effectiveParentId = options?.parentTaskId || currentParent.id;
+
+        const created = await ApiClient.createNode({
+          projectId: project.id,
+          parentNodeId: effectiveParentId,
+          nodeTypeId: defaultTaskType.id,
+          title: taskTitle,
+          description:
+            options?.description?.trim() ||
+            (effectiveParentId ? `Child item of ${currentParent.title}` : undefined),
+          ownerId: options?.ownerId || undefined,
+          dueDate: options?.dueDate ? new Date(options.dueDate).toISOString() : undefined,
+          priority: (options?.priority as any) || 'MEDIUM',
+          positionX: targetX,
+          positionY: targetY,
+          customData: {
+            durationDays:
+              options?.durationDays && options.durationDays > 0
+                ? Number(options.durationDays)
+                : 1,
+            approvalStatus: options?.requiresApproval ? 'pending' : 'not_required',
+          },
+        });
+
+        // Interconnect parent to child with a sequence edge if parent specified
+        if (options?.parentTaskId && created?.id) {
+          try {
+            await ApiClient.createEdge({
+              projectId: project.id,
+              sourceNodeId: options.parentTaskId,
+              targetNodeId: created.id,
+              kind: 'sequence',
+              metadata: {
+                sourceHandle: 'bottom',
+                targetHandle: 'top',
+              },
+            });
+          } catch (edgeErr) {
+            console.warn('Failed to auto-create sequence edge to child task:', edgeErr);
+          }
+        }
+
+        // If source node was provided (dragged connection release), auto-connect ONLY IF allowed
+        if (options?.sourceNodeId && created?.id) {
+          const sourceNode = nodesRef.current.find((n) => n.id === options.sourceNodeId);
+          const sourceCanEdit = sourceNode?.data?.canEdit !== false;
+          if (sourceCanEdit) {
+            try {
+              await ApiClient.createEdge({
+                projectId: project.id,
+                sourceNodeId: options.sourceNodeId,
+                targetNodeId: created.id,
+                kind: 'sequence',
+                metadata: {
+                  sourceHandle: 'right',
+                  targetHandle: 'left',
+                },
+              });
+            } catch (edgeErr: any) {
+              const msg =
+                edgeErr?.response?.data?.message ||
+                edgeErr?.message ||
+                'You can only connect tasks you manage';
+              showToast(typeof msg === 'string' ? msg : 'You can only connect tasks you manage');
+            }
+          } else {
+            showToast('You can only connect tasks you manage');
+          }
+        }
+
+        await loadGraph();
+        if (created?.id) {
+          setSelectedNodeId(created.id);
+        }
+
+        setSavedStatus('saved');
+        showToast(
+          options?.parentTaskId
+            ? `Child task "${taskTitle}" created successfully`
+            : `Task "${taskTitle}" created successfully`
+        );
+        return created;
+      } catch (err: any) {
+        console.error('Failed to create task:', err);
+        const errMsg =
+          err?.response?.data?.message || err?.message || 'Failed to create task';
+        showToast(typeof errMsg === 'string' ? errMsg : 'Failed to create task');
+        setSavedStatus('error');
+        throw err;
+      }
+    },
+    [project.id, currentParent.id, currentParent.title, reactFlowInstance, showToast, loadGraph]
+  );
+
+  // Simplified Task Creation Handler (Section 5)
+  const handleCreateTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskName.trim()) return;
+    try {
+      setIsSubmittingTask(true);
+      await createTask({
+        title: taskName,
+        description: taskDescription,
+        ownerId: taskAssigneeId,
+        dueDate: taskDueDate,
+        priority: taskPriority,
+        durationDays: taskDurationDays,
+        requiresApproval: taskRequiresApproval,
+        parentTaskId,
+      });
+
+      setParentTaskId(null);
+      setTaskName('');
+      setTaskDescription('');
+      setTaskAssigneeId('');
+      setTaskDueDate('');
+      setTaskPriority('MEDIUM');
+      setTaskDurationDays(1);
+      setTaskRequiresApproval(false);
+      setShowAdvancedTaskSettings(false);
+      setCreateTaskModalOpen(false);
+    } catch {
+      // Handled inside createTask
+    } finally {
+      setIsSubmittingTask(false);
+    }
+  };
 
   // Authoritative CPM recalculation from backend API
   const refreshCriticalPath = useCallback(async () => {
@@ -1439,96 +1561,20 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     }
   };
 
-  // Quick Add Node (with optional auto-connection from a source node)
+  // Quick Add Node (delegates to unified createTask)
   const handleAddNode = async (
     typeKey: string = 'task',
     positionOverride?: { x: number; y: number },
     sourceNodeToConnect?: string | null
   ) => {
-    if (!permissions.canEditProject) {
-      showToast('You do not have permission to add workflow items');
-      return;
-    }
-
-    const typeObj =
-      nodeTypesList.find((t) => t.key === 'task') ||
-      nodeTypesList.find((t) => !t.isGroup) ||
-      nodeTypesList[0];
-
-    if (!typeObj) return;
-
     try {
-      setSavedStatus('saving');
-      let posX: number;
-      let posY: number;
-
-      if (positionOverride) {
-        posX = Math.round(positionOverride.x);
-        posY = Math.round(positionOverride.y);
-      } else {
-        const viewport = reactFlowInstance.getViewport();
-        const container = {
-          width: window.innerWidth,
-          height: Math.max(400, window.innerHeight - 112),
-        };
-        const smartPos = getSmartViewportPosition(viewport, container, nodesRef.current);
-        posX = smartPos.x;
-        posY = smartPos.y;
-      }
-
-      const titlePrefix = 'New Task Item';
-
-      const created = await ApiClient.createNode({
-        projectId: project.id,
-        parentNodeId: currentParent.id,
-        nodeTypeId: typeObj.id,
-        title: titlePrefix,
-        description: currentParent.id ? `Child item of ${currentParent.title}` : 'Configure details in side panel',
-        positionX: posX,
-        positionY: posY,
-        progressPct: 0,
-        isMilestone: false,
+      await createTask({
+        position: positionOverride,
+        sourceNodeId: sourceNodeToConnect,
       });
-
-      // If source node was provided (dragged from handle onto empty space), auto-connect!
-      if (sourceNodeToConnect) {
-        await ApiClient.createEdge({
-          projectId: project.id,
-          sourceNodeId: sourceNodeToConnect,
-          targetNodeId: created.id,
-          kind: 'sequence',
-          metadata: {
-            sourceHandle: 'right',
-            targetHandle: 'left',
-          },
-        });
-      }
-
-      await loadGraph();
-      if (created?.id) {
-        setSelectedNodeId(created.id);
-      }
-
-      // Ensure newly created node is framed in view if partially off-screen
-      const currentViewport = reactFlowInstance.getViewport();
-      const containerDims = {
-        width: window.innerWidth,
-        height: Math.max(400, window.innerHeight - 112),
-      };
-      if (!isNodeInViewport({ x: posX, y: posY }, currentViewport, containerDims)) {
-        reactFlowInstance.setCenter(posX + 144, posY + 90, {
-          duration: 350,
-          zoom: currentViewport.zoom,
-        });
-      }
-
-      setSavedStatus('saved');
       setQuickAddMenu(null);
-      showToast('Task added');
-    } catch (err: any) {
-      console.error('Failed to add node:', err);
-      showToast(err.message || 'Failed to add node');
-      setSavedStatus('saved');
+    } catch {
+      // Error toast already displayed inside createTask
     }
   };
 
@@ -1596,25 +1642,34 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   );
 
   // Drag from handle onto empty space (n8n signature UX)
-  const onConnectStart = useCallback((_: any, { nodeId }: any) => {
-    connectingNodeId.current = nodeId;
+  const onConnectStart = useCallback((_: any, params: any) => {
+    connectingNodeId.current = params?.nodeId || null;
   }, []);
 
   const onConnectEnd = useCallback(
-    (event: MouseEvent | TouchEvent) => {
-      // Check if dropped on empty canvas space (not directly on another node or handle)
+    (event: MouseEvent | TouchEvent, connectionState?: any) => {
+      // Check if dropped on empty canvas space (not directly on another node, handle, controls, or minimap)
       const targetEl = event.target as Element | null;
-      const hitNodeOrHandle = targetEl?.closest('.react-flow__node, .react-flow__handle');
+      const hitNodeOrHandle = targetEl?.closest(
+        '.react-flow__node, .react-flow__handle, .react-flow__controls, .react-flow__minimap'
+      );
+      const sourceId = connectingNodeId.current || connectionState?.fromNode?.id;
 
-      if (!hitNodeOrHandle && connectingNodeId.current) {
-        const clientX = 'clientX' in event ? event.clientX : event.touches[0].clientX;
-        const clientY = 'clientY' in event ? event.clientY : event.touches[0].clientY;
+      if (!hitNodeOrHandle && sourceId) {
+        const clientX =
+          'clientX' in event
+            ? event.clientX
+            : (event.changedTouches?.[0]?.clientX ?? event.touches?.[0]?.clientX ?? 0);
+        const clientY =
+          'clientY' in event
+            ? event.clientY
+            : (event.changedTouches?.[0]?.clientY ?? event.touches?.[0]?.clientY ?? 0);
 
         setQuickAddMenu({
           visible: true,
           x: clientX,
           y: clientY,
-          sourceNodeId: connectingNodeId.current,
+          sourceNodeId: sourceId,
         });
       }
       connectingNodeId.current = null;
@@ -1625,6 +1680,14 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   // Double click canvas to open Quick-Add (n8n style)
   const onPaneDoubleClick = useCallback(
     (event: React.MouseEvent) => {
+      const targetEl = event.target as Element | null;
+      if (
+        targetEl?.closest(
+          '.react-flow__node, .react-flow__handle, .react-flow__controls, .react-flow__minimap'
+        )
+      ) {
+        return;
+      }
       setQuickAddMenu({
         visible: true,
         x: event.clientX,
@@ -2108,6 +2171,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             connectionRadius={35}
             connectionLineType={ConnectionLineType.Bezier}
             connectionLineStyle={{ stroke: '#3b82f6', strokeWidth: 3 }}
+            zoomOnDoubleClick={false}
             onDoubleClick={onPaneDoubleClick}
             onNodeContextMenu={onNodeContextMenu}
             onPaneClick={() => {
@@ -2238,38 +2302,57 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         )}
 
         {/* Quick-Add Context Menu (n8n / Automa Signature UX) */}
-        {quickAddMenu && quickAddMenu.visible && (
-          <div
-            style={{
-              position: 'fixed',
-              top: Math.max(12, Math.min(window.innerHeight - 280, quickAddMenu.y)),
-              left: Math.max(12, Math.min(window.innerWidth - 240, quickAddMenu.x)),
-            }}
-            className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100"
-          >
-            <div className="flex items-center justify-between px-2 py-1 mb-1 border-b border-slate-100 dark:border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              <span>Add Node</span>
-              <button
-                onClick={() => setQuickAddMenu(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+        {quickAddMenu && quickAddMenu.visible && (() => {
+          const clamped = getClampedQuickAddPosition(quickAddMenu.x, quickAddMenu.y);
+          return (
+            <div
+              ref={quickAddMenuRef}
+              data-testid="canvas-quick-add-popup"
+              style={{
+                position: 'fixed',
+                top: clamped.top,
+                left: clamped.left,
+                width: clamped.width,
+              }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-2 py-1 mb-1 border-b border-slate-100 dark:border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <span>Add Node</span>
+                <button
+                  data-testid="quick-add-close-btn"
+                  onClick={() => setQuickAddMenu(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1">
+                <button
+                  data-testid="quick-add-task-btn"
+                  onClick={async () => {
+                    const sourceNodeId = quickAddMenu.sourceNodeId;
+                    const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
+                    setQuickAddMenu(null);
+                    try {
+                      await createTask({
+                        position: pos,
+                        sourceNodeId,
+                      });
+                    } catch {
+                      // Handled inside createTask with showToast
+                    }
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <CheckSquare className="w-4 h-4 text-blue-500" />
+                  Add Task
+                </button>
+              </div>
             </div>
-            <div className="space-y-1">
-              <button
-                onClick={() => {
-                  const pos = reactFlowInstance.screenToFlowPosition({ x: quickAddMenu.x, y: quickAddMenu.y });
-                  handleAddNode('task', pos, quickAddMenu.sourceNodeId);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2"
-              >
-                <CheckSquare className="w-4 h-4 text-blue-500" />
-                Add Task
-              </button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Mobile Floating Action Controls (Only in 2D canvas view so they don't block list/tree/board) */}
         {workspaceViewMode === 'canvas' && (

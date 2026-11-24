@@ -4,6 +4,7 @@ import {
   getNonOverlappingPosition,
   getSmartViewportPosition,
   isNodeInViewport,
+  getClampedQuickAddPosition,
   DEFAULT_NODE_DIMENSIONS,
 } from './positioning';
 
@@ -120,6 +121,46 @@ describe('Canvas Positioning & Collision Avoidance Utility', () => {
       const offscreenPos = { x: 1800, y: 1500 };
 
       expect(isNodeInViewport(offscreenPos, viewport, container)).toBe(false);
+    });
+  });
+
+  describe('getClampedQuickAddPosition', () => {
+    it('positions exactly at pointer when within open canvas space', () => {
+      const pos = getClampedQuickAddPosition(500, 300, 1280, 800);
+      expect(pos.left).toBe(500);
+      expect(pos.top).toBe(300);
+      expect(pos.width).toBe(220);
+    });
+
+    it('clamps strictly inside mobile canvas on 360px viewport', () => {
+      const pos = getClampedQuickAddPosition(350, 700, 360, 740);
+      // Popup width is 220, right edge must not exceed 360px viewport
+      expect(pos.left + pos.width).toBeLessThanOrEqual(360);
+      expect(pos.left).toBeGreaterThanOrEqual(12);
+      // Top must be below top navigation (64px) and above mobile dock (80px margin from bottom)
+      expect(pos.top).toBeGreaterThanOrEqual(64);
+      expect(pos.top + 90).toBeLessThanOrEqual(740 - 80);
+    });
+
+    it('avoids overlapping ReactFlow desktop MiniMap in bottom-right corner', () => {
+      const windowWidth = 1280;
+      const windowHeight = 800;
+      // Clicked near bottom-right where minimap is (minimap is approx 1280-230 to 1280, 800-180 to 800)
+      const pos = getClampedQuickAddPosition(1200, 750, windowWidth, windowHeight);
+      const minimapTop = windowHeight - 180;
+      // Must be pushed above the minimap
+      expect(pos.top + 90).toBeLessThanOrEqual(minimapTop);
+      expect(pos.left + pos.width).toBeLessThanOrEqual(windowWidth);
+    });
+
+    it('avoids overlapping desktop canvas controls in bottom-left corner', () => {
+      const windowWidth = 1280;
+      const windowHeight = 800;
+      // Clicked in bottom-left corner near controls
+      const pos = getClampedQuickAddPosition(20, 750, windowWidth, windowHeight);
+      const controlsTop = windowHeight - 180;
+      expect(pos.top + 90).toBeLessThanOrEqual(controlsTop);
+      expect(pos.left).toBeGreaterThanOrEqual(12);
     });
   });
 });

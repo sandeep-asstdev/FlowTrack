@@ -170,3 +170,54 @@ export function isNodeInViewport(
     pos.y <= visibleBottom - padding
   );
 }
+
+/**
+ * Clamps the quick-add popup menu position so it stays fully inside the canvas
+ * on desktop and mobile (e.g. 360px), and avoids overlapping controls and minimap.
+ */
+export function getClampedQuickAddPosition(
+  x: number,
+  y: number,
+  windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1024,
+  windowHeight = typeof window !== 'undefined' ? window.innerHeight : 768
+): { left: number; top: number; width: number } {
+  const isMobile = windowWidth < 640;
+  const menuWidth = isMobile ? Math.min(220, Math.max(180, windowWidth - 24)) : 220;
+  const menuHeight = 90;
+
+  const minLeft = 12;
+  const maxLeft = Math.max(minLeft, windowWidth - menuWidth - 12);
+  const minTop = 64; // Below top navigation bar
+  const maxTop = Math.max(minTop, windowHeight - menuHeight - (isMobile ? 80 : 16)); // Above mobile dock (80px) or bottom margin
+
+  let posX = Math.max(minLeft, Math.min(maxLeft, x));
+  let posY = Math.max(minTop, Math.min(maxTop, y));
+
+  // On desktop, avoid overlapping the ReactFlow MiniMap (bottom-right) and Controls (bottom-left)
+  if (!isMobile) {
+    const minimapLeft = windowWidth - 230;
+    const minimapTop = windowHeight - 180;
+    const controlsRight = 85;
+    const controlsTop = windowHeight - 180;
+
+    // Avoid minimap in bottom-right corner
+    if (posX + menuWidth > minimapLeft && posY + menuHeight > minimapTop) {
+      if (minimapTop - menuHeight - 10 >= minTop) {
+        posY = minimapTop - menuHeight - 10;
+      } else {
+        posX = Math.max(minLeft, minimapLeft - menuWidth - 10);
+      }
+    }
+
+    // Avoid controls in bottom-left corner
+    if (posX < controlsRight && posY + menuHeight > controlsTop) {
+      if (controlsTop - menuHeight - 10 >= minTop) {
+        posY = controlsTop - menuHeight - 10;
+      } else {
+        posX = controlsRight + 10;
+      }
+    }
+  }
+
+  return { left: posX, top: posY, width: menuWidth };
+}

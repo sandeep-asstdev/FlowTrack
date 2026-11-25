@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthorizationService } from '../auth/authorization.service';
 import { AuditService } from '../audit/audit.service';
+import { StatsService } from '../reports/stats.service';
 import {
   CreateProjectDto,
   UpdateProjectDto,
@@ -20,7 +21,8 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly authService?: AuthorizationService,
-    @Optional() private readonly auditService?: AuditService
+    @Optional() private readonly auditService?: AuditService,
+    @Optional() private readonly statsService?: StatsService
   ) {}
 
   private async generateUniqueProjectKey(workspaceId: string, name: string): Promise<string> {
@@ -65,7 +67,35 @@ export class ProjectsService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    // Calculate aggregated metrics for each project in a single batched query (eliminates N+1)
+    const userRoleUpper = (user?.role || '').toUpperCase();
+    let isUserAdmin = userRoleUpper === 'ADMIN';
+    if (!isUserAdmin && user?.id && this.prisma.membership) {
+      const m = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: user.id } },
+      });
+      if (m && m.role === 'ADMIN') isUserAdmin = true;
+    }
+
+    if (this.statsService) {
+      const { projectsWithMetrics } = await this.statsService.computeProjectsOverview(
+        workspaceId,
+        projects,
+        user ? { id: user.id, role: isUserAdmin ? 'ADMIN' : user.role } : undefined
+      );
+      return projectsWithMetrics.map((project) => {
+        const isCreatorOrManager = project.ownerId === user?.id || project.responsibleManagerId === user?.id;
+        const isCompleted = project.status === 'COMPLETED';
+        return {
+          ...project,
+          can: {
+            completeProject: !isCompleted && (isUserAdmin || isCreatorOrManager),
+            reopenProject: isCompleted && isUserAdmin,
+          },
+        };
+      });
+    }
+
+    // Fallback when StatsService is not injected (isolated unit tests)
     const projectIds = projects.map((p) => p.id);
     const allNodes =
       projectIds.length > 0
@@ -89,15 +119,6 @@ export class ProjectsService {
     }
 
     const now = new Date();
-    const userRoleUpper = (user?.role || '').toUpperCase();
-    let isUserAdmin = userRoleUpper === 'ADMIN';
-    if (!isUserAdmin && user?.id && this.prisma.membership) {
-      const m = await this.prisma.membership.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId: user.id } },
-      });
-      if (m && m.role === 'ADMIN') isUserAdmin = true;
-    }
-
     const results = projects.map((project) => {
       const nodes = nodesByProject.get(project.id) || [];
       const totalNodes = nodes.length;

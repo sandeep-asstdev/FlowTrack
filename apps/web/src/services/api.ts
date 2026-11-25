@@ -707,6 +707,18 @@ export class ApiClient {
     return this.request(`/workspaces/${wsId}/reports/role-dashboard`);
   }
 
+  static getNavbarCounts(workspaceId?: string) {
+    const wsId = workspaceId || this.activeWorkspaceId;
+    if (!wsId) return Promise.resolve({ unreadNotificationsCount: 0, pendingApprovalsCount: 0 });
+    return this.request(`/workspaces/${wsId}/reports/navbar-counts`);
+  }
+
+  static getProjectsOverview(workspaceId?: string) {
+    const wsId = workspaceId || this.activeWorkspaceId;
+    if (!wsId) return Promise.resolve({ totalProjects: 0, activeCount: 0, completedCount: 0, totalWaiting: 0, totalOverdue: 0 });
+    return this.request(`/workspaces/${wsId}/reports/projects-overview`);
+  }
+
   static getWorkspaceAuditHistory(
     workspaceId?: string,
     options?: { limit?: number; offset?: number; entityName?: string; action?: string }

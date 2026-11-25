@@ -87,7 +87,8 @@ export class ProjectsController {
     @Headers('x-workspace-id') headerWsId?: string
   ) {
     const wsId = this.getWorkspaceId(req, headerWsId, true);
-    return this.cpmService.calculateProjectCriticalPath(id, wsId);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.cpmService.calculateProjectCriticalPath(id, wsId, actorId, req.user?.role);
   }
 
   @Patch(':id')

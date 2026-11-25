@@ -1,16 +1,25 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StatsService } from '../reports/stats.service';
 import { calculateCriticalPath, CpmResult } from '@flowtrack/shared';
 
 @Injectable()
 export class CpmService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly statsService?: StatsService
+  ) {}
 
   /**
    * Authoritative calculation of Critical Path Method (CPM) for a project.
-   * Enforces workspace isolation to prevent unauthorized cross-tenant analysis access.
+   * Enforces workspace, project visibility, and task-level isolation.
    */
-  async calculateProjectCriticalPath(projectId: string, workspaceId: string): Promise<CpmResult> {
+  async calculateProjectCriticalPath(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string
+  ): Promise<CpmResult> {
     // 1. Verify project exists in the given workspace (multi-tenant isolation)
     const project = await this.prisma.project.findFirst({
       where: {
@@ -24,18 +33,23 @@ export class CpmService {
       throw new NotFoundException('Project not found or cross-workspace access denied');
     }
 
-    // 2. Fetch all non-deleted nodes for this project
-    const nodes = await this.prisma.node.findMany({
-      where: {
-        projectId,
-        deletedAt: null,
-      },
-      include: {
-        status: { select: { key: true, category: true, labelI18n: true } },
-        owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const cpmInclude = {
+      status: { select: { key: true, category: true, labelI18n: true } },
+      owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+    };
+
+    // 2. Fetch visible, active (non-deleted, non-cancelled) nodes for this project
+    const nodes =
+      this.statsService && actorId
+        ? (await this.statsService.getVisibleProjectNodes(projectId, actorId, userRole, cpmInclude)).nodes
+        : await this.prisma.node.findMany({
+            where: {
+              projectId,
+              deletedAt: null,
+            },
+            include: cpmInclude,
+            orderBy: { createdAt: 'asc' },
+          });
 
     // 3. Fetch all non-deleted edges for this project
     const edges = await this.prisma.edge.findMany({

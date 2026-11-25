@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Layers,
@@ -59,10 +59,30 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const currentUser = useAuthStore((s) => s.user);
   const permissions = getRolePermissions(userRole);
 
-  const totalOverdue = projects.reduce((acc, p) => acc + (p.metrics?.overdueNodes || 0), 0);
-  const totalWaiting = projects.reduce((acc, p) => acc + (p.metrics?.waitingNodes || 0), 0);
-  const activeCount = projects.filter((p) => p.status === 'ACTIVE' || !p.status).length;
-  const completedCount = projects.filter((p) => p.metrics?.avgProgress === 100 || p.status === 'COMPLETED').length;
+  const [overviewSummary, setOverviewSummary] = useState<{
+    totalProjects: number;
+    activeCount: number;
+    completedCount: number;
+    totalWaiting: number;
+    totalOverdue: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    ApiClient.getProjectsOverview(activeWorkspaceId)
+      .then((res) => {
+        if (res && typeof res.totalProjects === 'number') {
+          setOverviewSummary(res);
+        }
+      })
+      .catch(() => null);
+  }, [activeWorkspaceId, projects]);
+
+  const totalOverdue = overviewSummary?.totalOverdue ?? 0;
+  const totalWaiting = overviewSummary?.totalWaiting ?? 0;
+  const activeCount = overviewSummary?.activeCount ?? 0;
+  const completedCount = overviewSummary?.completedCount ?? 0;
+  const totalProjectsCount = overviewSummary?.totalProjects ?? projects.length;
 
   const handleRefresh = async () => {
     if (onRefresh) {
@@ -238,7 +258,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
             {t('allProjects')}
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-1">
-            {projects.length}
+            {totalProjectsCount}
           </div>
         </button>
 
@@ -318,7 +338,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           {(['ALL', 'ACTIVE', 'WAITING', 'OVERDUE', 'COMPLETED'] as const).map((filter) => {
             const isSelected = statusFilter === filter;
             const labels: Record<string, string> = {
-              ALL: `All (${projects.length})`,
+              ALL: `All (${totalProjectsCount})`,
               ACTIVE: `Active (${activeCount})`,
               WAITING: `Waiting (${totalWaiting})`,
               OVERDUE: `Overdue (${totalOverdue})`,

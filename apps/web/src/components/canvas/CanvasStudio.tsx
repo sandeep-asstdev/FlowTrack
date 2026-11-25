@@ -829,35 +829,28 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
           };
         });
 
-        const cpmEdges = fetchedEdges.map((e: any) => ({
-          sourceNodeId: e.sourceNodeId,
-          targetNodeId: e.targetNodeId,
-          kind: e.kind,
-        }));
+        try {
+          const cpmRes: any = await ApiClient.getCriticalPath(project.id);
+          if (cpmRes && !('code' in cpmRes) && Array.isArray(cpmRes.tasks)) {
+            setCpmData(cpmRes);
+            setCpmError(null);
+            const taskMap = new Map(cpmRes.tasks.map((t: any) => [t.id, t]));
+            const criticalEdgeSet = new Set(
+              (cpmRes.edges || []).filter((e: any) => e.isCriticalEdge).map((e: any) => `${e.sourceNodeId}->${e.targetNodeId}`)
+            );
 
-        const cpmRes = calculateCriticalPath({
-          tasks: cpmTasks,
-          edges: cpmEdges,
-          projectDeadline: project.targetDate,
-        });
+            for (const node of rfNodes) {
+              node.data.cpm = taskMap.get(node.id);
+            }
 
-        if (!('code' in cpmRes)) {
-          setCpmData(cpmRes);
-          setCpmError(null);
-          const taskMap = new Map(cpmRes.tasks.map((t) => [t.id, t]));
-          const criticalEdgeSet = new Set(
-            cpmRes.edges.filter((e) => e.isCriticalEdge).map((e) => `${e.sourceNodeId}->${e.targetNodeId}`)
-          );
-
-          for (const node of rfNodes) {
-            node.data.cpm = taskMap.get(node.id);
+            for (const edge of rfEdges) {
+              (edge.data as any).isCriticalEdge = criticalEdgeSet.has(`${edge.source}->${edge.target}`);
+            }
+          } else if (cpmRes?.message) {
+            setCpmError(cpmRes.message);
           }
-
-          for (const edge of rfEdges) {
-            (edge.data as any).isCriticalEdge = criticalEdgeSet.has(`${edge.source}->${edge.target}`);
-          }
-        } else {
-          setCpmError(cpmRes.message);
+        } catch {
+          // Non-fatal: CPM panel can still be refreshed manually
         }
       } catch (cpmErr: any) {
         console.warn('CPM calculation error:', cpmErr);

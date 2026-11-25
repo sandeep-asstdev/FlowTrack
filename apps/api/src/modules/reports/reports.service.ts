@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthorizationService } from '../auth/authorization.service';
+import { StatsService } from './stats.service';
 import {
   calculateUniversalDashboardMetrics,
   generateProjectCsv,
@@ -19,8 +20,42 @@ import {
 export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly authService?: AuthorizationService
+    @Optional() private readonly authService?: AuthorizationService,
+    @Optional() private readonly statsService?: StatsService
   ) {}
+
+  async getProjectsOverviewSummary(workspaceId: string, user?: { id?: string; role?: string }) {
+    let visibilityFilter: any = { workspaceId, deletedAt: null };
+    if (this.authService && user?.id) {
+      let effectiveRole = user.role;
+      if (!effectiveRole && this.prisma.membership?.findUnique) {
+        const m = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: user.id } },
+        });
+        effectiveRole = m?.role;
+      }
+      visibilityFilter = await this.authService.getProjectVisibilityFilter({
+        id: user.id,
+        role: effectiveRole,
+        workspaceId,
+      });
+    }
+    const projects = await this.prisma.project.findMany({
+      where: { workspaceId, deletedAt: null, ...visibilityFilter },
+      select: { id: true, status: true, ownerId: true, responsibleManagerId: true },
+    });
+    if (this.statsService) {
+      const { summary } = await this.statsService.computeProjectsOverview(workspaceId, projects, user);
+      return summary;
+    }
+    return {
+      totalProjects: projects.length,
+      activeCount: projects.filter((p) => p.status === 'ACTIVE' || !p.status).length,
+      completedCount: projects.filter((p) => p.status === 'COMPLETED').length,
+      totalWaiting: 0,
+      totalOverdue: 0,
+    };
+  }
 
   /**
    * Validates user membership in the workspace.
@@ -85,61 +120,26 @@ export class ReportsService {
       }
     }
 
-    // Load nodes with relations for comprehensive reporting
-    const nodes = await this.prisma.node.findMany({
-      where: {
-        projectId,
-        deletedAt: null,
+    const nodeInclude = {
+      status: { select: { id: true, key: true, category: true, colour: true } },
+      owner: { select: { id: true, fullName: true, avatarUrl: true } },
+      reviewer: { select: { id: true, fullName: true, avatarUrl: true } },
+      nodeType: { select: { id: true, key: true, name: true, icon: true } },
+      parentNode: { select: { id: true, title: true } },
+      documents: {
+        where: { deletedAt: null },
+        select: { id: true, name: true, category: true, version: true },
       },
-      include: {
-        status: {
-          select: {
-            id: true,
-            key: true,
-            category: true,
-            colour: true,
-          },
-        },
-        owner: {
-          select: {
-            id: true,
-            fullName: true,
-            avatarUrl: true,
-          },
-        },
-        reviewer: {
-          select: {
-            id: true,
-            fullName: true,
-            avatarUrl: true,
-          },
-        },
-        nodeType: {
-          select: {
-            id: true,
-            key: true,
-            name: true,
-            icon: true,
-          },
-        },
-        parentNode: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
-        documents: {
-          where: { deletedAt: null },
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            version: true,
-          },
-        },
-      },
-      orderBy: [{ positionY: 'asc' }, { createdAt: 'asc' }],
-    });
+    };
+
+    // Load scoped, active (non-deleted, non-cancelled) nodes via StatsService when available
+    const nodes = this.statsService
+      ? (await this.statsService.getVisibleProjectNodes(projectId, userId, member.role, nodeInclude)).nodes
+      : await this.prisma.node.findMany({
+          where: { projectId, deletedAt: null },
+          include: nodeInclude,
+          orderBy: [{ positionY: 'asc' }, { createdAt: 'asc' }],
+        });
 
     const metrics = calculateUniversalDashboardMetrics(nodes, project, filters, new Date());
 
@@ -776,30 +776,37 @@ export class ReportsService {
       response.managerWorkload.pendingReviewCount = response.managerWorkload.pendingReviews.length;
     }
 
-    const myTasks = safeAssigned.map((n) => ({
-      id: n.id,
-      title: n.title,
-      projectId: n.projectId,
-      projectName: n.project?.name || 'Project',
-      progressPct: n.progressPct,
-      statusCategory: n.status?.category || 'active',
-      statusKey: n.status?.key || n.state || 'In Progress',
-      statusColour: n.status?.colour,
-      priority: n.priority,
-      dueDate: n.dueDate,
-      state: n.state || 'Draft',
-      assignedById: n.assignedById,
-      assignedByName: (n as any).assignedBy?.fullName || null,
-      assignedByEmail: (n as any).assignedBy?.email || null,
-      isOverdue: Boolean(n.dueDate && new Date(n.dueDate) < now && n.status?.category !== 'done'),
-      approvalStatus: n.approvalStatus || 'not_required',
-    }));
+    const activeAssigned = this.statsService ? this.statsService.filterActiveNodes(safeAssigned) : safeAssigned;
+    const activeReview = this.statsService ? this.statsService.filterActiveNodes(safeReview) : safeReview;
 
-    const pendingReviewItems = safeReview.filter((r) => r.approvalStatus === 'pending');
-    const changesRequestedItems = safeReview.filter(
+    const myTasks = activeAssigned.map((n) => {
+      const cat = (n.status?.category || 'not_started').toLowerCase();
+      const isDone = cat === 'done' || (n.state || '').toLowerCase() === 'completed';
+      return {
+        id: n.id,
+        title: n.title,
+        projectId: n.projectId,
+        projectName: n.project?.name || 'Project',
+        progressPct: n.progressPct,
+        statusCategory: n.status?.category || 'not_started',
+        statusKey: n.status?.key || n.state || 'Not Started',
+        statusColour: n.status?.colour,
+        priority: n.priority,
+        dueDate: n.dueDate,
+        state: n.state || 'Draft',
+        assignedById: n.assignedById,
+        assignedByName: (n as any).assignedBy?.fullName || null,
+        assignedByEmail: (n as any).assignedBy?.email || null,
+        isOverdue: Boolean(!isDone && n.dueDate && new Date(n.dueDate) < now),
+        approvalStatus: n.approvalStatus || 'not_required',
+      };
+    });
+
+    const pendingReviewItems = activeReview.filter((r) => r.approvalStatus === 'pending');
+    const changesRequestedItems = activeReview.filter(
       (r) => r.approvalStatus === 'rejected' || r.approvalStatus === 'changes_requested'
     );
-    const approvedItems = safeReview.filter((r) => r.approvalStatus === 'approved');
+    const approvedItems = activeReview.filter((r) => r.approvalStatus === 'approved');
 
     response.assigneeWork = {
       assignedCount: myTasks.filter((t) => t.statusCategory !== 'done').length,
@@ -809,7 +816,7 @@ export class ReportsService {
         pendingCount: pendingReviewItems.length,
         changesRequestedCount: changesRequestedItems.length,
         approvedCount: approvedItems.length,
-        items: safeReview.map((item) => ({
+        items: activeReview.map((item) => ({
           id: item.id,
           title: item.title,
           projectId: item.projectId,

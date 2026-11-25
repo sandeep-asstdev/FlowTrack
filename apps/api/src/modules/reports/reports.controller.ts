@@ -10,13 +10,33 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ReportsService } from './reports.service';
+import { StatsService } from './stats.service';
 import { ReportFilterOptions } from '@flowtrack/shared';
 import { Response } from 'express';
 
 @Controller('workspaces/:workspaceId/reports')
 @UseGuards(AuthGuard('jwt'))
 export class ReportsController {
-  constructor(private readonly reportsService: ReportsService) {}
+  constructor(
+    private readonly reportsService: ReportsService,
+    private readonly statsService: StatsService
+  ) {}
+
+  @Get('navbar-counts')
+  async getNavbarCounts(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any
+  ) {
+    return this.statsService.getNavbarCounts(workspaceId, req.user.id);
+  }
+
+  @Get('projects-overview')
+  async getProjectsOverview(
+    @Param('workspaceId') workspaceId: string,
+    @Request() req: any
+  ) {
+    return this.reportsService.getProjectsOverviewSummary(workspaceId, req.user);
+  }
 
   @Get('project/:projectId')
   async getProjectDashboard(

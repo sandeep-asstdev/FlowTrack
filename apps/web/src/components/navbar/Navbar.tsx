@@ -85,23 +85,15 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   }, [mobileDrawerOpen]);
 
-  const refreshUnreadCount = () => {
-    if (!user) return;
-    ApiClient.getNotifications({ read: false, limit: 1 })
+  const refreshNavbarCounts = () => {
+    if (!user || !activeWorkspaceId) return;
+    ApiClient.getNavbarCounts(activeWorkspaceId)
       .then((res) => {
-        if (res && res.unreadCount !== undefined) {
-          setUnreadCount(res.unreadCount);
+        if (res && typeof res.unreadNotificationsCount === 'number') {
+          setUnreadCount(res.unreadNotificationsCount);
         }
-      })
-      .catch(() => null);
-  };
-
-  const refreshPendingApprovals = () => {
-    if (!user) return;
-    ApiClient.getReviewQueue({ workspaceId: activeWorkspaceId || undefined })
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setPendingApprovalsCount(data.length);
+        if (res && typeof res.pendingApprovalsCount === 'number') {
+          setPendingApprovalsCount(res.pendingApprovalsCount);
         }
       })
       .catch(() => null);
@@ -111,23 +103,19 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (user) {
       socketService.connect();
       socketService.joinUser(user.id);
-      refreshUnreadCount();
-      refreshPendingApprovals();
+      refreshNavbarCounts();
 
       const unsub = socketService.on('notification:received', () => {
-        setUnreadCount((c) => c + 1);
-        refreshPendingApprovals();
+        refreshNavbarCounts();
       });
 
       // Periodic refresh every 30s to stay synchronized
       const interval = setInterval(() => {
-        refreshUnreadCount();
-        refreshPendingApprovals();
+        refreshNavbarCounts();
       }, 30000);
 
       const handleCustomUpdate = () => {
-        refreshUnreadCount();
-        refreshPendingApprovals();
+        refreshNavbarCounts();
       };
       window.addEventListener('notification:refresh', handleCustomUpdate);
 

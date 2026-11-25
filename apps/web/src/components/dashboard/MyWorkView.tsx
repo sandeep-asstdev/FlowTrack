@@ -63,27 +63,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
     setUpdatingTaskId(taskId);
     try {
       await ApiClient.updateNode(taskId, { progressPct: 100 });
-      setData((prev) => {
-        if (!prev || !prev.assigneeWork) return prev;
-        const updatedTasks = prev.assigneeWork.myTasks.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                progressPct: 100,
-                statusCategory: 'done',
-                statusKey: 'Completed',
-              }
-            : t
-        );
-        return {
-          ...prev,
-          assigneeWork: {
-            ...prev.assigneeWork,
-            myTasks: updatedTasks,
-            assignedCount: updatedTasks.filter((t) => t.statusCategory !== 'done').length,
-          },
-        };
-      });
+      await loadDashboard();
     } catch (err: any) {
       console.error('Failed to mark task as completed:', err);
     } finally {
@@ -113,6 +93,8 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
   const reviewItems = assigneeWork?.reviewStatus?.items || [];
   const pendingReviewsForMe = managerWorkload?.pendingReviews || [];
   const pendingMyRequests = reviewItems.filter((r) => r.approvalStatus === 'pending');
+  const pendingReviewsForMeCount = managerWorkload?.pendingReviewCount ?? 0;
+  const pendingMyRequestsCount = assigneeWork?.reviewStatus?.pendingCount ?? 0;
   const decidedMyRequests = reviewItems.filter(
     (r) => r.approvalStatus === 'approved' || r.approvalStatus === 'rejected' || r.approvalStatus === 'changes_requested'
   );
@@ -197,7 +179,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
         >
           <div className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">Approvals for Me</div>
           <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-            {pendingReviewsForMe.length}
+            {pendingReviewsForMeCount}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 truncate">Awaiting your decision</div>
         </button>
@@ -212,7 +194,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
         >
           <div className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">My Requests</div>
           <div className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
-            {pendingMyRequests.length}
+            {pendingMyRequestsCount}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 truncate">Waiting on others</div>
         </button>
@@ -377,7 +359,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                 activeTab === 'approvals-for-me' ? 'bg-white text-blue-700' : 'bg-amber-500 text-white'
               }`}
             >
-              {pendingReviewsForMe.length}
+              {pendingReviewsForMeCount}
             </span>
           )}
         </button>
@@ -397,7 +379,7 @@ export const MyWorkView: React.FC<MyWorkViewProps> = ({ onSelectProject }) => {
                 activeTab === 'my-requests' ? 'bg-white text-blue-700' : 'bg-blue-500 text-white'
               }`}
             >
-              {pendingMyRequests.length}
+              {pendingMyRequestsCount}
             </span>
           )}
         </button>

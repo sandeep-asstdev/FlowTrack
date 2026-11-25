@@ -232,13 +232,28 @@ export class DocumentsService {
     }
 
     if (this.authService && node.project) {
-      const evalResult = await this.authService.evaluate(
-        { id: userId, workspaceId: node.workspaceId },
-        GRANULAR_PERMISSIONS.PROJECT_VIEW,
-        { project: node.project }
-      );
-      if (!evalResult.allowed) {
-        throw new NotFoundException('Node not found');
+      if (this.authService.isProjectVisibleToUser) {
+        const membership = this.prisma.membership?.findUnique
+          ? await this.prisma.membership.findUnique({
+              where: { workspaceId_userId: { workspaceId: node.workspaceId, userId } },
+            })
+          : null;
+        const visible = await this.authService.isProjectVisibleToUser(
+          { id: userId, role: membership?.role, workspaceId: node.workspaceId },
+          node.project.id
+        );
+        if (!visible) {
+          throw new NotFoundException('Node not found');
+        }
+      } else {
+        const evalResult = await this.authService.evaluate(
+          { id: userId, workspaceId: node.workspaceId },
+          GRANULAR_PERMISSIONS.PROJECT_VIEW,
+          { project: node.project }
+        );
+        if (!evalResult.allowed) {
+          throw new NotFoundException('Node not found');
+        }
       }
     }
 
@@ -273,13 +288,28 @@ export class DocumentsService {
     }
 
     if (this.authService && doc.node?.project) {
-      const evalResult = await this.authService.evaluate(
-        { id: userId, workspaceId: doc.workspaceId },
-        GRANULAR_PERMISSIONS.PROJECT_VIEW,
-        { project: doc.node.project }
-      );
-      if (!evalResult.allowed) {
-        throw new NotFoundException('Document not found');
+      if (this.authService.isProjectVisibleToUser) {
+        const m = this.prisma.membership?.findUnique
+          ? await this.prisma.membership.findUnique({
+              where: { workspaceId_userId: { workspaceId: doc.workspaceId, userId } },
+            })
+          : null;
+        const visible = await this.authService.isProjectVisibleToUser(
+          { id: userId, role: m?.role, workspaceId: doc.workspaceId },
+          doc.node.project.id
+        );
+        if (!visible) {
+          throw new NotFoundException('Document not found');
+        }
+      } else {
+        const evalResult = await this.authService.evaluate(
+          { id: userId, workspaceId: doc.workspaceId },
+          GRANULAR_PERMISSIONS.PROJECT_VIEW,
+          { project: doc.node.project }
+        );
+        if (!evalResult.allowed) {
+          throw new NotFoundException('Document not found');
+        }
       }
     }
 

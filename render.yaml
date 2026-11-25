@@ -38,7 +38,7 @@ services:
       - key: RELTIGROW_OTP_LANGUAGE
         value: en
       - key: RELTIGROW_API_KEY
-        value: wm_IZKmVczIOotucCPNmOyOzi3njqiTnwfadqBSu9gE67z4uGfrsokHzicRI9OU
+        sync: false
       - key: ALLOW_CONSOLE_OTP_IN_PRODUCTION
         value: "true"
       - key: HOLD_WHATSAPP

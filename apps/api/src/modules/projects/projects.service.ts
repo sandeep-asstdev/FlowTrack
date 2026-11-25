@@ -89,6 +89,15 @@ export class ProjectsService {
     }
 
     const now = new Date();
+    const userRoleUpper = (user?.role || '').toUpperCase();
+    let isUserAdmin = userRoleUpper === 'ADMIN';
+    if (!isUserAdmin && user?.id && this.prisma.membership) {
+      const m = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: user.id } },
+      });
+      if (m && m.role === 'ADMIN') isUserAdmin = true;
+    }
+
     const results = projects.map((project) => {
       const nodes = nodesByProject.get(project.id) || [];
       const totalNodes = nodes.length;
@@ -103,8 +112,15 @@ export class ProjectsService {
           ? Math.round(nodes.reduce((acc, n) => acc + (n.progressPct || 0), 0) / totalNodes)
           : 0;
 
+      const isCreatorOrManager = project.ownerId === user?.id || project.responsibleManagerId === user?.id;
+      const isCompleted = project.status === 'COMPLETED';
+
       return {
         ...project,
+        can: {
+          completeProject: !isCompleted && (isUserAdmin || isCreatorOrManager),
+          reopenProject: isCompleted && isUserAdmin,
+        },
         metrics: {
           totalNodes,
           completedNodes,
@@ -119,11 +135,19 @@ export class ProjectsService {
   }
 
   async getProject(projectId: string, workspaceId: string, user?: { id?: string; role?: string }) {
+    const visibilityFilter =
+      this.authService && user?.id && workspaceId
+        ? await this.authService.getProjectVisibilityFilter({
+            id: user.id,
+            role: user.role,
+            workspaceId,
+          })
+        : { workspaceId, deletedAt: null };
+
     let project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
-        workspaceId,
-        deletedAt: null,
+        ...visibilityFilter,
       },
       include: {
         owner: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
@@ -144,19 +168,28 @@ export class ProjectsService {
       });
 
       if (anyProject) {
-        const userRoleUpper = (user?.role || '').toUpperCase();
-        const isAdmin = userRoleUpper === 'ADMIN';
-        let allowedWs = isAdmin;
-        if (!allowedWs && user?.id && this.prisma.membership) {
+        let effectiveRole = user?.role;
+        if (!effectiveRole && user?.id && this.prisma.membership) {
           const m = await this.prisma.membership.findUnique({
             where: { workspaceId_userId: { workspaceId: anyProject.workspaceId, userId: user.id } },
           });
-          if (m) allowedWs = true;
+          effectiveRole = m?.role;
         }
-        if (!allowedWs && user?.id && (anyProject.ownerId === user.id || anyProject.responsibleManagerId === user.id)) {
-          allowedWs = true;
-        }
-        if (allowedWs) {
+        if (this.authService && user?.id) {
+          const wsVisibility = await this.authService.getProjectVisibilityFilter({
+            id: user.id,
+            role: effectiveRole,
+            workspaceId: anyProject.workspaceId,
+          });
+          const visible = await this.prisma.project.findFirst({
+            where: { id: anyProject.id, ...wsVisibility },
+            select: { id: true },
+          });
+          if (visible) {
+            project = anyProject;
+            workspaceId = anyProject.workspaceId;
+          }
+        } else {
           project = anyProject;
           workspaceId = anyProject.workspaceId;
         }
@@ -169,23 +202,19 @@ export class ProjectsService {
 
     const effectiveWsId = project.workspaceId || workspaceId;
 
-    // Shared visibility filter / confidential authorization: return 404 if unauthorized
     if (this.authService && user?.id) {
       const userRoleUpper = (user?.role || '').toUpperCase();
       const isAdmin = userRoleUpper === 'ADMIN';
       const isOwnerOrManager = project.ownerId === user.id || project.responsibleManagerId === user.id;
 
-      if (!isAdmin && !isOwnerOrManager) {
+      if ((!isAdmin || project.classification === 'HIGHLY_CONFIDENTIAL') && !isOwnerOrManager) {
         const evalResult = await this.authService.evaluate(
           { id: user.id, role: user.role, workspaceId: effectiveWsId },
           GRANULAR_PERMISSIONS.PROJECT_VIEW,
           { project }
         );
         if (!evalResult.allowed) {
-          if (evalResult.statusCode === 404) {
-            throw new NotFoundException('Project not found');
-          }
-          throw new ForbiddenException(evalResult.reason);
+          throw new NotFoundException('Project not found');
         }
       }
     }
@@ -199,9 +228,26 @@ export class ProjectsService {
       orderBy: [{ groupName: 'asc' }, { displayOrder: 'asc' }, { createdAt: 'asc' }],
     });
 
+    const userRoleUpper = (user?.role || '').toUpperCase();
+    let isUserAdmin = userRoleUpper === 'ADMIN';
+    if (!isUserAdmin && user?.id && this.prisma.membership) {
+      const m = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId: effectiveWsId, userId: user.id } },
+      });
+      if (m && m.role === 'ADMIN') isUserAdmin = true;
+    }
+    const isCreatorOrManager = project.ownerId === user?.id || project.responsibleManagerId === user?.id;
+    const isCompleted = project.status === 'COMPLETED';
+
+    const can = {
+      completeProject: !isCompleted && (isUserAdmin || isCreatorOrManager),
+      reopenProject: isCompleted && isUserAdmin,
+    };
+
     return {
       ...project,
       customFields,
+      can,
     };
   }
 
@@ -300,6 +346,14 @@ export class ProjectsService {
       workspaceId,
       actorId ? { id: actorId, role: userRole } : undefined
     );
+
+    if (existing.status === 'COMPLETED') {
+      throw new ForbiddenException('Project is completed and read-only.');
+    }
+
+    if ((dto as any).status === 'COMPLETED') {
+      return this.completeProject(projectId, workspaceId, actorId, userRole);
+    }
 
     const effectiveWsId = existing.workspaceId;
 
@@ -700,6 +754,10 @@ export class ProjectsService {
       actorId ? { id: actorId, role: userRole } : undefined
     );
 
+    if (existing.status === 'COMPLETED') {
+      throw new ForbiddenException('Project is completed and read-only.');
+    }
+
     if (actorId) {
       const isAdmin = userRole === 'ADMIN';
       const isOwnerOrResponsible = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
@@ -764,6 +822,10 @@ export class ProjectsService {
       actorId ? { id: actorId, role: userRole } : undefined
     );
 
+    if (existing.status === 'COMPLETED') {
+      throw new ForbiddenException('Project is completed and read-only.');
+    }
+
     if (actorId) {
       const isAdmin = userRole === 'ADMIN';
       const isOwnerOrResponsible = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
@@ -813,9 +875,210 @@ export class ProjectsService {
     return updated;
   }
 
-  /**
-   * Phase 3: List Soft-Deleted Projects in Trash View
-   */
+  async completeProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string
+  ) {
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, deletedAt: null },
+      include: { owner: true, responsibleManager: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+    const effectiveWsId = existing.workspaceId || workspaceId;
+
+    if (actorId) {
+      const userRoleUpper = (userRole || '').toUpperCase();
+      let isWorkspaceAdmin = userRoleUpper === 'ADMIN';
+      if (!isWorkspaceAdmin && this.prisma.membership) {
+        const m = await this.prisma.membership.findUnique({
+          where: { workspaceId_userId: { workspaceId: effectiveWsId, userId: actorId } },
+        });
+        if (m && m.role === 'ADMIN') isWorkspaceAdmin = true;
+      }
+      const isCreatorOrManager = existing.ownerId === actorId || existing.responsibleManagerId === actorId;
+      if (!isWorkspaceAdmin && !isCreatorOrManager) {
+        throw new ForbiddenException(
+          'Forbidden: Only administrators, project creator, or designated responsible manager can complete this project.'
+        );
+      }
+    }
+
+    // Check if any task in the project is not Completed, or any approval request is still pending
+    const openTasks = await this.prisma.node.findMany({
+      where: {
+        projectId: existing.id,
+        deletedAt: null,
+        AND: [
+          {
+            OR: [
+              { status: null },
+              { status: { category: { not: 'done' } } },
+            ],
+          },
+          {
+            state: { not: 'Completed' },
+          },
+        ],
+      },
+      select: { id: true, title: true, state: true, status: { select: { key: true, category: true } } },
+    });
+
+    const pendingApprovals = await this.prisma.approvalRequest.findMany({
+      where: {
+        status: 'PENDING',
+        OR: [
+          { projectId: existing.id },
+          { node: { projectId: existing.id, deletedAt: null } },
+        ],
+      },
+      select: { id: true, operationType: true, node: { select: { title: true } } },
+    });
+
+    if (openTasks.length > 0 || pendingApprovals.length > 0) {
+      const messages: string[] = [];
+      if (openTasks.length > 0) {
+        messages.push(`open tasks: ${openTasks.map((t) => `"${t.title}"`).join(', ')}`);
+      }
+      if (pendingApprovals.length > 0) {
+        messages.push(
+          `pending approval requests: ${pendingApprovals
+            .map((a) => (a.node?.title ? `"${a.node.title}"` : `Request ${a.id}`))
+            .join(', ')}`
+        );
+      }
+      throw new BadRequestException(`Cannot complete project. Still open: ${messages.join('; ')}.`);
+    }
+
+    const updated = await this.prisma.project.update({
+      where: { id: existing.id },
+      data: {
+        status: 'COMPLETED',
+        version: { increment: 1 },
+      },
+    });
+
+    const completedAt = new Date().toISOString();
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId: effectiveWsId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_COMPLETED',
+        targetType: 'project',
+        targetId: existing.id,
+        beforeValues: { status: existing.status },
+        afterValues: { status: 'COMPLETED', completedAt, completedBy: actorId },
+        reason: 'Project completed',
+        outcome: 'SUCCESS',
+      });
+    }
+
+    if (actorId && this.prisma.auditLog) {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: effectiveWsId,
+          projectId: existing.id,
+          entityName: 'Project',
+          entityId: existing.id,
+          actorId,
+          action: 'STATUS_CHANGE',
+          oldValues: { status: existing.status },
+          newValues: { status: 'COMPLETED', completedAt, completedBy: actorId },
+        },
+      });
+    }
+
+    const userRoleUpper = (userRole || '').toUpperCase();
+    return {
+      ...updated,
+      can: {
+        completeProject: false,
+        reopenProject: userRoleUpper === 'ADMIN',
+      },
+    };
+  }
+
+  async reopenProject(
+    projectId: string,
+    workspaceId: string,
+    actorId?: string,
+    userRole?: string,
+    dto?: { reason?: string }
+  ) {
+    if (!dto?.reason || !dto.reason.trim()) {
+      throw new BadRequestException('A reason is required to reopen the project.');
+    }
+    const existing = await this.prisma.project.findFirst({
+      where: { id: projectId, deletedAt: null },
+    });
+    if (!existing) {
+      throw new NotFoundException('Project not found');
+    }
+    const effectiveWsId = existing.workspaceId || workspaceId;
+
+    const userRoleUpper = (userRole || '').toUpperCase();
+    let isWorkspaceAdmin = userRoleUpper === 'ADMIN';
+    if (!isWorkspaceAdmin && actorId && this.prisma.membership) {
+      const m = await this.prisma.membership.findUnique({
+        where: { workspaceId_userId: { workspaceId: effectiveWsId, userId: actorId } },
+      });
+      if (m && m.role === 'ADMIN') isWorkspaceAdmin = true;
+    }
+    if (!isWorkspaceAdmin) {
+      throw new ForbiddenException('Forbidden: Only administrators can reopen a completed project.');
+    }
+
+    const updated = await this.prisma.project.update({
+      where: { id: existing.id },
+      data: {
+        status: 'ACTIVE',
+        version: { increment: 1 },
+      },
+    });
+
+    const reopenedAt = new Date().toISOString();
+
+    if (this.auditService) {
+      await this.auditService.recordAuditEvent({
+        workspaceId: effectiveWsId,
+        actorId: actorId || 'system',
+        action: 'PROJECT_REOPENED',
+        targetType: 'project',
+        targetId: existing.id,
+        beforeValues: { status: existing.status },
+        afterValues: { status: 'ACTIVE', reopenedAt, reopenedBy: actorId, reason: dto.reason.trim() },
+        reason: dto.reason.trim(),
+        outcome: 'SUCCESS',
+      });
+    }
+
+    if (actorId && this.prisma.auditLog) {
+      await this.prisma.auditLog.create({
+        data: {
+          workspaceId: effectiveWsId,
+          projectId: existing.id,
+          entityName: 'Project',
+          entityId: existing.id,
+          actorId,
+          action: 'STATUS_CHANGE',
+          oldValues: { status: existing.status },
+          newValues: { status: 'ACTIVE', reopenedAt, reopenedBy: actorId, reason: dto.reason.trim() },
+        },
+      });
+    }
+
+    return {
+      ...updated,
+      can: {
+        completeProject: true,
+        reopenProject: false,
+      },
+    };
+  }
   async listTrashProjects(workspaceId: string, user?: { id?: string; role?: string }) {
     if (this.authService && user?.id) {
       const canRestore = await this.authService.can(

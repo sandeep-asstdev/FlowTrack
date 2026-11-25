@@ -282,6 +282,17 @@ export class ApiClient {
     return this.request(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) });
   }
 
+  static completeProject(projectId: string) {
+    return this.request(`/projects/${projectId}/complete`, { method: 'POST' });
+  }
+
+  static reopenProject(projectId: string, body: { reason: string }) {
+    return this.request(`/projects/${projectId}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
   static deleteProject(projectId: string, options?: { reason?: string; force?: boolean }) {
     return this.request(`/projects/${projectId}`, {
       method: 'DELETE',

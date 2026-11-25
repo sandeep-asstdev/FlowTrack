@@ -11,12 +11,22 @@ import { OtpService } from './otp/otp.service';
 import { AvatarService } from './avatar.service';
 import { AuditModule } from '../audit/audit.module';
 
+export function getRequiredJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('FATAL: JWT_SECRET environment variable must be set and at least 32 characters long.');
+  }
+  return secret;
+}
+
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'flowtrack-super-secret-jwt-key-2026-very-secure',
-      signOptions: { expiresIn: '7d' },
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: getRequiredJwtSecret(),
+        signOptions: { expiresIn: '7d' },
+      }),
     }),
     AuditModule,
   ],

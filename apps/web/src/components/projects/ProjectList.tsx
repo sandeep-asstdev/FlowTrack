@@ -322,7 +322,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               ACTIVE: `Active (${activeCount})`,
               WAITING: `Waiting (${totalWaiting})`,
               OVERDUE: `Overdue (${totalOverdue})`,
-              COMPLETED: `Done (${completedCount})`,
+              COMPLETED: `Completed (${completedCount})`,
             };
             return (
               <button

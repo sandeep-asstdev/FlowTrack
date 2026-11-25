@@ -3,9 +3,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Role, ConfidentialityLevel, RoleScopeType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
-const DEMO_PASSWORD = 'Demo@12345';
-const DEFAULT_ADMIN_PASSWORD = 'Password123!';
-
 interface DemoUserSpec {
   key: string;
   email: string;
@@ -36,8 +33,12 @@ export class AutoBootstrapService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    if (process.env.AUTO_BOOTSTRAP_DISABLED === 'true') {
-      this.logger.log('Auto-bootstrap disabled via AUTO_BOOTSTRAP_DISABLED=true');
+    if (process.env.NODE_ENV === 'production') {
+      this.logger.log('Auto-bootstrap disabled in production (NODE_ENV=production).');
+      return;
+    }
+    if (process.env.AUTO_BOOTSTRAP_ENABLED !== 'true' || process.env.AUTO_BOOTSTRAP_DISABLED === 'true') {
+      this.logger.log('Auto-bootstrap is off by default (set AUTO_BOOTSTRAP_ENABLED=true in development to enable).');
       return;
     }
 
@@ -61,8 +62,14 @@ export class AutoBootstrapService implements OnModuleInit {
   }
 
   private async ensureDefaultAdmin() {
+    const adminPassword = process.env.AUTO_BOOTSTRAP_ADMIN_PASSWORD || process.env.DEFAULT_ADMIN_PASSWORD;
+    if (!adminPassword || adminPassword.trim().length < 8) {
+      this.logger.warn('Skipping default admin bootstrap: AUTO_BOOTSTRAP_ADMIN_PASSWORD / DEFAULT_ADMIN_PASSWORD not set.');
+      return;
+    }
+
     const adminEmail = 'admin@flowtrack.dev';
-    const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
     const existing = await this.prisma.user.findUnique({ where: { email: adminEmail } });
 
     // Create default workspace
@@ -109,8 +116,14 @@ export class AutoBootstrapService implements OnModuleInit {
   }
 
   async ensureDemoDataset() {
+    const demoPassword = process.env.AUTO_BOOTSTRAP_DEMO_PASSWORD || process.env.DEMO_USER_PASSWORD;
+    if (!demoPassword || demoPassword.trim().length < 8) {
+      this.logger.warn('Skipping demo dataset bootstrap: AUTO_BOOTSTRAP_DEMO_PASSWORD / DEMO_USER_PASSWORD not set.');
+      return;
+    }
+
     this.logger.log('Synchronizing demo dataset (Acme Motors, Rival Corp, users, projects, tasks, approval policies)...');
-    const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+    const passwordHash = await bcrypt.hash(demoPassword, 10);
     const userMap = new Map<string, any>();
 
     // 1. Seed & ensure Users

@@ -65,13 +65,23 @@ export class ReportsService {
     }
 
     if (this.authService) {
-      const evalResult = await this.authService.evaluate(
-        { id: userId, role: member.role, workspaceId },
-        GRANULAR_PERMISSIONS.PROJECT_VIEW,
-        { project }
-      );
-      if (!evalResult.allowed) {
-        throw new NotFoundException('Project not found');
+      if (this.authService.isProjectVisibleToUser) {
+        const visible = await this.authService.isProjectVisibleToUser(
+          { id: userId, role: member.role, workspaceId },
+          project.id
+        );
+        if (!visible) {
+          throw new NotFoundException('Project not found');
+        }
+      } else {
+        const evalResult = await this.authService.evaluate(
+          { id: userId, role: member.role, workspaceId },
+          GRANULAR_PERMISSIONS.PROJECT_VIEW,
+          { project }
+        );
+        if (!evalResult.allowed) {
+          throw new NotFoundException('Project not found');
+        }
       }
     }
 
@@ -378,11 +388,17 @@ export class ReportsService {
         .map((tm) => tm.teamId);
 
       // Pending Review Queue
+      const visibilityFilter =
+        role !== 'ADMIN' && this.authService?.getProjectVisibilityFilter
+          ? this.authService.getProjectVisibilityFilter({ id: userId, role, workspaceId })
+          : undefined;
+
       const pendingNodes = (await this.prisma.node.findMany({
         where: {
           workspaceId,
           approvalStatus: 'pending',
           deletedAt: null,
+          ...(visibilityFilter ? { project: visibilityFilter } : {}),
           ...(role === 'TEAM_LEAD' && ledTeamIds.length > 0 ? { teamId: { in: ledTeamIds } } : {}),
           ...(role === 'MANAGER' && managedProjectIds.length > 0 ? { projectId: { in: managedProjectIds } } : {}),
         },

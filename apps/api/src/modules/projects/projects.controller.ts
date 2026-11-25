@@ -149,6 +149,29 @@ export class ProjectsController {
     return this.projectsService.restoreProject(id, wsId, actorId, req.user?.role, dto);
   }
 
+  @Post(':id/complete')
+  completeProject(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId, true);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.completeProject(id, wsId, actorId, req.user?.role);
+  }
+
+  @Post(':id/reopen')
+  reopenProject(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: { reason: string },
+    @Headers('x-workspace-id') headerWsId?: string
+  ) {
+    const wsId = this.getWorkspaceId(req, headerWsId, true);
+    const actorId = req.user?.id || req.user?.sub;
+    return this.projectsService.reopenProject(id, wsId, actorId, req.user?.role, dto);
+  }
+
   @Post(':id/archive')
   archive(
     @Req() req: any,

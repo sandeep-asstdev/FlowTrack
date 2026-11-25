@@ -22,11 +22,11 @@ export class EdgesController {
   constructor(private readonly edgesService: EdgesService) {}
 
   @Get()
-  list(@Query('projectId') projectId: string) {
+  list(@Query('projectId') projectId: string, @Req() req: any) {
     if (!projectId) {
       throw new BadRequestException('projectId query parameter is required');
     }
-    return this.edgesService.listProjectEdges(projectId);
+    return this.edgesService.listProjectEdges(projectId, req.user?.id, req.user?.role);
   }
 
   @Post()

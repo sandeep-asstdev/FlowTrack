@@ -539,6 +539,18 @@ export class AuthorizationService {
   }
 
   /**
+   * Shared single-project visibility check backed by getProjectVisibilityFilter.
+   */
+  async isProjectVisibleToUser(user: AuthenticatedUserContext, projectId: string): Promise<boolean> {
+    const visibilityFilter = this.getProjectVisibilityFilter(user);
+    const found = await this.prisma.project.findFirst({
+      where: { id: projectId, ...visibilityFilter },
+      select: { id: true },
+    });
+    return Boolean(found);
+  }
+
+  /**
    * Designated backup approver delegation check.
    */
   async canActAsBackupApprover(

@@ -74,6 +74,9 @@ import {
   Zap,
   Maximize2,
   Calendar,
+  MoreVertical,
+  CheckCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { getRolePermissions } from '../../utils/permissions';
@@ -249,6 +252,81 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       return false;
     });
   }, [nodes]);
+
+  // Project Header Menu State (Complete / Reopen Project)
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const [reopenModalOpen, setReopenModalOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
+  const [completingProject, setCompletingProject] = useState(false);
+
+  useEffect(() => {
+    if (!projectMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProjectMenuOpen(false);
+    };
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setProjectMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('touchstart', handlePointerDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [projectMenuOpen]);
+
+  const handleCompleteProject = async () => {
+    setProjectMenuOpen(false);
+    setCompletingProject(true);
+    try {
+      const res = await ApiClient.completeProject(project.id);
+      project.status = 'COMPLETED';
+      if (res?.can) {
+        project.can = res.can;
+      } else {
+        project.can = {
+          ...project.can,
+          completeProject: false,
+          reopenProject: Boolean(project.can?.reopenProject || user?.role === 'ADMIN'),
+        };
+      }
+      showToast('Project completed successfully');
+      loadGraph();
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || 'Failed to complete project';
+      showToast(errorMsg);
+    } finally {
+      setCompletingProject(false);
+    }
+  };
+
+  const handleReopenProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reopenReason.trim()) {
+      showToast('A reason is required to reopen the project.');
+      return;
+    }
+    try {
+      const res = await ApiClient.reopenProject(project.id, { reason: reopenReason.trim() });
+      project.status = 'ACTIVE';
+      if (res?.can) {
+        project.can = res.can;
+      } else {
+        project.can = { ...project.can, completeProject: true, reopenProject: false };
+      }
+      setReopenModalOpen(false);
+      showToast('Project reopened successfully');
+      loadGraph();
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || 'Failed to reopen project';
+      showToast(errorMsg);
+    }
+  };
 
   // Quick-Add Popup Menu State (n8n signature UX)
   const [quickAddMenu, setQuickAddMenu] = useState<{
@@ -844,6 +922,10 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
   const createTask = useCallback(
     async (options?: CreateTaskOptions) => {
+      if (project?.status === 'COMPLETED') {
+        showToast('Project is completed and read-only.');
+        return null;
+      }
       try {
         setSavedStatus('saving');
         const defaultTaskType =
@@ -1764,6 +1846,64 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             <span id="canvas-active-project-badge" className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate max-w-[85px] xs:max-w-[130px] sm:max-w-[200px] md:max-w-[300px]">
               {project?.name || 'Untitled Project'}
             </span>
+            {project?.status === 'COMPLETED' && (
+              <span id="project-completed-badge" className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 shrink-0">
+                Completed
+              </span>
+            )}
+            {/* Project Header Menu (Complete / Reopen Project) */}
+            <div className="relative inline-flex items-center" ref={projectMenuRef}>
+              <button
+                id="project-header-menu-btn"
+                type="button"
+                onClick={() => setProjectMenuOpen((prev) => !prev)}
+                className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
+                title="Project menu"
+                aria-label="Project menu"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+
+              {projectMenuOpen && (
+                <div
+                  id="project-header-dropdown"
+                  className="absolute left-0 top-full mt-1.5 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                >
+                  {project?.can?.completeProject && (
+                    <button
+                      id="complete-project-menu-item"
+                      type="button"
+                      disabled={completingProject}
+                      onClick={handleCompleteProject}
+                      className="w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 transition-colors cursor-pointer"
+                    >
+                      <CheckCircle className="w-4 h-4 shrink-0" />
+                      <span>Complete project</span>
+                    </button>
+                  )}
+                  {project?.can?.reopenProject && (
+                    <button
+                      id="reopen-project-menu-item"
+                      type="button"
+                      onClick={() => {
+                        setProjectMenuOpen(false);
+                        setReopenReason('');
+                        setReopenModalOpen(true);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-4 h-4 shrink-0" />
+                      <span>Reopen project</span>
+                    </button>
+                  )}
+                  {!project?.can?.completeProject && !project?.can?.reopenProject && (
+                    <div className="px-3 py-2 text-xs text-slate-400 text-center">
+                      No actions available
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {currentParent.id && (
               <>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -1798,22 +1938,33 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* 1. + Add Task (Primary Action) */}
-          <button
-            id="toolbar-add-task-btn"
-            onClick={() => {
-              setTaskName('');
-              setTaskDescription('');
-              setTaskAssigneeId('');
-              setTaskDueDate('');
-              setTaskPriority('MEDIUM');
-              setCreateTaskModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[36px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all hover:scale-[1.02]"
-            title="Create a new task on canvas"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Add Task</span>
-          </button>
+          {project?.status !== 'COMPLETED' ? (
+            <button
+              id="toolbar-add-task-btn"
+              onClick={() => {
+                setTaskName('');
+                setTaskDescription('');
+                setTaskAssigneeId('');
+                setTaskDueDate('');
+                setTaskPriority('MEDIUM');
+                setCreateTaskModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[36px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all hover:scale-[1.02]"
+              title="Create a new task on canvas"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Add Task</span>
+            </button>
+          ) : (
+            <div
+              id="toolbar-completed-badge"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-h-[36px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700"
+              title="Project is completed and read-only"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              <span className="hidden sm:inline">Project Completed</span>
+            </div>
+          )}
 
           {/* Internal Critical Path toggle anchor kept for programmatic tests */}
           <button
@@ -2157,7 +2308,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             onConnectEnd={onConnectEnd}
             isValidConnection={isValidConnection as any}
             onNodeDragStop={onNodeDragStop as any}
-            nodesDraggable={permissions.canEditProject}
+            nodesDraggable={permissions.canEditProject && project?.status !== 'COMPLETED'}
             nodesConnectable={true}
             elementsSelectable={true}
             edgesFocusable={true}
@@ -2731,6 +2882,79 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         projectId={project.id}
         projectName={project.name}
       />
+      {/* Reopen Project Modal */}
+      {reopenModalOpen && (
+        <div
+          id="reopen-project-modal-backdrop"
+          className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setReopenModalOpen(false)}
+        >
+          <div
+            id="reopen-project-modal"
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-tight">
+                    Reopen Project
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Provide a mandatory reason for auditing
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReopenModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleReopenProjectSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block mb-1">
+                  Reason for Reopening <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  id="reopen-project-reason-input"
+                  required
+                  rows={3}
+                  value={reopenReason}
+                  onChange={(e) => setReopenReason(e.target.value)}
+                  placeholder="e.g. Scope extension requested by client for additional inspection."
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReopenModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="submit-reopen-project-btn"
+                  type="submit"
+                  className="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition-all"
+                >
+                  Reopen Project
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

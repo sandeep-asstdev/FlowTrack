@@ -1,14 +1,34 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateEdgeDto, UpdateEdgeDto, validateDependencyEdge } from '@flowtrack/shared';
 import { EdgeKind } from '@prisma/client';
 import { canUserEditTask } from '../nodes/task-permissions';
+import { AuthorizationService } from '../auth/authorization.service';
 
 @Injectable()
 export class EdgesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly authService?: AuthorizationService
+  ) {}
 
-  async listProjectEdges(projectId: string) {
+  async listProjectEdges(projectId: string, actorId?: string, userRole?: string) {
+    if (this.authService && actorId) {
+      const proj = await this.prisma.project.findFirst({
+        where: { id: projectId, deletedAt: null },
+        select: { id: true, workspaceId: true },
+      });
+      if (!proj) {
+        throw new NotFoundException('Project not found');
+      }
+      const visible = await this.authService.isProjectVisibleToUser(
+        { id: actorId, role: userRole, workspaceId: proj.workspaceId },
+        projectId
+      );
+      if (!visible) {
+        throw new NotFoundException('Project not found');
+      }
+    }
     return this.prisma.edge.findMany({
       where: {
         projectId,
@@ -38,6 +58,10 @@ export class EdgesService {
 
     if (sourceNode.projectId !== targetNode.projectId || (dto.projectId && sourceNode.projectId !== dto.projectId)) {
       throw new BadRequestException('Tasks must belong to the same project');
+    }
+
+    if (sourceNode.project?.status === 'COMPLETED' || targetNode.project?.status === 'COMPLETED') {
+      throw new ForbiddenException('Project is completed and read-only.');
     }
 
     if (actorId) {
@@ -133,6 +157,10 @@ export class EdgesService {
 
     if (existing.sourceNode.projectId !== existing.targetNode.projectId) {
       throw new BadRequestException('Tasks must belong to the same project');
+    }
+
+    if (existing.sourceNode?.project?.status === 'COMPLETED' || existing.targetNode?.project?.status === 'COMPLETED') {
+      throw new ForbiddenException('Project is completed and read-only.');
     }
 
     if (actorId) {

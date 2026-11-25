@@ -172,6 +172,15 @@ export class NodesService {
         where: { id: projectId },
         include: { members: true },
       });
+      if (this.authService?.isProjectVisibleToUser && project) {
+        const visible = await this.authService.isProjectVisibleToUser(
+          { id: actorId, role: userRole, workspaceId: project.workspaceId },
+          projectId
+        );
+        if (!visible) {
+          throw new NotFoundException('Project not found');
+        }
+      }
       const isProjectOwner = project?.ownerId === actorId;
       const isResponsibleManager = project?.responsibleManagerId === actorId;
       const projectMemberRecord = project?.members?.find((m: any) => m.userId === actorId);
@@ -942,6 +951,15 @@ export class NodesService {
   }
 
   async createNode(workspaceId: string, dto: CreateNodeDto, actorId?: string) {
+    if (dto.projectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: dto.projectId } })
+        : await this.prisma.project.findFirst({ where: { id: dto.projectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
+    }
+
     let actorMembership: any = null;
     let userRole: any = Role.MEMBER;
     if (actorId) {
@@ -1310,6 +1328,15 @@ export class NodesService {
     const existing = await this.prisma.node.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    if (existing.projectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: existing.projectId } })
+        : await this.prisma.project.findFirst({ where: { id: existing.projectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
     }
 
     if (dto.version !== undefined && existing.version !== dto.version) {
@@ -2100,6 +2127,9 @@ export class NodesService {
     if (actorId && dto.positions.length > 0) {
       const firstId = dto.positions[0].id;
       const auth = await this.resolveTaskPermissions(firstId, actorId);
+      if (auth.project?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
       if (!auth.can.manage && !auth.can.work) {
         throw new ForbiddenException('Forbidden: You do not have permission to reposition nodes in this project.');
       }
@@ -2129,6 +2159,30 @@ export class NodesService {
     const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
     if (!node || node.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    if (node.projectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: node.projectId } })
+        : await this.prisma.project.findFirst({ where: { id: node.projectId } });
+      if (prj?.status === 'COMPLETED') {
+        let isAdmin = false;
+        if (authorId) {
+          const authorMembership = await this.prisma.membership.findUnique({
+            where: { workspaceId_userId: { workspaceId: node.workspaceId, userId: authorId } },
+          });
+          if (authorMembership?.role === Role.ADMIN) isAdmin = true;
+          if (!isAdmin && this.prisma.membership?.findFirst) {
+            const adminM = await this.prisma.membership.findFirst({
+              where: { userId: authorId, role: Role.ADMIN },
+            });
+            if (adminM) isAdmin = true;
+          }
+        }
+        if (!isAdmin) {
+          throw new ForbiddenException('Project is completed and read-only. Only admins can comment.');
+        }
+      }
     }
 
     const remark = await this.prisma.remark.create({
@@ -2161,8 +2215,12 @@ export class NodesService {
     }
 
     // Real-time broadcast
-    this.gateway?.broadcastToProject(node.projectId, 'node:remark_added', { nodeId, remark });
-    this.gateway?.broadcastToNode(nodeId, 'node:remark_added', { nodeId, remark });
+    if (this.gateway && typeof (this.gateway as any).broadcastToProject === 'function') {
+      this.gateway.broadcastToProject(node.projectId, 'node:remark_added', { nodeId, remark });
+    }
+    if (this.gateway && typeof (this.gateway as any).broadcastToNode === 'function') {
+      this.gateway.broadcastToNode(nodeId, 'node:remark_added', { nodeId, remark });
+    }
 
     return remark;
   }
@@ -2236,6 +2294,15 @@ export class NodesService {
     const existing = await this.prisma.node.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
       throw new NotFoundException('Node not found');
+    }
+
+    if (existing.projectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: existing.projectId } })
+        : await this.prisma.project.findFirst({ where: { id: existing.projectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
     }
 
     if (actorId) {

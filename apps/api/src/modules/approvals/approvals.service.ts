@@ -274,6 +274,15 @@ export class ApprovalsService {
     submitterId: string,
     dto: CreateApprovalRequestDto
   ) {
+    const targetProjectId = dto.projectId || (dto.nodeId ? (await this.prisma.node.findUnique({ where: { id: dto.nodeId } }))?.projectId : null);
+    if (targetProjectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: targetProjectId } })
+        : await this.prisma.project.findFirst({ where: { id: targetProjectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
+    }
     // 0. Reason validation: reject missing, empty or too-short reason (trim first)
     const rawReason = dto.reason ?? dto.notes ?? dto.payload?.reason ?? dto.payload?.notes;
     const trimmedReason = typeof rawReason === 'string' ? rawReason.trim() : '';
@@ -697,6 +706,16 @@ export class ApprovalsService {
       throw new NotFoundException('Approval request not found');
     }
 
+    const targetProjectId = request.projectId || (request as any).node?.projectId;
+    if (targetProjectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: targetProjectId } })
+        : await this.prisma.project.findFirst({ where: { id: targetProjectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
+    }
+
     if (request.status !== 'PENDING') {
       throw new BadRequestException(`Approval request is already in final status "${request.status}".`);
     }
@@ -1079,6 +1098,10 @@ export class ApprovalsService {
     });
     if (!node || node.deletedAt) throw new NotFoundException('Task not found');
 
+    if (node.project?.status === 'COMPLETED') {
+      throw new ForbiddenException('Project is completed and read-only.');
+    }
+
     if (node.submitterId === actorId || node.ownerId === actorId) {
       throw new ForbiddenException('Separation of duties violation: Submitter cannot approve their own submission.');
     }
@@ -1159,6 +1182,16 @@ export class ApprovalsService {
       throw new NotFoundException('Approval request not found');
     }
 
+    const targetProjectId = request.projectId || (request as any).node?.projectId;
+    if (targetProjectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: targetProjectId } })
+        : await this.prisma.project.findFirst({ where: { id: targetProjectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
+    }
+
     const currentStage = request.stageInstances[request.currentStageIndex];
     if (!currentStage) {
       throw new BadRequestException('No active stage found for delegation.');
@@ -1216,6 +1249,16 @@ export class ApprovalsService {
 
     if (!request || request.workspaceId !== workspaceId) {
       throw new NotFoundException('Approval request not found');
+    }
+
+    const targetProjectId = request.projectId || (request as any).node?.projectId;
+    if (targetProjectId && this.prisma.project) {
+      const prj = this.prisma.project.findUnique
+        ? await this.prisma.project.findUnique({ where: { id: targetProjectId } })
+        : await this.prisma.project.findFirst({ where: { id: targetProjectId } });
+      if (prj?.status === 'COMPLETED') {
+        throw new ForbiddenException('Project is completed and read-only.');
+      }
     }
 
     const payloadObj = (request.payload as any) || {};

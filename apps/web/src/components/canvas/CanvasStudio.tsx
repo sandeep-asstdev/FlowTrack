@@ -254,8 +254,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   }, [nodes]);
 
   // Project Header Menu State (Complete / Reopen Project)
+  const [projectState, setProjectState] = useState<any>(project);
+  useEffect(() => {
+    setProjectState(project);
+    if (project?.id && !project?.can) {
+      ApiClient.getProject(project.id)
+        .then((fresh) => {
+          if (fresh?.id === project.id) setProjectState(fresh);
+        })
+        .catch(() => null);
+    }
+  }, [project]);
+
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [projectMenuPos, setProjectMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const projectDropdownRef = useRef<HTMLDivElement | null>(null);
   const [reopenModalOpen, setReopenModalOpen] = useState(false);
   const [reopenReason, setReopenReason] = useState('');
   const [completingProject, setCompletingProject] = useState(false);
@@ -266,7 +280,12 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       if (e.key === 'Escape') setProjectMenuOpen(false);
     };
     const handlePointerDown = (e: MouseEvent | TouchEvent) => {
-      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as globalThis.Node | null;
+      if (
+        projectMenuRef.current &&
+        !projectMenuRef.current.contains(target) &&
+        (!projectDropdownRef.current || !projectDropdownRef.current.contains(target))
+      ) {
         setProjectMenuOpen(false);
       }
     };
@@ -284,17 +303,15 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
     setProjectMenuOpen(false);
     setCompletingProject(true);
     try {
-      const res = await ApiClient.completeProject(project.id);
+      const res = await ApiClient.completeProject(projectState.id);
+      const nextCan = res?.can || {
+        ...projectState?.can,
+        completeProject: false,
+        reopenProject: Boolean(projectState?.can?.reopenProject),
+      };
       project.status = 'COMPLETED';
-      if (res?.can) {
-        project.can = res.can;
-      } else {
-        project.can = {
-          ...project.can,
-          completeProject: false,
-          reopenProject: Boolean(project.can?.reopenProject || user?.role === 'ADMIN'),
-        };
-      }
+      project.can = nextCan;
+      setProjectState((prev: any) => ({ ...prev, status: 'COMPLETED', can: nextCan }));
       showToast('Project completed successfully');
       loadGraph();
     } catch (err: any) {
@@ -312,13 +329,11 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
       return;
     }
     try {
-      const res = await ApiClient.reopenProject(project.id, { reason: reopenReason.trim() });
+      const res = await ApiClient.reopenProject(projectState.id, { reason: reopenReason.trim() });
+      const nextCan = res?.can || { ...projectState?.can, completeProject: true, reopenProject: false };
       project.status = 'ACTIVE';
-      if (res?.can) {
-        project.can = res.can;
-      } else {
-        project.can = { ...project.can, completeProject: true, reopenProject: false };
-      }
+      project.can = nextCan;
+      setProjectState((prev: any) => ({ ...prev, status: 'ACTIVE', can: nextCan }));
       setReopenModalOpen(false);
       showToast('Project reopened successfully');
       loadGraph();
@@ -1839,7 +1854,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             <span id="canvas-active-project-badge" className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate max-w-[85px] xs:max-w-[130px] sm:max-w-[200px] md:max-w-[300px]">
               {project?.name || 'Untitled Project'}
             </span>
-            {project?.status === 'COMPLETED' && (
+            {projectState?.status === 'COMPLETED' && (
               <span id="project-completed-badge" className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 shrink-0">
                 Completed
               </span>
@@ -1849,53 +1864,22 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
               <button
                 id="project-header-menu-btn"
                 type="button"
-                onClick={() => setProjectMenuOpen((prev) => !prev)}
+                onClick={() => {
+                  if (!projectMenuOpen && projectMenuRef.current) {
+                    const rect = projectMenuRef.current.getBoundingClientRect();
+                    setProjectMenuPos({
+                      top: rect.bottom + 6,
+                      left: Math.min(rect.left, window.innerWidth - 208),
+                    });
+                  }
+                  setProjectMenuOpen((prev) => !prev);
+                }}
                 className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
                 title="Project menu"
                 aria-label="Project menu"
               >
                 <MoreVertical className="w-3.5 h-3.5" />
               </button>
-
-              {projectMenuOpen && (
-                <div
-                  id="project-header-dropdown"
-                  className="absolute left-0 top-full mt-1.5 w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
-                >
-                  {project?.can?.completeProject && (
-                    <button
-                      id="complete-project-menu-item"
-                      type="button"
-                      disabled={completingProject}
-                      onClick={handleCompleteProject}
-                      className="w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 transition-colors cursor-pointer"
-                    >
-                      <CheckCircle className="w-4 h-4 shrink-0" />
-                      <span>Complete project</span>
-                    </button>
-                  )}
-                  {project?.can?.reopenProject && (
-                    <button
-                      id="reopen-project-menu-item"
-                      type="button"
-                      onClick={() => {
-                        setProjectMenuOpen(false);
-                        setReopenReason('');
-                        setReopenModalOpen(true);
-                      }}
-                      className="w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
-                    >
-                      <RotateCcw className="w-4 h-4 shrink-0" />
-                      <span>Reopen project</span>
-                    </button>
-                  )}
-                  {!project?.can?.completeProject && !project?.can?.reopenProject && (
-                    <div className="px-3 py-2 text-xs text-slate-400 text-center">
-                      No actions available
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
             {currentParent.id && (
               <>
@@ -1931,7 +1915,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* 1. + Add Task (Primary Action) */}
-          {project?.status !== 'COMPLETED' ? (
+          {projectState?.status !== 'COMPLETED' ? (
             <button
               id="toolbar-add-task-btn"
               onClick={() => {
@@ -2301,7 +2285,7 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
             onConnectEnd={onConnectEnd}
             isValidConnection={isValidConnection as any}
             onNodeDragStop={onNodeDragStop as any}
-            nodesDraggable={permissions.canEditProject && project?.status !== 'COMPLETED'}
+            nodesDraggable={permissions.canEditProject && projectState?.status !== 'COMPLETED'}
             nodesConnectable={true}
             elementsSelectable={true}
             edgesFocusable={true}
@@ -2875,6 +2859,49 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
         projectId={project.id}
         projectName={project.name}
       />
+      {/* Project Header Dropdown (rendered outside overflow-x-auto bar so it is never clipped) */}
+      {projectMenuOpen && (
+        <div
+          id="project-header-dropdown"
+          ref={projectDropdownRef}
+          style={{ top: projectMenuPos.top, left: projectMenuPos.left }}
+          className="fixed w-48 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl py-1.5 z-[90] animate-in fade-in zoom-in-95 duration-100"
+        >
+          {projectState?.can?.completeProject && (
+            <button
+              id="complete-project-menu-item"
+              type="button"
+              disabled={completingProject}
+              onClick={handleCompleteProject}
+              className="w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 transition-colors cursor-pointer"
+            >
+              <CheckCircle className="w-4 h-4 shrink-0" />
+              <span>Complete project</span>
+            </button>
+          )}
+          {projectState?.can?.reopenProject && (
+            <button
+              id="reopen-project-menu-item"
+              type="button"
+              onClick={() => {
+                setProjectMenuOpen(false);
+                setReopenReason('');
+                setReopenModalOpen(true);
+              }}
+              className="w-full px-3 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4 shrink-0" />
+              <span>Reopen project</span>
+            </button>
+          )}
+          {!projectState?.can?.completeProject && !projectState?.can?.reopenProject && (
+            <div className="px-3 py-2 text-xs text-slate-400 text-center">
+              No actions available
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Reopen Project Modal */}
       {reopenModalOpen && (
         <div

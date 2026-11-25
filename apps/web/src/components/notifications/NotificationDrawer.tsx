@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiClient } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { useAuthStore } from '../../stores/authStore';
@@ -15,7 +16,7 @@ import {
   Clock,
   FileCheck,
   ExternalLink,
-  Filter,
+  RefreshCw,
 } from 'lucide-react';
 
 interface NotificationItem {
@@ -26,6 +27,7 @@ interface NotificationItem {
   read: boolean;
   readAt?: string;
   createdAt: string;
+  projectId?: string;
   entityType?: string;
   entityId?: string;
   data?: any;
@@ -39,7 +41,7 @@ interface NotificationItem {
 interface NotificationDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectNode?: (nodeId: string) => void;
+  onSelectNode?: (nodeId: string, projectId?: string) => void;
   onUnreadCountChange?: (count: number) => void;
 }
 
@@ -53,33 +55,38 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
   const [onlyUnread, setOnlyUnread] = useState(false);
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     if (!user) return;
     try {
       setLoading(true);
+      setError(null);
       const res = await ApiClient.getNotifications();
-      if (res && res.items) {
+      if (res && Array.isArray(res.items)) {
         setNotifications(res.items);
-        const cnt = res.unreadCount || 0;
+        const cnt = typeof res.unreadCount === 'number' ? res.unreadCount : 0;
         setUnreadCount(cnt);
         if (onUnreadCountChange) onUnreadCountChange(cnt);
+      } else {
+        throw new Error('Invalid notifications response');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load notifications', err);
+      setError(err?.message || 'Failed to load notifications');
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, onUnreadCountChange]);
 
   // Re-fetch notifications whenever user changes OR drawer is opened
   useEffect(() => {
     if (user && isOpen) {
       loadNotifications();
     }
-  }, [user, isOpen]);
+  }, [user, isOpen, loadNotifications]);
 
   useEffect(() => {
     if (user) {
@@ -89,33 +96,29 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       socketService.connect();
       socketService.joinUser(user.id);
 
-      const unsubscribe = socketService.on('notification:received', (newNotif: NotificationItem) => {
-        setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id)]);
-        setUnreadCount((prev) => {
-          const next = prev + 1;
-          if (onUnreadCountChange) onUnreadCountChange(next);
-          return next;
-        });
+      const unsubscribe = socketService.on('notification:received', () => {
+        loadNotifications();
       });
 
       return () => {
         unsubscribe();
       };
     }
-  }, [user]);
+  }, [user, loadNotifications]);
 
   const handleMarkAsRead = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     try {
-      await ApiClient.markNotificationRead(id);
+      const res = await ApiClient.markNotificationRead(id);
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read: true, readAt: new Date().toISOString() } : n))
       );
-      setUnreadCount((prev) => {
-        const next = Math.max(0, prev - 1);
-        if (onUnreadCountChange) onUnreadCountChange(next);
-        return next;
-      });
+      if (typeof res?.unreadCount === 'number') {
+        setUnreadCount(res.unreadCount);
+        if (onUnreadCountChange) onUnreadCountChange(res.unreadCount);
+      } else {
+        await loadNotifications();
+      }
     } catch (err) {
       console.error('Failed to mark notification read', err);
     }
@@ -123,10 +126,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
 
   const handleMarkAllAsRead = async () => {
     try {
-      await ApiClient.markAllNotificationsRead();
+      const res = await ApiClient.markAllNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true, readAt: new Date().toISOString() })));
-      setUnreadCount(0);
-      if (onUnreadCountChange) onUnreadCountChange(0);
+      const nextCount = typeof res?.unreadCount === 'number' ? res.unreadCount : 0;
+      setUnreadCount(nextCount);
+      if (onUnreadCountChange) onUnreadCountChange(nextCount);
     } catch (err) {
       console.error('Failed to mark all as read', err);
     }
@@ -140,8 +144,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       notif.entityType === 'node' || notif.entityType === 'task'
         ? notif.entityId
         : (notif.data as any)?.nodeId || (notif.data as any)?.taskId;
+    const targetProjectId = notif.projectId || (notif.data as any)?.projectId;
     if (targetNodeId && onSelectNode) {
-      onSelectNode(targetNodeId);
+      onSelectNode(targetNodeId, targetProjectId);
       onClose();
     }
   };
@@ -178,10 +183,16 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/40 backdrop-blur-xs flex justify-end">
+  const drawerContent = (
+    <div
+      className="fixed inset-0 z-[1000] overflow-hidden bg-slate-950/40 backdrop-blur-xs flex justify-end pt-16"
+      onClick={onClose}
+    >
       <div
-        className="w-full sm:max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-full pt-safe pb-safe animate-in slide-in-from-right duration-200"
+        role="dialog"
+        aria-label="Notifications"
+        data-testid="notification-panel"
+        className="w-full sm:max-w-md bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col h-[calc(100dvh-4rem)] max-h-[calc(100dvh-4rem)] pt-safe pb-safe animate-in slide-in-from-right duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -288,27 +299,51 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         </div>
 
         {/* Notifications List */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-          {loading && notifications.length === 0 ? (
+        <div
+          data-testid="notification-list"
+          className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2.5"
+        >
+          {error ? (
+            <div className="text-center py-12 px-4" data-testid="notification-error">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-500 flex items-center justify-center mx-auto mb-3">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Could not load notifications
+              </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-[240px] mx-auto">
+                {error}
+              </p>
+              <button
+                type="button"
+                onClick={loadNotifications}
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 min-h-[36px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry</span>
+              </button>
+            </div>
+          ) : loading && notifications.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-xs">
               Loading alerts...
             </div>
           ) : filteredNotifications.length === 0 ? (
-            <div className="text-center py-16 px-4">
+            <div className="text-center py-16 px-4" data-testid="notification-empty">
               <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto mb-3">
                 <Bell className="w-6 h-6 opacity-40" />
               </div>
               <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                You're all caught up!
+                No notifications
               </h4>
               <p className="text-[11px] text-slate-400 mt-1 max-w-[200px] mx-auto">
-                No active notifications found for the selected filter.
+                You're all caught up! No active notifications found.
               </p>
             </div>
           ) : (
             filteredNotifications.map((notif) => (
               <div
                 key={notif.id}
+                data-testid="notification-row"
                 onClick={() => handleNotificationClick(notif)}
                 className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all ${notif.read
                     ? 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 hover:border-slate-300 opacity-80'
@@ -328,7 +363,10 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                         {notif.title}
                       </h5>
                       {!notif.read && (
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${notif.type === 'DEADLINE_REMINDER' ? 'bg-rose-500' : 'bg-blue-500'}`}></span>
+                        <span
+                          data-testid="unread-dot"
+                          className={`w-2 h-2 rounded-full shrink-0 ${notif.type === 'DEADLINE_REMINDER' ? 'bg-rose-500' : 'bg-blue-500'}`}
+                        ></span>
                       )}
                     </div>
 
@@ -374,4 +412,6 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(drawerContent, document.body) : drawerContent;
 };

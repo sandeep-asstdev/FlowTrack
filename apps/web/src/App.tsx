@@ -207,6 +207,30 @@ export function App() {
     navigateToRoute({ view: v, projectId: pid });
   };
 
+  const handleSelectNotificationNode = useCallback(
+    (nodeId: string, projectId?: string) => {
+      if (projectId && projectId !== selectedProject?.id) {
+        const matched = projects.find((p) => p.id === projectId);
+        if (matched) {
+          setSelectedProject(matched);
+        }
+        setTargetProjectId(projectId);
+        setCurrentView('canvas');
+        navigateToRoute({ view: 'canvas', projectId });
+      } else if (currentView !== 'canvas' && (selectedProject?.id || projects[0]?.id)) {
+        const pid = selectedProject?.id || projects[0]?.id;
+        if (!selectedProject && projects[0]) setSelectedProject(projects[0]);
+        setTargetProjectId(pid);
+        setCurrentView('canvas');
+        navigateToRoute({ view: 'canvas', projectId: pid });
+      }
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('flowtrack:open-node', { detail: { nodeId } }));
+      }, 150);
+    },
+    [selectedProject, projects, currentView]
+  );
+
   return (
     <div className="min-h-[100dvh] w-full min-w-0 max-w-full overflow-x-hidden flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       <Navbar
@@ -214,6 +238,7 @@ export function App() {
         onOpenCreateWorkspace={() => setCreateWsModalOpen(true)}
         currentView={currentView}
         onViewChange={handleViewChange}
+        onSelectNode={handleSelectNotificationNode}
         projectName={selectedProject?.name}
       />
 

@@ -221,6 +221,18 @@ function CanvasStudioInner({ project, onBack }: CanvasStudioProps) {
   // Full View Details Modal (Comprehensive Task Dossier)
   const [viewDetailsNodeId, setViewDetailsNodeId] = useState<string | null>(null);
 
+  useEffect(() => {
+    const handleOpenNode = (e: Event) => {
+      const nodeId = (e as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (nodeId) {
+        setSelectedNodeId(nodeId);
+        setViewDetailsNodeId(nodeId);
+      }
+    };
+    window.addEventListener('flowtrack:open-node', handleOpenNode);
+    return () => window.removeEventListener('flowtrack:open-node', handleOpenNode);
+  }, []);
+
   // Project Report & Team Modals
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);

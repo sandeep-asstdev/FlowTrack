@@ -32,6 +32,7 @@ interface NavbarProps {
   onOpenCreateWorkspace: () => void;
   currentView: 'dashboard' | 'canvas' | 'reports' | 'users' | 'approvals' | 'my-work';
   onViewChange: (view: 'dashboard' | 'canvas' | 'reports' | 'users' | 'approvals' | 'my-work') => void;
+  onSelectNode?: (nodeId: string, projectId?: string) => void;
   projectName?: string;
 }
 
@@ -40,6 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCreateWorkspace,
   currentView,
   onViewChange,
+  onSelectNode,
   projectName,
 }) => {
   const { t } = useTranslation();
@@ -667,8 +669,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         isOpen={showNotifications}
         onClose={() => {
           setShowNotifications(false);
-          refreshUnreadCount();
+          refreshNavbarCounts();
         }}
+        onSelectNode={onSelectNode}
         onUnreadCountChange={(cnt) => setUnreadCount(cnt)}
       />
 
